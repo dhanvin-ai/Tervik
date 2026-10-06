@@ -277,3 +277,69 @@ class Tervik:
             except Exception:
                 span.output = "[OUTPUT MAPPING FAILED]"
             return result
+
+    def stream_turn(self, context, input_value, chunks, *, text_of=None, name="agent.turn", model=None):
+        """Wrap an actual sync iterable of chunks. Chunks pass through untouched;
+        permitted text is accumulated for one assistant event. Early termination
+        records a partial outcome; errors record the failure. Telemetry never throws."""
+        trace_id = context.get("trace_id") or str(uuid.uuid4())
+        span_id, start = str(uuid.uuid4()), time.perf_counter()
+        self.capture({**context, "trace_id": trace_id, "role": "user", "content": input_value})
+        full, finished, status = "", False, "success"
+        try:
+            for chunk in chunks:
+                try:
+                    text = text_of(chunk) if text_of else (chunk if isinstance(chunk, str) else _string(chunk))
+                    full += text
+                except Exception:
+                    pass
+                yield chunk
+            finished = True
+        except GeneratorExit:
+            raise
+        except BaseException as error:
+            status = "error"
+            full = _error(error)
+            raise
+        finally:
+            meta = {"input": input_value, "output": full}
+            if finished is False and status == "success":
+                meta["stream_cancelled"] = True
+            span_context = {**context, "trace_id": trace_id}
+            if model is not None:
+                span_context["model"] = model
+            self.capture({**span_context, "span_id": span_id, "role": "assistant", "name": name,
+                          "status": status, "content": full,
+                          "latency_ms": (time.perf_counter() - start) * 1000, "metadata": meta})
+
+    async def astream_turn(self, context, input_value, chunks, *, text_of=None, name="agent.turn", model=None):
+        """Async-iterable variant of stream_turn. Preserves the original chunks."""
+        trace_id = context.get("trace_id") or str(uuid.uuid4())
+        span_id, start = str(uuid.uuid4()), time.perf_counter()
+        self.capture({**context, "trace_id": trace_id, "role": "user", "content": input_value})
+        full, finished, status = "", False, "success"
+        try:
+            async for chunk in chunks:
+                try:
+                    text = text_of(chunk) if text_of else (chunk if isinstance(chunk, str) else _string(chunk))
+                    full += text
+                except Exception:
+                    pass
+                yield chunk
+            finished = True
+        except GeneratorExit:
+            raise
+        except BaseException as error:
+            status = "error"
+            full = _error(error)
+            raise
+        finally:
+            meta = {"input": input_value, "output": full}
+            if finished is False and status == "success":
+                meta["stream_cancelled"] = True
+            span_context = {**context, "trace_id": trace_id}
+            if model is not None:
+                span_context["model"] = model
+            self.capture({**span_context, "span_id": span_id, "role": "assistant", "name": name,
+                          "status": status, "content": full,
+                          "latency_ms": (time.perf_counter() - start) * 1000, "metadata": meta})

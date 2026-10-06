@@ -338,4 +338,56 @@ export class Tervik {
         this.capture({ ...context, trace_id, span_id, role: 'tool', name, status: 'success', content: output, latency_ms: performance.now() - started, metadata: { input, output: result } });
         return result;
     }
+    /**
+     * Wrap an actual streaming operation. The original iterator is preserved:
+     * chunks are yielded to the caller untouched while permitted text is
+     * accumulated for one assistant event. Early termination records a partial
+     * outcome; errors record the actual failure. Telemetry never throws.
+     */
+    async *withStream(context, input, stream, options = {}) {
+        const trace_id = context.trace_id ?? randomUUID();
+        const span_id = randomUUID();
+        const trace = { ...context, trace_id, parent_span_id: span_id };
+        this.capture({ conversation_id: context.conversation_id, user_id: context.user_id, trace_id, role: 'user', content: input });
+        const started = performance.now();
+        const textOf = options.textOf ?? ((chunk) => typeof chunk === 'string' ? chunk : stringify(chunk));
+        let full = '';
+        let finished = false;
+        let failure;
+        let hasFailure = false;
+        try {
+            for await (const chunk of stream) {
+                try {
+                    full += textOf(chunk);
+                }
+                catch { /* A text mapper failure must not break the stream. */ }
+                yield chunk;
+            }
+            finished = true;
+        }
+        catch (error) {
+            hasFailure = true;
+            failure = error;
+        }
+        finally {
+            // finally: consumer break skips everything after the loop, so the
+            // outcome event is recorded here. capture() never throws.
+            if (hasFailure) {
+                this.capture({ ...context, trace_id, span_id, role: 'assistant', name: options.name ?? 'agent.turn', model: options.model, status: 'error', content: errorText(failure), latency_ms: performance.now() - started, metadata: { input, output: errorText(failure), stream_partial: full } });
+            }
+            else {
+                let output = full;
+                try {
+                    output = options.output ? options.output(full) : full;
+                }
+                catch {
+                    output = '[OUTPUT MAPPING FAILED]';
+                    this.diagnostic('output_mapping', 'A telemetry output mapper failed; the agent result was preserved.');
+                }
+                this.capture({ ...context, trace_id, span_id, role: 'assistant', name: options.name ?? 'agent.turn', model: options.model, status: 'success', content: output, latency_ms: performance.now() - started, metadata: { input, output, ...(finished ? {} : { stream_cancelled: true }) } });
+            }
+        }
+        if (hasFailure)
+            throw failure;
+    }
 }

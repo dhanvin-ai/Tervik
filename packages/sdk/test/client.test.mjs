@@ -168,6 +168,45 @@ test('the downloadable dependency-free client instruments an existing handler', 
   } finally { await api.close(); }
 });
 
+test('streams chunks untouched while recording one assistant event', async () => {
+  const api = await server((_request, response, body) => ok(response, body));
+  try {
+    const sdk = client(api.endpoint);
+    async function* chunks() { yield 'Hel'; yield 'lo'; }
+    const seen = [];
+    for await (const chunk of sdk.withStream({ conversation_id: 'stream' }, 'Hi', chunks())) seen.push(chunk);
+    assert.deepEqual(seen, ['Hel', 'lo']);
+    await sdk.flush();
+    const events = api.requests[0].body.events;
+    assert.deepEqual(events.map(event => event.role), ['user', 'assistant']);
+    assert.equal(events[1].content, 'Hello');
+    assert.equal(events[1].status, 'success');
+    assert.equal(events[1].trace_id, events[0].trace_id);
+    await sdk.shutdown();
+  } finally { await api.close(); }
+});
+
+test('streaming errors and early termination record the actual outcome', async () => {
+  const api = await server((_request, response, body) => ok(response, body));
+  try {
+    const sdk = client(api.endpoint);
+    const failure = new Error('mid-stream failure');
+    async function* failing() { yield 'part'; throw failure; }
+    await assert.rejects(async () => { for await (const _ of sdk.withStream({ conversation_id: 'stream-err' }, 'Hi', failing())); }, error => error === failure);
+    async function* endless() { yield 'a'; yield 'b'; }
+    for await (const _ of sdk.withStream({ conversation_id: 'stream-cancel' }, 'Hi', endless())) break;
+    await sdk.flush();
+    const events = api.requests[0].body.events;
+    const failed = events.find(event => event.conversation_id === 'stream-err' && event.role === 'assistant');
+    assert.equal(failed.status, 'error');
+    assert.equal(failed.content, 'mid-stream failure');
+    const cancelled = events.find(event => event.conversation_id === 'stream-cancel' && event.role === 'assistant');
+    assert.equal(cancelled.status, 'success');
+    assert.equal(cancelled.metadata.stream_cancelled, true);
+    await sdk.shutdown();
+  } finally { await api.close(); }
+});
+
 test('rejects backend-invalid fields locally without poisoning valid events in the batch', async () => {
   const api = await server((_request, response, body) => ok(response, body));
   try {

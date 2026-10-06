@@ -107,4 +107,16 @@ export declare class Tervik {
         output?: (value: T) => string;
     }): Promise<T>;
     withTool<T>(context: Context, name: string, input: unknown, operation: () => Promise<T>): Promise<T>;
+    /**
+     * Wrap an actual streaming operation. The original iterator is preserved:
+     * chunks are yielded to the caller untouched while permitted text is
+     * accumulated for one assistant event. Early termination records a partial
+     * outcome; errors record the actual failure. Telemetry never throws.
+     */
+    withStream<T>(context: Context, input: string, stream: AsyncIterable<T>, options?: {
+        name?: string;
+        model?: string;
+        textOf?: (chunk: T) => string;
+        output?: (full: string) => string;
+    }): AsyncGenerator<T, void, unknown>;
 }

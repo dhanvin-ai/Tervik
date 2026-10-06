@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:tervik:event:2",
+  "title": "Tervik normalized event version 2",
+  "$comment": "Phase 2 emits message/span records. Outcome/finding records specify the later analysis contract; they are not an HTTP ingestion feature.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "source_event_id", "record_kind", "organization_id", "project_id", "environment", "source_conversation_id", "conversation_id", "trace_id", "source_timestamp", "ingested_at", "payload"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "event_id": {"type": "string", "minLength": 1, "maxLength": 500},
+    "source_event_id": {"$ref": "#/$defs/id"},
+    "record_kind": {"enum": ["message", "span", "outcome", "finding"]},
+    "organization_id": {"$ref": "#/$defs/id"},
+    "project_id": {"type": "string", "format": "uuid"},
+    "environment": {"type": "string", "minLength": 1, "maxLength": 120},
+    "source_conversation_id": {"$ref": "#/$defs/id"},
+    "conversation_id": {"type": "string", "format": "uuid"},
+    "trace_id": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+    "source_timestamp": {"type": "string", "format": "date-time"},
+    "ingested_at": {"type": "string", "format": "date-time"},
+    "payload": {"type": "object"}
+  },
+  "allOf": [
+    {"if": {"properties": {"record_kind": {"const": "message"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/message"}}}},
+    {"if": {"properties": {"record_kind": {"const": "span"}}}, "then": {"properties": {"trace_id": {"$ref": "#/$defs/id"}, "payload": {"$ref": "#/$defs/span"}}}},
+    {"if": {"properties": {"record_kind": {"const": "finding"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/finding"}}}},
+    {"if": {"properties": {"record_kind": {"const": "outcome"}}}, "then": {"properties": {"payload": {"$ref": "#/$defs/outcome"}}}}
+  ],
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "message": {
+      "type": "object", "required": ["id", "role", "content"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"}, "role": {"enum": ["user", "assistant", "system", "tool"]},
+        "content": {"type": "string"}, "user_id": {"type": ["string", "null"]},
+        "metadata": {"type": "object"}, "payload_ref": {"type": ["string", "null"]}
+      }
+    },
+    "span": {
+      "type": "object", "required": ["id", "name", "status", "parent_span_id", "message_id"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"}, "name": {"$ref": "#/$defs/id"}, "kind": {"type": "string"},
+        "status": {"enum": ["success", "error", "unset"]}, "duration_ms": {"type": ["number", "null"], "minimum": 0},
+        "message_id": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+        "parent_span_id": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+        "metadata": {"type": "object"}
+      }
+    },
+    "evidence": {
+      "type": "object", "additionalProperties": false, "required": ["record_kind", "event_id", "reason"],
+      "properties": {"record_kind": {"enum": ["message", "span", "outcome"]}, "event_id": {"type": "string", "minLength": 1, "maxLength": 500}, "reason": {"type": "string", "minLength": 1}}
+    },
+    "finding": {
+      "type": "object", "required": ["id", "category", "detector_version", "confidence", "evidence"],
+      "properties": {"id": {"$ref": "#/$defs/id"}, "category": {"type": "string", "minLength": 1}, "detector_version": {"type": "string", "minLength": 1}, "confidence": {"type": "number", "minimum": 0, "maximum": 1}, "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/evidence"}}}
+    },
+    "outcome": {
+      "type": "object", "required": ["id", "type", "source"],
+      "properties": {"id": {"$ref": "#/$defs/id"}, "type": {"type": "string", "minLength": 1}, "source": {"enum": ["user", "application", "tool"]}, "value": {"type": ["string", "number", "boolean", "null"]}}
+    }
+  }
+}

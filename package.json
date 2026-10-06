@@ -3,8 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "description": "Skill-installed analytics for AI agents",
-  "workspaces": ["apps/web", "packages/sdk"],
-  "engines": {"node": ">=22.12.0"},
+  "workspaces": [
+    "apps/web",
+    "packages/sdk"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "setup:api": "python3 scripts/setup_api.py",
     "dev": "npm run build --workspace @tervik/sdk && npm run bundle:skill && node scripts/dev.mjs",
@@ -16,9 +21,10 @@
     "test:sdk": "npm run test --workspace @tervik/sdk",
     "test:api": "python3 scripts/run_api_tests.py",
     "test:clients": "python3 scripts/run_client_tests.py",
-    "test": "npm run test:sdk && npm run test:clients && npm run test:api",
+    "test": "npm run test:sdk && npm run test:clients && npm run test:api && npm run test:schema",
     "test:smoke": "node scripts/smoke.mjs",
     "test:containers": "python3 scripts/container_smoke.py",
-    "check": "npm run typecheck && npm run build && npm test && npm run test:smoke"
+    "check": "npm run typecheck && npm run build && npm test && npm run test:smoke",
+    "test:schema": "python3 scripts/run_schema_tests.py"
   }
 }

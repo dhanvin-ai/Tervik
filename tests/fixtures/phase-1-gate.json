@@ -1,0 +1,217 @@
+{
+  "description": "Multi-turn conversation, multiple operations per message, nested tools, late message, finding evidence",
+  "records": [
+    {
+      "schema_version": 2,
+      "event_id": "question-1",
+      "source_event_id": "question-1",
+      "record_kind": "message",
+      "organization_id": "spec-org",
+      "project_id": "55555555-5555-4555-8555-555555555555",
+      "environment": "development",
+      "source_conversation_id": "support-42",
+      "conversation_id": "e9bed507-0c5d-509a-896f-8c2c2989297c",
+      "trace_id": null,
+      "source_timestamp": "2026-10-07T09:00:00Z",
+      "ingested_at": "2026-10-07T09:01:00Z",
+      "payload": {
+        "id": "question-1",
+        "role": "user",
+        "content": "What is the refund policy?",
+        "user_id": "customer-7",
+        "metadata": {}
+      }
+    },
+    {
+      "schema_version": 2,
+      "event_id": "answer-1",
+      "source_event_id": "answer-1",
+      "record_kind": "message",
+      "organization_id": "spec-org",
+      "project_id": "55555555-5555-4555-8555-555555555555",
+      "environment": "development",
+      "source_conversation_id": "support-42",
+      "conversation_id": "e9bed507-0c5d-509a-896f-8c2c2989297c",
+      "trace_id": "trace-a",
+      "source_timestamp": "2026-10-07T09:00:08Z",
+      "ingested_at": "2026-10-07T09:01:00Z",
+      "payload": {
+        "id": "answer-1",
+        "role": "assistant",
+        "content": "I could not retrieve the policy.",
+        "user_id": "customer-7",
+        "metadata": {}
+      }
+    },
+    {
+      "schema_version": 2,
+      "event_id": "span:trace-a:database",
+      "source_event_id": "answer-1",
+      "record_kind": "span",
+      "organization_id": "spec-org",
+      "project_id": "55555555-5555-4555-8555-555555555555",
+      "environment": "development",
+      "source_conversation_id": "support-42",
+      "conversation_id": "e9bed507-0c5d-509a-896f-8c2c2989297c",
+      "trace_id": "trace-a",
+      "source_timestamp": "2026-10-07T09:00:03Z",
+      "ingested_at": "2026-10-07T09:01:00Z",
+      "payload": {
+        "id": "database",
+        "message_id": "answer-1",
+        "parent_span_id": "lookup",
+        "name": "database.query",
+        "kind": "tool",
+        "status": "error",
+        "duration_ms": 100,
+        "metadata": {}
+      }
+    },
+    {
+      "schema_version": 2,
+      "event_id": "span:trace-a:turn",
+      "source_event_id": "answer-1",
+      "record_kind": "span",
+      "organization_id": "spec-org",
+      "project_id": "55555555-5555-4555-8555-555555555555",
+      "environment": "development",
+      "source_conversation_id": "support-42",
+      "conversation_id": "e9bed507-0c5d-509a-896f-8c2c2989297c",
+      "trace_id": "trace-a",
+      "source_timestamp": "2026-10-07T09:00:01Z",
+      "ingested_at": "2026-10-07T09:01:00Z",
+      "payload": {
+        "id": "turn",
+        "message_id": "answer-1",
+        "parent_span_id": null,
+        "name": "agent.turn",
+        "kind": "agent",
+        "status": "success",
+        "duration_ms": 6000,
+        "metadata": {}
+      }
+    },
+    {
+      "schema_version": 2,
+      "event_id": "span:trace-a:lookup",
+      "source_event_id": "answer-1",
+      "record_kind": "span",
+      "organization_id": "spec-org",
+      "project_id": "55555555-5555-4555-8555-555555555555",
+      "environment": "development",
+      "source_conversation_id": "support-42",
+      "conversation_id": "e9bed507-0c5d-509a-896f-8c2c2989297c",
+      "trace_id": "trace-a",
+      "source_timestamp": "2026-10-07T09:00:02Z",
+      "ingested_at": "2026-10-07T09:01:00Z",
+      "payload": {
+        "id": "lookup",
+        "message_id": "answer-1",
+        "parent_span_id": "turn",
+        "name": "lookup_policy",
+        "kind": "tool",
+        "status": "success",
+        "duration_ms": 100,
+        "metadata": {}
+      }
+    },
+    {
+      "schema_version": 2,
+      "event_id": "span:trace-a:model",
+      "source_event_id": "answer-1",
+      "record_kind": "span",
+      "organization_id": "spec-org",
+      "project_id": "55555555-5555-4555-8555-555555555555",
+      "environment": "development",
+      "source_conversation_id": "support-42",
+      "conversation_id": "e9bed507-0c5d-509a-896f-8c2c2989297c",
+      "trace_id": "trace-a",
+      "source_timestamp": "2026-10-07T09:00:06Z",
+      "ingested_at": "2026-10-07T09:01:00Z",
+      "payload": {
+        "id": "model",
+        "message_id": "answer-1",
+        "parent_span_id": "turn",
+        "name": "model.generate",
+        "kind": "model",
+        "status": "success",
+        "duration_ms": 1500,
+        "metadata": {}
+      }
+    },
+    {
+      "schema_version": 2,
+      "event_id": "answer-2",
+      "source_event_id": "answer-2",
+      "record_kind": "message",
+      "organization_id": "spec-org",
+      "project_id": "55555555-5555-4555-8555-555555555555",
+      "environment": "development",
+      "source_conversation_id": "support-42",
+      "conversation_id": "e9bed507-0c5d-509a-896f-8c2c2989297c",
+      "trace_id": null,
+      "source_timestamp": "2026-10-07T09:00:15Z",
+      "ingested_at": "2026-10-07T09:02:00Z",
+      "payload": {
+        "id": "answer-2",
+        "role": "assistant",
+        "content": "I will connect you to a support representative.",
+        "user_id": "customer-7",
+        "metadata": {}
+      }
+    },
+    {
+      "schema_version": 2,
+      "event_id": "question-2",
+      "source_event_id": "question-2",
+      "record_kind": "message",
+      "organization_id": "spec-org",
+      "project_id": "55555555-5555-4555-8555-555555555555",
+      "environment": "development",
+      "source_conversation_id": "support-42",
+      "conversation_id": "e9bed507-0c5d-509a-896f-8c2c2989297c",
+      "trace_id": null,
+      "source_timestamp": "2026-10-07T09:00:12Z",
+      "ingested_at": "2026-10-07T09:17:00Z",
+      "payload": {
+        "id": "question-2",
+        "role": "user",
+        "content": "That's wrong. The policy is already in your context.",
+        "user_id": "customer-7",
+        "metadata": {}
+      }
+    },
+    {
+      "schema_version": 2,
+      "event_id": "finding-1",
+      "source_event_id": "finding-1",
+      "record_kind": "finding",
+      "organization_id": "spec-org",
+      "project_id": "55555555-5555-4555-8555-555555555555",
+      "environment": "development",
+      "source_conversation_id": "support-42",
+      "conversation_id": "e9bed507-0c5d-509a-896f-8c2c2989297c",
+      "trace_id": null,
+      "source_timestamp": "2026-10-07T09:00:15Z",
+      "ingested_at": "2026-10-07T09:18:00Z",
+      "payload": {
+        "id": "finding-1",
+        "category": "tool_error",
+        "detector_version": "rules-1",
+        "confidence": 1,
+        "evidence": [
+          {
+            "record_kind": "span",
+            "event_id": "span:trace-a:database",
+            "reason": "Recorded tool error"
+          },
+          {
+            "record_kind": "message",
+            "event_id": "question-2",
+            "reason": "Recorded correction"
+          }
+        ]
+      }
+    }
+  ]
+}

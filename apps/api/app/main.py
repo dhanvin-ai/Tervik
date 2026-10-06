@@ -688,6 +688,39 @@ def create_app(settings: Settings | None = None):
             project = org_project(session, id, account.id, "member")
             return {"project_id": project.id, **queue_mod.job_stats(session, project.id)}
 
+    @app.get("/api/projects/{id}/setup")
+    def project_setup(request: Request, id: str):
+        """Connection/setup status for the investigation interface."""
+        with sessions() as session:
+            project = session.get(Project, id)
+            if project is None:
+                raise HTTPException(404, "Project not found")
+            dashboard_access(request, session, project)
+            legacy_key = bool(project.api_key)
+            cred_count = session.execute(select(func.count()).select_from(Credential).where(
+                Credential.project_id == project.id,
+                Credential.revoked_at.is_(None))).scalar_one()
+            event_count = session.execute(select(func.count()).select_from(Event).where(
+                Event.project_id == project.id)).scalar_one()
+            conv_count = session.execute(select(func.count(func.distinct(Event.conversation_id))).where(
+                Event.project_id == project.id)).scalar_one()
+            last = session.scalars(select(Event).where(Event.project_id == project.id).order_by(
+                Event.timestamp.desc()).limit(1)).first()
+            stats = queue_mod.job_stats(session, project.id)
+            settings_summary = project_settings(project)
+            return {
+                "project": project_dict(project),
+                "key_configured": bool(legacy_key or cred_count),
+                "active_credentials": cred_count,
+                "events_received": event_count,
+                "conversations": conv_count,
+                "last_event_at": iso(last.timestamp) if last else None,
+                "jobs": stats["jobs"],
+                "usage_events": stats["usage_events"],
+                "capture": {"capture_content": settings_summary.get("capture_content", True),
+                            "retention_days": settings_summary.get("retention_days", 90)},
+            }
+
     @app.get("/api/orgs/{id}/audit")
     def org_audit(request: Request, id: str, limit: int = Query(default=50, ge=1, le=200)):
         with sessions() as session:

@@ -150,6 +150,52 @@ class ClientTests(unittest.TestCase):
             self.assertEqual(turn["content"], "actual answer")
             self.assertEqual(len([event for event in events if event["conversation_id"] == "error" and event.get("status") == "error"]), 2)
 
+    def test_stream_turn_preserves_chunks_and_outcomes(self):
+        with mock_api(lambda body, _attempt: (200, {"accepted": len(body["events"]), "duplicates": 0})) as (endpoint, requests):
+            client = new_client(endpoint)
+
+            def chunks():
+                yield "Hel"
+                yield "lo"
+
+            seen = [chunk for chunk in client.stream_turn({"conversation_id": "stream"}, "Hi", chunks())]
+            self.assertEqual(seen, ["Hel", "lo"])
+
+            def failing():
+                yield "part"
+                raise RuntimeError("mid-stream failure")
+
+            with self.assertRaises(RuntimeError):
+                for _ in client.stream_turn({"conversation_id": "stream-err"}, "Hi", failing()):
+                    pass
+
+            def endless():
+                yield "a"
+                yield "b"
+
+            for _ in client.stream_turn({"conversation_id": "stream-cancel"}, "Hi", endless()):
+                break
+
+            async def arun():
+                async def achunks():
+                    yield "x"
+                    yield "y"
+                return [chunk async for chunk in client.astream_turn({"conversation_id": "astream"}, "Hi", achunks())]
+
+            self.assertEqual(asyncio.run(arun()), ["x", "y"])
+            client.shutdown()
+            events = requests[0]["body"]["events"]
+            roles = [event["role"] for event in events if event["conversation_id"] == "stream"]
+            self.assertEqual(roles, ["user", "assistant"])
+            assistant = next(event for event in events if event["conversation_id"] == "stream" and event["role"] == "assistant")
+            self.assertEqual(assistant["content"], "Hello")
+            failed = next(event for event in events if event["conversation_id"] == "stream-err" and event["role"] == "assistant")
+            self.assertEqual(failed["status"], "error")
+            cancelled = next(event for event in events if event["conversation_id"] == "stream-cancel" and event["role"] == "assistant")
+            self.assertEqual(cancelled["metadata"].get("stream_cancelled"), True)
+            aassistant = next(event for event in events if event["conversation_id"] == "astream" and event["role"] == "assistant")
+            self.assertEqual(aassistant["content"], "xy")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,11 +9,12 @@ TERVIK_ENDPOINT=http://127.0.0.1:8000
 TERVIK_API_KEY=<key from your Tervik project setup>
 ```
 
-Adapt this pattern around the customer's existing handler. `agent`, `tools`, and the request ID below are existing application components, not sample traffic to create:
+Adapt this pattern around the customer's existing handler. `agent`, `tools`, and the request ID below are existing application components, not sample traffic to create. Mark the instrumented handler with `// tervik.instrumented` so re-running the skill finds it instead of adding a second wrapper:
 
 ```javascript
 import { Tervik } from './telemetry/tervik-client.mjs';
 
+// tervik.instrumented
 const analytics = new Tervik({
   redact(event) {
     // Replace this with the project's actual PII/credential policy.
@@ -44,6 +45,16 @@ export async function flushTelemetryAtShutdown() {
 
 `capture(event)` is synchronous and returns an event ID or `null` if dropped. `flush()` returns `{accepted, duplicates, dropped, pending}`. `inspect()` exposes exporter counters without payloads or credentials. A singleton per server process avoids creating an interval per request. Custom diagnostic callbacks are isolated from agent execution.
 
-For streaming, preserve the existing iterator/stream. Capture the user event before the actual call, collect only the permitted final output as the existing stream runs, then capture the assistant event with measured duration. On cancellation or error, capture the actual outcome. Do not wrap a stream with `withTurn` if the promise resolves before the stream finishes: that would record the iterator rather than the response. Keep trace and parent IDs scoped to each request and pass them explicitly to tool wrappers.
+For streaming, preserve the existing iterator/stream. Wrap the actual stream with `withStream`: chunks are yielded untouched while permitted text accumulates for one assistant event. Early termination records a partial outcome; errors record the actual failure. Do not wrap a stream with `withTurn` if the promise resolves before the stream finishes: that would record the iterator rather than the response. Keep trace and parent IDs scoped to each request and pass them explicitly to tool wrappers.
+
+```javascript
+// tervik.instrumented
+export async function* handleStreamingConversation(request, stream) {
+  const context = { conversation_id: request.conversationId, user_id: request.pseudonymousUserId };
+  yield* analytics.withStream(context, request.message, stream);
+}
+```
+
+Obtain the project credential through the dashboard session flow (`POST /api/auth/login`, then `POST /api/projects/{id}/credentials`); the ingest secret is returned once and stored server-side. Re-running the skill must detect the `tervik.instrumented` marker and existing client before editing.
 
 For serverless runtimes, use the platform's existing background/wait-until mechanism for `flush()` where supported. An unreferenced interval does not keep a Node process alive, and no exporter can guarantee delivery after the runtime freezes. Document that limit rather than delaying every customer response without agreement.

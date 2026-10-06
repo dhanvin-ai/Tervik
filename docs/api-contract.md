@@ -68,6 +68,7 @@ dashboard routes; sessions return 404 on projects outside their orgs.
 - `GET /api/projects/{id}/usage` → `{project_id, jobs, usage_events, usage_bytes}`.
 - `GET /api/orgs/{id}/audit?limit=50` → audit entries without secrets.
 - `POST /api/projects/{id}/retention/run` → `{project_id, removed_events, cutoff}`.
+- `GET /api/projects/{id}/setup` → `{project, key_configured, active_credentials, events_received, conversations, last_event_at, jobs, usage_events, capture}`.
 - `POST /v1/otlp/traces` with ingest key and OTLP TracesData JSON → `{accepted, duplicates}`.
 
 Ingestion still returns `{accepted, duplicates}` per batch (max 100).

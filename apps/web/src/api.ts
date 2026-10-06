@@ -1,5 +1,6 @@
 export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = sessionStorage.getItem('tervik_admin_token');
+  const session = sessionStorage.getItem('tervik_session');
+  const token = session || sessionStorage.getItem('tervik_admin_token');
   const headers = new Headers(options.headers);
   if (options.body) headers.set('Content-Type', 'application/json');
   if (token) headers.set('Authorization', `Bearer ${token}`);
@@ -17,7 +18,9 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
       else if (typeof body.error === 'string') message = body.error;
     } catch { /* Some proxies return a non-JSON error body. */ }
     if (response.status === 401 || response.status === 403) {
-      message = 'Access denied. Add your administrator token in connection settings.';
+      message = sessionStorage.getItem('tervik_session')
+        ? 'Access denied. Check your account access for this project.'
+        : 'Access denied. Sign in or add your administrator token in connection settings.';
     } else if (response.status >= 500) {
       message = 'The API service is unavailable. Start it and try again.';
     }

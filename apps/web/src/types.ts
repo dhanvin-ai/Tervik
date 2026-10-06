@@ -6,6 +6,18 @@ export interface Project {
   slug: string;
   created_at: string;
   is_demo: boolean;
+  org_id?: string;
+}
+export interface SetupStatus {
+  project: Project;
+  key_configured: boolean;
+  active_credentials: number;
+  events_received: number;
+  conversations: number;
+  last_event_at: string | null;
+  jobs: { pending: number; processed: number; failed: number; dead: number; expired: number };
+  usage_events: number;
+  capture: { capture_content: boolean; retention_days: number };
 }
 export interface Cluster {
   id: string;

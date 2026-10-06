@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tervik"
+  short_description: "Connect agent conversations and tool spans to Tervik"
+  default_prompt: "Use the Tervik skill to add analytics to this agent."

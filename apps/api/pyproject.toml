@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tervik-api"
+version = "0.1.0"
+description = "Tervik conversation analytics development API"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.34,<1",
+  "sqlalchemy>=2.0.40,<2.1",
+  "pydantic>=2.10,<3",
+  "psycopg[binary]>=3.2,<4",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.3,<10", "httpx>=0.28,<1"]
+dev = ["pytest>=8.3,<10", "httpx>=0.28,<1", "clickhouse-connect>=0.8,<1"]
+clickhouse = ["clickhouse-connect>=0.8,<1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

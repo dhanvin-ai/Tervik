@@ -1,6 +1,8 @@
 # Python
 
-Copy `scripts/tervik_client.py` into the application's server module folder. It uses only Python's standard library and HTTP ingestion. Set server-side `TERVIK_API_KEY` and base `TERVIK_ENDPOINT`. Do not install a guessed package from PyPI.
+Copy `scripts/tervik_client.py` into the application's server module folder. It uses only Python's standard library and HTTP ingestion. Set server-side `TERVIK_API_KEY` and base `TERVIK_ENDPOINT`. Do not install a guessed package from PyPI. (The repository also builds the `tervik` pip package in `packages/sdk-python`; use it only when the customer project already depends on it.)
+
+For OpenAI-based agents, prefer `tervik.integrations.instrument_openai` over manual capture: it wraps `chat.completions.create` (including streams) and records turns, usage, and requested tool calls without changing responses. For LangChain/LangGraph agents, add `tervik.integrations.TervikCallbackHandler` to the run callbacks. Both are duck-typed, idempotent, and covered by the compatibility matrix in `docs/compatibility.md`.
 
 Create one `Tervik` instance per process. Its background exporter uses a bounded queue and finite retries. `capture()` returns a stable event ID or `None`, `flush()` returns counts, and `shutdown()` stops the background exporter and flushes remaining events. Add `on_drop` to existing metrics; the default reports only reason/count.
 

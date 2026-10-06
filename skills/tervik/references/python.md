@@ -9,6 +9,7 @@ Adapt the actual application handler, keeping its async and streaming behavior:
 ```python
 from .telemetry.tervik_client import Tervik
 
+# tervik.instrumented
 analytics = Tervik()
 
 async def handle_conversation(request):
@@ -34,4 +35,16 @@ async def handle_conversation(request):
 
 Do not synchronously call network `flush()` on an async handler's response path. During a controlled verification, flush outside that path or use `asyncio.to_thread`. Add a domain-specific `redact` callback for PII and nested tool payloads: the built-in filter only covers common credential forms. Preserve the application's original errors; error spans record those actual failures.
 
-For a streaming handler, manually capture the user event and final assistant output after consuming the existing stream. Capture actual cancellation/errors and elapsed time. `with_turn` is for callbacks that finish with the actual response, not callbacks that immediately return a generator.
+For a streaming handler, wrap the actual iterator with `stream_turn` (sync) or `astream_turn` (async): chunks pass through untouched while permitted text accumulates for one assistant event. Early termination records a partial outcome; errors record the actual failure.
+
+```python
+# tervik.instrumented
+def handle_streaming_conversation(request, chunks):
+    context = {
+        "conversation_id": request.conversation_id,
+        "user_id": request.pseudonymous_user_id,
+    }
+    yield from analytics.stream_turn(context, request.message, chunks)
+```
+
+Obtain the project credential through the dashboard session flow (`POST /api/auth/login`, then `POST /api/projects/{id}/credentials`); the ingest secret is returned once and stored server-side. Re-running the skill must detect the `tervik.instrumented` marker and existing client before editing.

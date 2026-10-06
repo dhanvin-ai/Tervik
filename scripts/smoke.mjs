@@ -84,16 +84,28 @@ try {
   assert.equal(flushed.dropped, 0);
   const duplicate = await request('/v1/events', { method: 'POST', key: project.api_key, body: { events } });
   assert.deepEqual(duplicate, { accepted: 0, duplicates: 4 });
+  const setup = await request(`/api/projects/${project.id}/setup`);
+  assert.equal(setup.events_received, 4);
+  assert.equal(setup.key_configured, true);
+  assert.ok(setup.last_event_at);
+  async function* streamChunks() { yield 'Stream'; yield 'ed answer'; }
+  const seen = [];
+  for await (const chunk of client.withStream({ conversation_id: 'session-stream', user_id: 'user-1' }, 'Stream this', streamChunks())) seen.push(chunk);
+  assert.deepEqual(seen, ['Stream', 'ed answer']);
+  const streamed = await client.flush();
+  assert.equal(streamed.accepted, 2);
+  assert.equal((await request(`/api/projects/${project.id}/setup`)).events_received, 6);
   const overview = await request(`/api/overview?project_id=${project.id}&range=7d`);
-  assert.equal(overview.metrics.conversations, 1);
-  assert.equal(overview.metrics.messages, 4);
-  assert.equal(overview.metrics.failure_rate, 100);
+  assert.equal(overview.metrics.conversations, 2);
+  assert.equal(overview.metrics.messages, 6);
+  assert.equal(overview.metrics.failure_rate, 50);
   assert.equal(overview.metrics.affected_users, 1);
   const clusters = await request(`/api/clusters?project_id=${project.id}&range=7d`);
   assert.ok(clusters.some(cluster => cluster.kind === 'correction'));
   assert.ok(clusters.some(cluster => cluster.kind === 'tool_error'));
   const conversations = await request(`/api/conversations?project_id=${project.id}&range=7d`);
-  const detail = await request(`/api/conversations/${conversations[0].id}`);
+  assert.equal(conversations.length, 2);
+  const detail = await request(`/api/conversations/${conversations.find(c => c.message_count === 4).id}`);
   assert.equal(detail.messages.length, 4);
   assert.equal(detail.spans.find(span => span.id === 'tool-1').parent_id, 'turn-1');
   const resolved = await request(`/api/clusters/${clusters[0].id}`, { method: 'PATCH', body: { status: 'resolved' } });
@@ -110,7 +122,7 @@ try {
   console.log('PASS: SDK → authenticated ingestion → persisted conversations → evidence/trace → cluster review.');
   await stop();
   await start();
-  assert.equal((await request(`/api/overview?project_id=${project.id}`)).metrics.messages, 4);
+  assert.equal((await request(`/api/overview?project_id=${project.id}`)).metrics.messages, 6);
   assert.equal((await request(`/api/clusters/${clusters[0].id}`)).status, 'resolved');
   console.log('PASS: project boundaries, retry deduplication, administrator separation, and restart durability.');
 } finally {

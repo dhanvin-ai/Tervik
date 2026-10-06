@@ -1,4 +1,4 @@
-**Complete roadmap for an Agnost-style product**
+** Complete roadmap **
 
 **1. Define the product and customer experience**
 

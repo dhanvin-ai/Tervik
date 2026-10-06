@@ -13,6 +13,11 @@ class Settings:
     clickhouse_username: str = "default"
     clickhouse_password: str = ""
     clickhouse_database: str = "tervik"
+    # Phase 2: durable transport and payload storage. Unset = local DB outbox.
+    nats_url: str | None = None
+    s3_endpoint: str | None = None
+    s3_bucket: str | None = None
+    inline_process: bool = True
 
     @classmethod
     def from_env(cls):
@@ -35,4 +40,8 @@ class Settings:
             clickhouse_username=os.getenv("CLICKHOUSE_USER", "default"),
             clickhouse_password=os.getenv("CLICKHOUSE_PASSWORD", ""),
             clickhouse_database=os.getenv("CLICKHOUSE_DATABASE", "tervik"),
+            nats_url=os.getenv("NATS_URL") or None,
+            s3_endpoint=os.getenv("S3_ENDPOINT") or None,
+            s3_bucket=os.getenv("S3_BUCKET") or None,
+            inline_process=os.getenv("TERVIK_INLINE_PROCESS", "true").lower() == "true",
         )

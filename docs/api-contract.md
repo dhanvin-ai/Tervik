@@ -44,6 +44,36 @@ Dashboard authorization: optional `Authorization: Bearer <TERVIK_ADMIN_TOKEN>`. 
 
 Analysis in this milestone is deterministic, rule-based triage, explicitly labeled in the UI. It detects evidenced user corrections/frustration, repeated user requests, and tool errors. Abandonment requires an elapsed-time criterion and must not be inferred merely because a conversation currently ends with a user message. Suggestions are reviewable text; resolving a cluster never changes a customer's agent.
 
+## Phase 2: accounts and durable ingestion
+
+Session auth: `Authorization: Bearer tvs_...` on `/api/*`. Ingest auth:
+`Authorization: Bearer tvk_...` on `/v1/*`. Ingest keys return 401 on
+dashboard routes; sessions return 404 on projects outside their orgs.
+
+- `POST /api/auth/signup` body `{email, password, name?}` → `{account, organization, session}`.
+- `POST /api/auth/login` body `{email, password}` → `{account, session}`.
+- `POST /api/auth/logout` → `{ok}`. `GET /api/me` → `{account, organizations}`.
+- `POST /api/orgs` body `{name}` → org with owner role. `GET /api/orgs` → my orgs.
+- `POST /api/orgs/{id}/members` body `{email, role}` → membership (admin+).
+- `PATCH /api/orgs/{id}/members/{account_id}` body `{role}` → updated (admin+).
+- `DELETE /api/orgs/{id}/members/{account_id}` → `{ok}` (admin+).
+- `POST /api/orgs/{id}/projects` body `{name, environment?}` → `Project` plus one-time `credential.secret`.
+- `GET /api/orgs/{id}/projects` → `Project[]` without secrets.
+- `POST /api/projects/{id}/credentials` body `{name?, environment?}` → `{id, prefix, secret, environment, scope}` (secret once).
+- `GET /api/projects/{id}/credentials` → credential list without secrets.
+- `POST /api/credentials/{id}/revoke` → `{ok}`.
+- `GET /api/jobs?project_id=...` → `{jobs, usage_events, usage_bytes, recent[]}` (no payload contents).
+- `POST /api/jobs/{project_id}/{event_id}/replay` → `{ok, state}`.
+- `PATCH /api/projects/{id}/capture` body `{capture_content?, redact_keys?, retention_days?}` → `{project_id, settings}`.
+- `GET /api/projects/{id}/usage` → `{project_id, jobs, usage_events, usage_bytes}`.
+- `GET /api/orgs/{id}/audit?limit=50` → audit entries without secrets.
+- `POST /api/projects/{id}/retention/run` → `{project_id, removed_events, cutoff}`.
+- `POST /v1/otlp/traces` with ingest key and OTLP TracesData JSON → `{accepted, duplicates}`.
+
+Ingestion still returns `{accepted, duplicates}` per batch (max 100).
+Acceptance follows a durable outbox commit; materialization, usage, and
+the ClickHouse mirror happen idempotently afterwards. See `docs/phase-2.md`.
+
 ## Storage scope
 
 SQLite is the zero-configuration local development adapter. PostgreSQL is the deployable metadata adapter. Optional ClickHouse mirrors ingested events for analytical storage; this milestone does not claim a finished distributed worker or production SaaS authentication. Document what is implemented, configured, and still pending separately.

@@ -70,3 +70,51 @@ class ProjectInput(BaseModel):
 class ClusterPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     status: Literal["open", "resolved"]
+
+
+class SignupInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=8, max_length=200)
+    name: str | None = Field(default=None, max_length=120)
+
+
+class LoginInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class OrgInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=120)
+
+
+class MemberInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: str = Field(min_length=3, max_length=320)
+    role: Literal["owner", "admin", "member", "viewer"] = "member"
+
+
+class MemberPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: Literal["owner", "admin", "member", "viewer"]
+
+
+class OrgProjectInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=120)
+    environment: str = Field(default="production", min_length=1, max_length=80)
+
+
+class CredentialInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(default="default", min_length=1, max_length=120)
+    environment: str | None = Field(default=None, max_length=80)
+
+
+class CaptureInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    capture_content: bool | None = None
+    redact_keys: list[str] | None = None
+    retention_days: int | None = Field(default=None, ge=1, le=3650)

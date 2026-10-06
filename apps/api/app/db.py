@@ -31,6 +31,69 @@ class Project(Base):
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
     api_key: Mapped[str] = mapped_column(String(128))
     key_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    # Phase 2: organization ownership. Null = Phase 1 legacy project (isolated).
+    org_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("organizations.id"), nullable=True, index=True)
+    settings: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class Organization(Base):
+    """Phase 2 tenant root. Owns projects, memberships, credentials, and audit."""
+    __tablename__ = "organizations"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class Account(Base):
+    """Phase 2 dashboard user. Distinct from the customer's end users."""
+    __tablename__ = "accounts"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(256))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class Membership(Base):
+    __tablename__ = "memberships"
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), primary_key=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), primary_key=True)
+    role: Mapped[str] = mapped_column(String(20), default="member")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class Session(Base):
+    """Hashed dashboard session. The raw token is returned once and never stored."""
+    __tablename__ = "sessions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), index=True)
+    org_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"), nullable=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class Environment(Base):
+    __tablename__ = "environments"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    name: Mapped[str] = mapped_column(String(80), default="production")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class Credential(Base):
+    """Scoped ingest credential. Secret is hashed; prefix is for display only."""
+    __tablename__ = "credentials"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    environment_id: Mapped[str | None] = mapped_column(ForeignKey("environments.id"), nullable=True)
+    name: Mapped[str] = mapped_column(String(120), default="default")
+    prefix: Mapped[str] = mapped_column(String(16))
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    scope: Mapped[str] = mapped_column(String(20), default="ingest")
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Event(Base):
@@ -53,6 +116,60 @@ class Event(Base):
     cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     model: Mapped[str | None] = mapped_column(String(200), nullable=True)
     event_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Phase 2 canonical fields. Nullable/defaulted so Phase 1 rows stay valid.
+    org_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    environment: Mapped[str] = mapped_column(String(80), default="production")
+    schema_version: Mapped[int] = mapped_column(Integer, default=2)
+    ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class IngestionJob(Base):
+    """Durable outbox. Ack follows this commit; workers process afterwards."""
+    __tablename__ = "ingestion_jobs"
+    project_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    state: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    environment: Mapped[str] = mapped_column(String(80), default="production")
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    mirror_state: Mapped[str] = mapped_column(String(20), default="pending")
+    mirror_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class UsageRecord(Base):
+    """Idempotent usage. One row per logical event; retries never add rows."""
+    __tablename__ = "usage_records"
+    project_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    bytes: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class PayloadObject(Base):
+    """Large/redacted payload store. Local adapter; S3 when configured."""
+    __tablename__ = "payload_objects"
+    key: Mapped[str] = mapped_column(String(320), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    digest: Mapped[str] = mapped_column(String(64))
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    content_type: Mapped[str] = mapped_column(String(120), default="application/json")
+    retention_deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    content: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AuditRecord(Base):
+    __tablename__ = "audit_records"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    account_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    action: Mapped[str] = mapped_column(String(80))
+    resource: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class ClusterState(Base):

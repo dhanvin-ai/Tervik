@@ -21,6 +21,7 @@ from . import queue as queue_mod
 from . import alerts as alerts_mod
 from . import evaluate as evaluate_mod
 from . import improve as improve_mod
+from . import mcp as mcp_mod
 from .auth import (ROLES, SESSION_PREFIX, add_membership, create_organization,
                    create_session, credential_for_token, hash_password, is_ingest_token,
                    new_ingest_key, normalize_email, project_role, require_project_role,
@@ -1784,6 +1785,168 @@ def create_app(settings: Settings | None = None):
                      "created_at": iso(p.created_at)}
                     for p in session.scalars(select(PromptVersion).where(
                         PromptVersion.project_id == id).order_by(PromptVersion.path, PromptVersion.version))]
+
+    # ---- Phase 10: hosted MCP server ----
+
+    def mcp_auth(request):
+        header = request.headers.get("authorization", "")
+        if not header.startswith(f"Bearer {SESSION_PREFIX}"):
+            return None
+        with sessions() as session:
+            resolved = resolve_session(session, header[len("Bearer "):])
+            return resolved[1].id if resolved else None
+
+    def mcp_project(db_session, account_id, project_id):
+        project = db_session.get(Project, project_id)
+        if project is None or (project.org_id is None):
+            return None, "not_found"
+        membership = db_session.get(Membership, (project.org_id, account_id))
+        if membership is None:
+            return None, "not_found"
+        return project, "ok"
+
+    def mcp_trim(value, limit=2000):
+        if isinstance(value, str):
+            return value[:limit]
+        if isinstance(value, list):
+            return [mcp_trim(item, limit) for item in value[:50]]
+        if isinstance(value, dict):
+            return {key: mcp_trim(item, limit) for key, item in list(value.items())[:50]}
+        return value
+
+    @app.post("/mcp")
+    async def mcp_endpoint(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse(status_code=200, content=mcp_mod.error(None, mcp_mod.ERROR_PARSE, "Invalid JSON"))
+        request_id = body.get("id")
+        method = body.get("method")
+        params = body.get("params") or {}
+        if method == "initialize":
+            return JSONResponse(content=mcp_mod.result(request_id, {
+                "protocolVersion": mcp_mod.PROTOCOL_VERSION, "serverInfo": mcp_mod.SERVER_INFO,
+                "capabilities": {"tools": {}}}))
+        if method in ("notifications/initialized", "notifications/cancelled"):
+            return JSONResponse(content=mcp_mod.result(request_id, {}))
+        if method == "tools/list":
+            account_id = mcp_auth(request)
+            if account_id is None:
+                return JSONResponse(content=mcp_mod.error(request_id, mcp_mod.ERROR_UNAUTHORIZED, "Login required"))
+            return JSONResponse(content=mcp_mod.result(request_id, {"tools": mcp_mod.TOOLS}))
+        if method != "tools/call":
+            return JSONResponse(content=mcp_mod.error(request_id, mcp_mod.ERROR_METHOD_NOT_FOUND, f"Unknown method {method}"))
+        account_id = mcp_auth(request)
+        if account_id is None:
+            return JSONResponse(content=mcp_mod.error(request_id, mcp_mod.ERROR_UNAUTHORIZED, "Login required"))
+        name = (params.get("name") or "")
+        arguments = params.get("arguments") or {}
+        if not isinstance(arguments, dict):
+            return JSONResponse(content=mcp_mod.error(request_id, mcp_mod.ERROR_INVALID_PARAMS, "arguments must be an object"))
+        try:
+            with sessions.begin() as session:
+                payload = mcp_tool(session, account_id, name, arguments)
+        except HTTPException as error:
+            code = {401: mcp_mod.ERROR_UNAUTHORIZED, 403: mcp_mod.ERROR_FORBIDDEN,
+                    404: mcp_mod.ERROR_NOT_FOUND, 422: mcp_mod.ERROR_INVALID_PARAMS}.get(
+                        error.status_code, mcp_mod.ERROR_INVALID_PARAMS)
+            return JSONResponse(content=mcp_mod.error(request_id, code, error.detail))
+        return JSONResponse(content=mcp_mod.text_result(request_id, payload))
+
+    def mcp_tool(db_session, account_id, name, arguments):
+        if name == "tervik_ops_summary":
+            return mcp_ops(db_session, account_id)
+        if name in ("tervik_list_conversations", "tervik_list_clusters", "tervik_list_intents"):
+            project_id = arguments.get("project_id")
+            if not project_id:
+                raise HTTPException(422, "project_id is required")
+            project, status = mcp_project(db_session, account_id, project_id)
+            if project is None:
+                raise HTTPException(404, "Project not found")
+            window_range = arguments.get("range", "7d")
+            if window_range not in ("24h", "7d", "30d"):
+                raise HTTPException(422, "Invalid range")
+            audit(db_session, project.org_id, "mcp.call", name, account_id)
+            if name == "tervik_list_conversations":
+                events, signals, _ = project_analysis(db_session, project.id)
+                start, end = window(window_range)
+                rows = analysis.conversation_summaries(
+                    analysis.in_range(events, start, end),
+                    analysis.signals_in_range(signals, start, end))
+                search = (arguments.get("search") or "").casefold()
+                if search:
+                    rows = [r for r in rows if search in (r["preview"] or "").casefold()]
+                if arguments.get("flagged_only"):
+                    rows = [r for r in rows if r["status"] == "flagged"]
+                return mcp_trim(rows[:50])
+            if name == "tervik_list_clusters":
+                events, signals, states = project_analysis(db_session, project.id)
+                start, end = window(window_range)
+                rows = analysis.clusters(project.id, events, signals, states, start, end)
+                wanted = arguments.get("status")
+                if wanted:
+                    rows = [r for r in rows if r["status"] == wanted]
+                return mcp_trim(rows[:50])
+            intents = db_session.scalars(select(Intent).where(
+                Intent.project_id == project.id, Intent.enabled == True)).all()  # noqa: E712
+            return [{"id": i.id, "name": i.name, "description": i.description,
+                     "examples": i.examples, "version": i.version} for i in intents[:50]]
+        if name == "tervik_get_conversation":
+            conversation_id = arguments.get("conversation_id")
+            if not conversation_id:
+                raise HTTPException(422, "conversation_id is required")
+            events = list(db_session.scalars(select(Event).where(
+                Event.conversation_id == conversation_id).order_by(Event.timestamp, Event.id)))
+            if not events:
+                raise HTTPException(404, "Conversation not found")
+            project, status = mcp_project(db_session, account_id, events[0].project_id)
+            if project is None:
+                raise HTTPException(404, "Conversation not found")
+            audit(db_session, project.org_id, "mcp.call", name, account_id)
+            signals = analysis.analyze(events)
+            return mcp_trim({**analysis.summary(events, signals),
+                             "messages": [analysis.event_dict(e) for e in events],
+                             "signals": [analysis.public_signal(s) for s in signals],
+                             "spans": analysis.spans(events)})
+        if name == "tervik_get_cluster":
+            cluster_id = arguments.get("cluster_id")
+            if not cluster_id:
+                raise HTTPException(422, "cluster_id is required")
+            window_range = arguments.get("range", "7d")
+            if window_range not in ("24h", "7d", "30d"):
+                raise HTTPException(422, "Invalid range")
+            row, conversations, evidence = locate_cluster(db_session, cluster_id, window_range)
+            project, status = mcp_project(db_session, account_id, row["project_id"])
+            if project is None:
+                raise HTTPException(404, "Cluster not found")
+            audit(db_session, project.org_id, "mcp.call", name, account_id)
+            return mcp_trim({**row, "conversations": conversations, "evidence": evidence})
+        if name == "tervik_get_improvement":
+            improvement_id = arguments.get("improvement_id")
+            if not improvement_id:
+                raise HTTPException(422, "improvement_id is required")
+            imp = db_session.get(Improvement, improvement_id)
+            if imp is None:
+                raise HTTPException(404, "Improvement not found")
+            project, status = mcp_project(db_session, account_id, imp.project_id)
+            if project is None:
+                raise HTTPException(404, "Improvement not found")
+            audit(db_session, project.org_id, "mcp.call", name, account_id)
+            return mcp_trim(improve_mod.public_improvement(imp))
+        raise HTTPException(422, f"Unknown tool {name}")
+
+    def mcp_ops(db_session, account_id):
+        org_ids = [m.org_id for m in db_session.scalars(
+            select(Membership).where(Membership.account_id == account_id))]
+        project_ids = list(db_session.scalars(select(Project.id).where(
+            Project.org_id.in_(org_ids)))) if org_ids else []
+        jobs = select(IngestionJob.state, func.count()).group_by(IngestionJob.state)
+        if project_ids:
+            jobs = jobs.where(IngestionJob.project_id.in_(project_ids))
+        else:
+            jobs = jobs.where(IngestionJob.project_id == "__none__")
+        backlog = {state: count for state, count in db_session.execute(jobs).all()}
+        return {"backlog": backlog, "projects": len(project_ids)}
 
     @app.post("/api/demo/seed")
     def seed_demo(background_tasks: BackgroundTasks):

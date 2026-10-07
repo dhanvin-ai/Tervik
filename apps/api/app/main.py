@@ -1553,7 +1553,10 @@ def create_app(settings: Settings | None = None):
                         break
                     messages = by_conv[cid]
                     user_text = next((m.content for m in messages if m.role == "user"), "")
-                    cases.append({"id": f"control-{cid[:8]}", "input": user_text, "tools": [],
+                    recorded = [{"name": m.name or "tool", "recorded_output": m.content}
+                                for m in messages if m.role == "tool" and m.span_id][:5]
+                    cases.append({"id": f"control-{cid[:8]}", "input": user_text,
+                                  "tools": recorded,
                                   "expected": {"no_violations": body.signal_kinds}})
             if not cases:
                 raise HTTPException(422, "No matching findings or controls in this project")

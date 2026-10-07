@@ -17,7 +17,7 @@ RUNNER_VERSION = "8.0.0"
 
 def _event(project_id, conversation_id, role, content, **fields):
     return SimpleNamespace(
-        project_id=project_id, id=str(uuid4()), conversation_id=conversation_id,
+        project_id=project_id, id=fields.get("id", str(uuid4())), conversation_id=conversation_id,
         user_id="eval-user", role=role, content=content,
         timestamp=fields.pop("timestamp", None), trace_id=fields.get("trace_id"),
         span_id=fields.get("span_id"), parent_span_id=fields.get("parent_span_id"),
@@ -29,26 +29,37 @@ def _event(project_id, conversation_id, role, content, **fields):
 
 def run_case(project_id, case, agent):
     """Replay one case for one agent descriptor. Returns a result dict."""
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
     from . import analysis
     now = datetime.now(timezone.utc)
     conversation_id = f"eval-{case['id']}"
-    trace_id = str(uuid4())
-    events = [_event(project_id, conversation_id, "user", case["input"], timestamp=now)]
+    trace_id = f"eval-trace-{case['id']}"
+    clock = [now]
+
+    def tick():
+        clock[0] = clock[0] + timedelta(milliseconds=1)
+        return clock[0]
+
+    def make(role, content, name=None, status="success", index=0, **extra):
+        return _event(project_id, conversation_id, role, content,
+                      **{"id": f"eval-{case['id']}-{index}", "timestamp": tick(),
+                         "trace_id": trace_id, "name": name, "status": status, **extra})
     recorded = {t["name"]: t.get("recorded_output", "") for t in case.get("tools", [])}
-    called, missing = [], []
+    events = [make("user", case["input"], index=0)]
+    called, missing, skipped = [], [], []
     plan = agent.get("tools_plan", []) or []
-    for step in plan:
+    for position, step in enumerate(plan):
         name = step.get("name", "")
         if name in recorded:
             called.append(name)
             events.append(_event(
                 project_id, conversation_id, "tool", str(recorded[name]),
-                name=name, status="success", trace_id=trace_id, span_id=str(uuid4()),
-                timestamp=now, metadata={"input": step.get("args", {}),
-                                         "output": recorded[name]}))
+                **{"id": f"eval-{case['id']}-tool-{position}", "timestamp": tick(),
+                   "trace_id": trace_id, "span_id": f"eval-{case['id']}-span-{position}",
+                   "name": name, "status": "success",
+                   "metadata": {"input": step.get("args", {}), "output": recorded[name]}}))
         else:
-            missing.append(name)
+            (skipped if step.get("optional") else missing).append(name)
     template = agent.get("response_template", "{input}")
     try:
         response = template.format(input=case["input"],
@@ -56,11 +67,12 @@ def run_case(project_id, case, agent):
     except (KeyError, IndexError, ValueError):
         response = template
     events.append(_event(project_id, conversation_id, "assistant", response,
-                         name="eval.turn", trace_id=trace_id, span_id=str(uuid4()),
-                         timestamp=now, model=agent.get("model"),
-                         latency_ms=agent.get("latency_ms"),
-                         cost_usd=agent.get("cost_usd"),
-                         metadata={"input": case["input"], "output": response}))
+                         **{"id": f"eval-{case['id']}-assistant", "timestamp": tick(),
+                            "trace_id": trace_id, "span_id": f"eval-{case['id']}-turn",
+                            "name": "eval.turn", "status": "success" if not missing else "success",
+                            "model": agent.get("model"), "latency_ms": agent.get("latency_ms"),
+                            "cost_usd": agent.get("cost_usd"),
+                            "metadata": {"input": case["input"], "output": response}}))
     started = time.perf_counter()
     signals = analysis.analyze(events)
     elapsed_ms = (time.perf_counter() - started) * 1000
@@ -79,7 +91,7 @@ def run_case(project_id, case, agent):
     passed = all(checks.values()) if checks else True
     return {
         "case_id": case["id"], "passed": passed, "checks": checks,
-        "called_tools": called, "missing_tools": missing,
+        "called_tools": called, "missing_tools": missing, "skipped_tools": skipped,
         "response": response[:500],
         "violations": [{"kind": s["kind"], "reason": s["reason"]} for s in signals],
         "latency_ms": round(elapsed_ms, 3),

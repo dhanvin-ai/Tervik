@@ -48,8 +48,8 @@ def seed(client, p):
 BASELINE = {"name": "baseline", "version": "v1", "tools_plan": [],
             "response_template": "We got your message about {input}."}
 CANDIDATE = {"name": "candidate", "version": "v2",
-             "tools_plan": [{"name": "refund_tool", "args": {}}],
-             "response_template": "Refund issued via {tools}."}
+             "tools_plan": [{"name": "refund_tool", "args": {}, "optional": True}],
+             "response_template": "Checked records: {tools}."}
 
 
 def test_dataset_from_findings_review_and_run(client):

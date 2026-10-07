@@ -141,3 +141,56 @@ class RulePatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool | None = None
     severity: Literal["critical", "high", "medium", "low"] | None = None
+
+
+class IntentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=1000)
+    examples: list[str] = Field(min_length=1, max_length=20)
+
+    @field_validator("name")
+    @classmethod
+    def clean_intent_name(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("name cannot be blank")
+        return value
+
+    @field_validator("examples")
+    @classmethod
+    def clean_examples(cls, value):
+        cleaned = [str(item).strip() for item in value if str(item).strip()]
+        if not cleaned:
+            raise ValueError("at least one non-blank example is required")
+        if any(len(item) > 500 for item in cleaned):
+            raise ValueError("examples cannot exceed 500 characters")
+        return cleaned[:20]
+
+
+class IntentPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool | None = None
+    description: str | None = Field(default=None, max_length=1000)
+
+
+class DiscoveryRename(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: str = Field(min_length=1, max_length=200)
+
+
+class DiscoveryStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["open", "dismissed"]
+
+
+class DiscoveryMembers(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: str = Field(min_length=1, max_length=200)
+    member_conversation_ids: list[str] = Field(min_length=1, max_length=500)
+
+
+class DiscoveryMerge(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_ids: list[str] = Field(min_length=2, max_length=50)
+    label: str = Field(min_length=1, max_length=200)

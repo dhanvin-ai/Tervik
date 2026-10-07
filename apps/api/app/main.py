@@ -10,7 +10,7 @@ from uuid import UUID, uuid4, uuid5
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from starlette.responses import JSONResponse
@@ -25,10 +25,13 @@ from .auth import (ROLES, SESSION_PREFIX, add_membership, create_organization,
 from .capture import project_settings
 from .config import Settings
 from .db import (Account, AuditRecord, BehaviorRule, ClusterState, Credential, Environment, Event, IngestionJob,
-                 Membership, Organization, Project, Session, iso, make_database, utc, utc_now)
+                 Intent, Membership, Organization, Project, SemanticCluster, SemanticMembership, Session,
+                 iso, make_database, utc, utc_now)
 from .demo import DEMO_PROJECT_ID, demo_events
 from .mirror import mirror_events
-from .schemas import (CaptureInput, ClusterPatch, CredentialInput, EventBatch, LoginInput,
+from .schemas import (CaptureInput, ClusterPatch, CredentialInput, DiscoveryMembers, DiscoveryMerge,
+                      DiscoveryRename, DiscoveryStatus, EventBatch, IntentInput,
+                      IntentPatch, LoginInput,
                       MemberInput, MemberPatch, OrgInput, OrgProjectInput, ProjectInput, RuleInput,
                       RulePatch, SignupInput)
 
@@ -837,6 +840,351 @@ def create_app(settings: Settings | None = None):
                 audit(session, project.org_id, "rule.delete", rule.id, account.id)
             session.delete(rule)
             return {"ok": True}
+
+    # ---- Phase 6: intents ----
+
+    def intent_dict(intent):
+        return {"id": intent.id, "project_id": intent.project_id, "name": intent.name,
+                "description": intent.description, "examples": intent.examples,
+                "enabled": intent.enabled, "version": intent.version,
+                "created_at": iso(intent.created_at)}
+
+    def intent_project(request, db_session, project_id, minimum):
+        project = db_session.get(Project, project_id)
+        if project is None:
+            raise HTTPException(404, "Project not found")
+        dashboard_access(request, db_session, project)
+        resolved = session_auth(request, db_session)
+        if project.org_id is not None and resolved is not None:
+            try:
+                require_project_role(db_session, project, resolved[1].id, minimum)
+            except PermissionError:
+                raise HTTPException(403, "Insufficient role")
+        elif project.org_id is not None and minimum == "admin":
+            # Org projects require a session for mutations.
+            raise HTTPException(401, "Login required")
+        return project
+
+    @app.get("/api/projects/{id}/intents")
+    def list_intents(request: Request, id: str):
+        with sessions() as session:
+            intent_project(request, session, id, "viewer")
+            return [intent_dict(r) for r in session.scalars(
+                select(Intent).where(Intent.project_id == id).order_by(Intent.created_at))]
+
+    @app.post("/api/projects/{id}/intents", status_code=201)
+    def create_intent(request: Request, id: str, body: IntentInput):
+        with sessions.begin() as session:
+            project = intent_project(request, session, id, "admin")
+            account_id = None
+            resolved = session_auth(request, session)
+            if resolved is not None:
+                account_id = resolved[1].id
+            intent = Intent(id=str(uuid4()), project_id=project.id, name=body.name,
+                            description=body.description, examples=body.examples,
+                            enabled=True, version="1", created_by=account_id)
+            session.add(intent)
+            session.flush()
+            if project.org_id is not None:
+                audit(session, project.org_id, "intent.create", intent.id, account_id)
+            return intent_dict(intent)
+
+    @app.patch("/api/intents/{id}")
+    def update_intent(request: Request, id: str, body: IntentPatch):
+        with sessions.begin() as session:
+            intent = session.get(Intent, id)
+            if intent is None:
+                raise HTTPException(404, "Intent not found")
+            project = intent_project(request, session, intent.project_id, "admin")
+            if body.enabled is not None:
+                intent.enabled = body.enabled
+            if body.description is not None:
+                intent.description = body.description
+            resolved = session_auth(request, session)
+            if project.org_id is not None:
+                audit(session, project.org_id, "intent.update", intent.id,
+                      resolved[1].id if resolved else None)
+            return intent_dict(intent)
+
+    @app.delete("/api/intents/{id}")
+    def delete_intent(request: Request, id: str):
+        with sessions.begin() as session:
+            intent = session.get(Intent, id)
+            if intent is None:
+                raise HTTPException(404, "Intent not found")
+            project = intent_project(request, session, intent.project_id, "admin")
+            resolved = session_auth(request, session)
+            if project.org_id is not None:
+                audit(session, project.org_id, "intent.delete", intent.id,
+                      resolved[1].id if resolved else None)
+            session.delete(intent)
+            return {"ok": True}
+
+    # ---- Phase 6: discovery ----
+
+    def discovery_project(request, db_session, project_id, minimum):
+        project = db_session.get(Project, project_id)
+        if project is None:
+            raise HTTPException(404, "Project not found")
+        dashboard_access(request, db_session, project)
+        resolved = session_auth(request, db_session)
+        if project.org_id is not None and resolved is not None:
+            try:
+                require_project_role(db_session, project, resolved[1].id, minimum)
+            except PermissionError:
+                raise HTTPException(403, "Insufficient role")
+        elif project.org_id is not None and minimum == "admin":
+            raise HTTPException(401, "Login required")
+        return project
+
+    def discovery_conversations(db_session, project_id, start, end):
+        events = list(db_session.scalars(select(Event).where(
+            Event.project_id == project_id).order_by(Event.timestamp, Event.id)))
+        by_conv = {}
+        for event in events:
+            if start <= utc(event.timestamp) <= end:
+                by_conv.setdefault(event.conversation_id, []).append(event)
+        return events, by_conv
+
+    def sync_discovery(db_session, project, groups):
+        """Upsert computed groups; refresh their memberships. Edit rows win."""
+        from .db import SemanticCluster as ClusterModel, SemanticMembership as MembershipModel
+        for group in groups:
+            row = db_session.scalars(select(ClusterModel).where(
+                ClusterModel.project_id == project.id,
+                ClusterModel.key == group["key"])).first()
+            if row is None:
+                row = ClusterModel(id=str(uuid4()), project_id=project.id, key=group["key"],
+                                   label=group["label"], status="open",
+                                   member_count=group["count"], updated_at=utc_now())
+                db_session.add(row)
+                db_session.flush()
+            else:
+                row.member_count = group["count"]
+                row.updated_at = utc_now()
+                if not row.label_override:
+                    row.label = group["label"]
+            db_session.execute(delete(SemanticMembership).where(
+                SemanticMembership.cluster_id == row.id))
+            for member in group["member_ids"]:
+                db_session.add(SemanticMembership(cluster_id=row.id, conversation_id=member,
+                                                  score=1.0))
+        db_session.flush()
+
+    @app.get("/api/projects/{id}/discovery")
+    def get_discovery(request: Request, id: str, range: Range = "7d"):
+        from . import clustering as clustering_mod
+        with sessions() as session:
+            project = session.get(Project, id)
+            if project is None:
+                raise HTTPException(404, "Project not found")
+            dashboard_access(request, session, project)
+            start, end = window(range)
+            _, by_conv = discovery_conversations(session, project.id, start, end)
+            units, users = [], set()
+            for conv_id, messages in by_conv.items():
+                text = " | ".join(m.content for m in messages if (m.content or "").strip())[:2000]
+                if messages[0].user_id:
+                    users.add(messages[0].user_id)
+                for m in messages:
+                    if m.user_id:
+                        users.add(m.user_id)
+                if text.strip():
+                    units.append({"id": conv_id, "text": text})
+            intents = [{"id": r.id, "name": r.name, "examples": r.examples, "enabled": r.enabled}
+                       for r in session.scalars(select(Intent).where(
+                           Intent.project_id == project.id, Intent.enabled == True))]  # noqa: E712
+            intent_hits = {}
+            for unit in units:
+                match = clustering_mod.match_intent(unit["text"], intents)
+                if match:
+                    intent_hits[unit["id"]] = match
+            groups = clustering_mod.discover(units)
+            sync_discovery(session, project, groups)
+            session.commit()
+            hidden = {r.key: r for r in session.scalars(select(SemanticCluster).where(
+                SemanticCluster.project_id == project.id,
+                SemanticCluster.status.in_(("dismissed", "merged", "split"))))}
+            rows = {r.key: r for r in session.scalars(select(SemanticCluster).where(
+                SemanticCluster.project_id == project.id))}
+            clusters = []
+            for group in groups:
+                if group["key"] in hidden:
+                    continue
+                row = rows.get(group["key"])
+                members = [{"conversation_id": m} for m in group["member_ids"]]
+                clusters.append({
+                    "id": row.id if row else group["key"], "key": group["key"],
+                    "label": (row.label_override or row.label) if row and (row.label_override or row.label) else group["label"],
+                    "status": row.status if row else "open",
+                    "count": group["count"],
+                    "affected_users": len({m.user_id for _, ms in by_conv.items() for m in ms
+                                           if m.conversation_id in group["member_ids"] and m.user_id}),
+                    "evidence": [{"conversation_id": group["representative_id"],
+                                  "excerpt": group["representative_text"],
+                                  "reason": f"Representative of {group['count']} grouped conversations"}],
+                    "members": [m for m in group["member_ids"]],
+                    "detector_version": clustering_mod.DISCOVERY_VERSION,
+                })
+            manual = []
+            for row in session.scalars(select(SemanticCluster).where(
+                    SemanticCluster.project_id == project.id, SemanticCluster.status == "open")):
+                if row.key.startswith("m") and len(row.key) == 16:
+                    members = [m.conversation_id for m in session.scalars(
+                        select(SemanticMembership).where(SemanticMembership.cluster_id == row.id))]
+                    manual.append({"id": row.id, "key": row.key,
+                                   "label": row.label_override or row.label, "status": row.status,
+                                   "count": len(members), "affected_users": 0,
+                                   "evidence": [], "members": members,
+                                   "detector_version": clustering_mod.DISCOVERY_VERSION})
+            intent_summary = []
+            for intent in intents:
+                matched = [cid for cid, hit in intent_hits.items() if hit["intent_id"] == intent["id"]]
+                intent_summary.append({"intent_id": intent["id"], "intent_name": intent["name"],
+                                       "conversations": len(matched), "sample": matched[:5]})
+            total_messages = sum(len(ms) for ms in by_conv.values())
+            clustered = {m for c in clusters for m in c["members"]}
+            return {
+                "project": project_dict(project),
+                "clusters": clusters + manual,
+                "intents": intent_summary,
+                "coverage": {
+                    "conversations_total": len(by_conv),
+                    "conversations_analyzed": len(units),
+                    "messages_total": total_messages,
+                    "users_total": len(users),
+                    "clustered": len(clustered),
+                    "unassigned": len(units) - len(clustered),
+                },
+            }
+
+    @app.patch("/api/discovery/{cluster_id}")
+    def update_discovery(request: Request, cluster_id: str, body: DiscoveryStatus):
+        """Dismiss hides the group. Evidence stays in retained telemetry."""
+        with sessions.begin() as session:
+            row = session.get(SemanticCluster, cluster_id)
+            if row is None:
+                raise HTTPException(404, "Cluster not found")
+            project = discovery_project(request, session, row.project_id, "member")
+            row.status = body.status
+            row.updated_at = utc_now()
+            resolved = session_auth(request, session)
+            if project.org_id is not None:
+                audit(session, project.org_id, "discovery.update", row.id,
+                      resolved[1].id if resolved else None)
+            return {"id": row.id, "status": row.status}
+
+    @app.post("/api/discovery/{cluster_id}/rename")
+    def rename_discovery(request: Request, cluster_id: str, body: DiscoveryRename):
+        with sessions.begin() as session:
+            row = session.get(SemanticCluster, cluster_id)
+            if row is None:
+                raise HTTPException(404, "Cluster not found")
+            project = discovery_project(request, session, row.project_id, "member")
+            row.label_override = body.label.strip()
+            row.updated_at = utc_now()
+            resolved = session_auth(request, session)
+            if project.org_id is not None:
+                audit(session, project.org_id, "discovery.rename", row.id,
+                      resolved[1].id if resolved else None)
+            return {"id": row.id, "label": row.label_override}
+
+    def discovery_manual(db_session, project, label, member_ids, account_id):
+        existing = {e.conversation_id for e in db_session.scalars(select(Event).where(
+            Event.project_id == project.id))}
+        unknown = [m for m in dict.fromkeys(member_ids) if m not in existing]
+        if unknown:
+            raise HTTPException(422, f"Unknown conversations: {unknown[:5]}")
+        members = [m for m in dict.fromkeys(member_ids) if m in existing]
+        key = "m" + str(uuid4()).replace("-", "")[:15]
+        row = SemanticCluster(id=str(uuid4()), project_id=project.id, key=key,
+                              label=label.strip()[:200], status="open",
+                              member_count=len(members), updated_at=utc_now())
+        db_session.add(row)
+        db_session.flush()
+        for member in members:
+            db_session.add(SemanticMembership(cluster_id=row.id, conversation_id=member, score=1.0))
+        return row
+
+    @app.post("/api/projects/{id}/discovery/manual", status_code=201)
+    def manual_discovery(request: Request, id: str, body: DiscoveryMembers):
+        with sessions.begin() as session:
+            project = discovery_project(request, session, id, "admin")
+            resolved = session_auth(request, session)
+            account_id = resolved[1].id if resolved else None
+            row = discovery_manual(session, project, body.label, body.member_conversation_ids, account_id)
+            if project.org_id is not None:
+                audit(session, project.org_id, "discovery.create", row.id, account_id)
+            return {"id": row.id, "key": row.key, "label": row.label,
+                    "members": body.member_conversation_ids}
+
+    @app.post("/api/projects/{id}/discovery/merge", status_code=201)
+    def merge_discovery(request: Request, id: str, body: DiscoveryMerge):
+        with sessions.begin() as session:
+            project = discovery_project(request, session, id, "admin")
+            resolved = session_auth(request, session)
+            account_id = resolved[1].id if resolved else None
+            sources = [session.get(SemanticCluster, source_id) for source_id in body.source_ids]
+            if any(r is None or r.project_id != project.id or r.status != "open" for r in sources):
+                raise HTTPException(404, "Source cluster not found")
+            members = []
+            for row in sources:
+                members.extend(m.conversation_id for m in session.scalars(
+                    select(SemanticMembership).where(SemanticMembership.cluster_id == row.id)))
+            row = discovery_manual(session, project, body.label, members, account_id)
+            for source in sources:
+                source.status = "merged"
+                source.merged_into = row.id
+                source.updated_at = utc_now()
+            if project.org_id is not None:
+                audit(session, project.org_id, "discovery.merge", row.id, account_id)
+            return {"id": row.id, "label": row.label, "members": members}
+
+    @app.post("/api/projects/{id}/discovery/split", status_code=201)
+    def split_discovery(request: Request, id: str, body: DiscoveryMembers):
+        with sessions.begin() as session:
+            project = discovery_project(request, session, id, "admin")
+            resolved = session_auth(request, session)
+            account_id = resolved[1].id if resolved else None
+            current = session.scalars(select(SemanticCluster).where(
+                SemanticCluster.project_id == project.id,
+                SemanticCluster.status == "open")).all()
+            if not current:
+                raise HTTPException(404, "No open clusters to split")
+            # Split reads live membership so evidence never goes stale.
+            by_member = {}
+            for row in current:
+                for m in session.scalars(select(SemanticMembership).where(
+                        SemanticMembership.cluster_id == row.id)):
+                    by_member.setdefault(m.conversation_id, []).append(row)
+            subset = [m for m in dict.fromkeys(body.member_conversation_ids) if m in by_member]
+            if len(subset) < 1:
+                raise HTTPException(422, "Split needs clustered members")
+            touched = set()
+            for member in subset:
+                for row in by_member.get(member, []):
+                    touched.add(row.id)
+            remainder = []
+            for row in current:
+                if row.id not in touched:
+                    continue
+                for m in session.scalars(select(SemanticMembership).where(
+                        SemanticMembership.cluster_id == row.id)):
+                    if m.conversation_id not in subset:
+                        remainder.append(m.conversation_id)
+            remainder = list(dict.fromkeys(remainder))
+            if not remainder:
+                raise HTTPException(422, "Split would leave nothing behind")
+            first = discovery_manual(session, project, body.label, subset, account_id)
+            kept = discovery_manual(session, project, "Split remainder", remainder, account_id)
+            for row in current:
+                if row.id in touched:
+                    row.status = "split"
+                    row.updated_at = utc_now()
+            if project.org_id is not None:
+                audit(session, project.org_id, "discovery.split", first.id, account_id)
+            return {"id": first.id, "label": first.label,
+                    "members": subset, "remainder_id": kept.id}
 
     @app.post("/api/demo/seed")
     def seed_demo(background_tasks: BackgroundTasks):

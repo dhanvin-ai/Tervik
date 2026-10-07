@@ -276,6 +276,69 @@ class Plan(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class EvalDataset(Base):
+    """Phase 8 evaluation dataset built from production findings + controls."""
+    __tablename__ = "eval_datasets"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    version: Mapped[str] = mapped_column(String(20), default="1")
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    cases: Mapped[list] = mapped_column(JSON, default=list)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class EvalRun(Base):
+    """Phase 8 baseline-vs-candidate comparison with reproducible artifacts."""
+    __tablename__ = "eval_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    dataset_id: Mapped[str] = mapped_column(ForeignKey("eval_datasets.id"), index=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    baseline: Mapped[dict] = mapped_column(JSON, default=dict)
+    candidate: Mapped[dict] = mapped_column(JSON, default=dict)
+    repeats: Mapped[int] = mapped_column(Integer, default=1)
+    state: Mapped[str] = mapped_column(String(20), default="complete")
+    results: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class Improvement(Base):
+    """Phase 9 evidence-backed fix with a guarded delivery lifecycle."""
+    __tablename__ = "improvements"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    signal_kind: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    evidence: Mapped[list] = mapped_column(JSON, default=list)
+    cause: Mapped[str] = mapped_column(Text, default="")
+    uncertainty: Mapped[str] = mapped_column(Text, default="")
+    candidate_diff: Mapped[str] = mapped_column(Text, default="")
+    state: Mapped[str] = mapped_column(String(30), default="proposed")
+    eval_run_id: Mapped[str | None] = mapped_column(ForeignKey("eval_runs.id"), nullable=True)
+    approved_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    deployed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    measurements: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class PromptVersion(Base):
+    """Phase 9 versioned prompt registry. Rollback restores the prior active."""
+    __tablename__ = "prompt_versions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    path: Mapped[str] = mapped_column(String(200))
+    content: Mapped[str] = mapped_column(Text, default="")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    improvement_id: Mapped[str | None] = mapped_column(ForeignKey("improvements.id"), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class ClusterState(Base):
     __tablename__ = "cluster_states"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)

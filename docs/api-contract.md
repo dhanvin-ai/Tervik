@@ -78,6 +78,30 @@ Coverage: `{conversations_total, conversations_analyzed, messages_total, users_t
 
 Over-quota ingestion returns 429. Email delivery needs `SMTP_*` settings; otherwise the channel reports `email_not_configured` without retrying blindly.
 
+## Phase 8: evaluations and replay
+
+`EvalDataset`: `{id, project_id, name, version, status, cases, case_count, created_at}`. Case: `{id, input, tools[{name, recorded_output}], expected{response_contains?, response_regex?, tools_called[]?, no_violations[]?}}`. Agent descriptor: `{name, version, model?, tools_plan[{name, args?, optional?}], response_template, latency_ms?, cost_usd?}`.
+
+- `GET /api/projects/{id}/datasets` → `EvalDataset[]`.
+- `POST /api/projects/{id}/datasets` body `{name, cases[]}` → draft `EvalDataset` (admin+).
+- `POST /api/projects/{id}/datasets/from-findings` body `{name, signal_kinds[], include_controls?, limit?}` → draft `EvalDataset` (admin+).
+- `PATCH /api/datasets/{id}` body `{status: "draft"|"reviewed"|"approved"}` → `EvalDataset` (admin+; reviewed never returns to draft).
+- `DELETE /api/datasets/{id}` → `{ok}` (admin+).
+- `POST /api/datasets/{id}/runs` body `{baseline, candidate, repeats?}` → run with `{cases, repeats, reproducible, baseline_pass, candidate_pass, fixed[], regressed[], baseline_violations, candidate_violations, verdict, details[]}` (admin+; drafts cannot run).
+- `GET /api/datasets/{id}/runs` → runs with results.
+
+## Phase 9: improvements and delivery
+
+`Improvement`: `{id, project_id, title, signal_kind, evidence[{event_id, conversation_id, content}], cause, uncertainty, candidate_diff, state, eval_run_id, approved_by, deployed_at, measurements, created_at}`.
+
+- `GET /api/projects/{id}/improvements` → `Improvement[]`.
+- `GET /api/improvements/{id}` → improvement plus `prompts[{id, path, version, status, content}]`.
+- `POST /api/projects/{id}/improvements` body `{signal_kind, tool?, evidence_event_id?, prompt_path?}` → proposed `Improvement` (member+).
+- `POST /api/improvements/{id}/eval` body `{eval_run_id}` → `Improvement` (member+).
+- `POST /api/improvements/{id}/transition` body `{to}` → `Improvement` (member+; admin for deployed/rolled_back/cancelled; guarded, 422 on violation).
+- `GET /api/improvements/{id}/measurements?window_days=7` → before/after flagged rates.
+- `GET /api/projects/{id}/prompts` → prompt versions without full history duplication.
+
 `evidence`: `[{event_id, conversation_id, content, reason}]`.
 
 `Span`: `{id, parent_id, name, kind, status, duration_ms, input, output}`. Nullable parent. Input/output may be strings or JSON values.

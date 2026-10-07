@@ -199,3 +199,60 @@ CREATE TABLE IF NOT EXISTS plans (
     monthly_event_limit INTEGER NOT NULL DEFAULT 100000,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Phase 8: evaluation datasets and runs.
+CREATE TABLE IF NOT EXISTS eval_datasets (
+    id VARCHAR(36) PRIMARY KEY,
+    project_id VARCHAR(36) NOT NULL REFERENCES projects(id),
+    name VARCHAR(120) NOT NULL,
+    version VARCHAR(20) NOT NULL DEFAULT '1',
+    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+    cases JSONB NOT NULL DEFAULT '[]',
+    created_by VARCHAR(36),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS eval_runs (
+    id VARCHAR(36) PRIMARY KEY,
+    dataset_id VARCHAR(36) NOT NULL REFERENCES eval_datasets(id),
+    project_id VARCHAR(36) NOT NULL,
+    baseline JSONB NOT NULL DEFAULT '{}',
+    candidate JSONB NOT NULL DEFAULT '{}',
+    repeats INTEGER NOT NULL DEFAULT 1,
+    state VARCHAR(20) NOT NULL DEFAULT 'complete',
+    results JSONB NOT NULL DEFAULT '{}',
+    created_by VARCHAR(36),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Phase 9: improvements and prompt versions.
+CREATE TABLE IF NOT EXISTS improvements (
+    id VARCHAR(36) PRIMARY KEY,
+    project_id VARCHAR(36) NOT NULL REFERENCES projects(id),
+    title VARCHAR(200) NOT NULL,
+    signal_kind VARCHAR(40),
+    evidence JSONB NOT NULL DEFAULT '[]',
+    cause TEXT NOT NULL DEFAULT '',
+    uncertainty TEXT NOT NULL DEFAULT '',
+    candidate_diff TEXT NOT NULL DEFAULT '',
+    state VARCHAR(30) NOT NULL DEFAULT 'proposed',
+    eval_run_id VARCHAR(36) REFERENCES eval_runs(id),
+    approved_by VARCHAR(36),
+    deployed_at TIMESTAMPTZ,
+    measurements JSONB NOT NULL DEFAULT '{}',
+    created_by VARCHAR(36),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS prompt_versions (
+    id VARCHAR(36) PRIMARY KEY,
+    project_id VARCHAR(36) NOT NULL REFERENCES projects(id),
+    path VARCHAR(200) NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    version INTEGER NOT NULL DEFAULT 1,
+    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+    improvement_id VARCHAR(36) REFERENCES improvements(id),
+    created_by VARCHAR(36),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

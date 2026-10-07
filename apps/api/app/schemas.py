@@ -278,3 +278,22 @@ class FindingsDatasetInput(BaseModel):
     signal_kinds: list[str] = Field(min_length=1, max_length=20)
     include_controls: bool = True
     limit: int = Field(default=20, ge=1, le=100)
+
+
+class ImprovementInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    signal_kind: str = Field(min_length=1, max_length=40)
+    tool: str | None = Field(default=None, max_length=200)
+    evidence_event_id: str | None = Field(default=None, max_length=200)
+    prompt_path: str | None = Field(default=None, max_length=200)
+
+
+class ImprovementTransition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    to: Literal["investigating", "candidate_ready", "evaluating", "awaiting_approval",
+                "deployed", "monitoring", "resolved", "rolled_back", "cancelled"]
+
+
+class ImprovementEval(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    eval_run_id: str = Field(min_length=1, max_length=36)

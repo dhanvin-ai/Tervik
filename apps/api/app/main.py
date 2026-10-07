@@ -20,19 +20,20 @@ from . import otlp as otlp_mod
 from . import queue as queue_mod
 from . import alerts as alerts_mod
 from . import evaluate as evaluate_mod
+from . import improve as improve_mod
 from .auth import (ROLES, SESSION_PREFIX, add_membership, create_organization,
                    create_session, credential_for_token, hash_password, is_ingest_token,
                    new_ingest_key, normalize_email, project_role, require_project_role,
                    resolve_session, sha256_hex, verify_password)
 from .capture import project_settings
 from .config import Settings
-from .db import (Account, AlertDelivery, AlertRule, AuditRecord, BehaviorRule, ClusterState, Credential, Environment, EvalDataset, EvalRun, Event, IngestionJob,
-                 Intent, Membership, Organization, PayloadObject, Plan, Project, SemanticCluster, SemanticMembership, Session, UsageRecord,
+from .db import (Account, AlertDelivery, AlertRule, AuditRecord, BehaviorRule, ClusterState, Credential, Environment, EvalDataset, EvalRun, Event, Improvement, IngestionJob,
+                 Intent, Membership, Organization, PayloadObject, Plan, Project, PromptVersion, SemanticCluster, SemanticMembership, Session, UsageRecord,
                  iso, make_database, utc, utc_now)
 from .demo import DEMO_PROJECT_ID, demo_events
 from .mirror import mirror_events
 from .schemas import (AgentDescriptor, AlertRuleInput, AlertRulePatch, CaptureInput, ClusterPatch, CredentialInput, DiscoveryMembers, DiscoveryMerge,
-                      DiscoveryRename, DiscoveryStatus, EvalCase, EvalDatasetInput, EvalDatasetPatch, EvalRunInput, EventBatch, FindingsDatasetInput, IntentInput,
+                      DiscoveryRename, DiscoveryStatus, EvalCase, EvalDatasetInput, EvalDatasetPatch, EvalRunInput, EventBatch, FindingsDatasetInput, ImprovementEval, ImprovementInput, ImprovementTransition, IntentInput,
                       IntentPatch, LoginInput,
                       MemberInput, MemberPatch, OrgInput, OrgProjectInput, ProjectInput, RuleInput,
                       RulePatch, SignupInput)
@@ -1639,6 +1640,150 @@ def create_app(settings: Settings | None = None):
             return [run_dict(r) for r in session.scalars(
                 select(EvalRun).where(EvalRun.dataset_id == dataset.id)
                 .order_by(EvalRun.created_at))]
+
+    # ---- Phase 9: improvements and delivery ----
+
+    def improvement_access(request, db_session, project_id, minimum):
+        project = db_session.get(Project, project_id)
+        if project is None:
+            raise HTTPException(404, "Project not found")
+        dashboard_access(request, db_session, project)
+        resolved = session_auth(request, db_session)
+        if project.org_id is not None:
+            if resolved is None:
+                if minimum == "admin":
+                    raise HTTPException(401, "Login required")
+            else:
+                try:
+                    require_project_role(db_session, project, resolved[1].id, minimum)
+                except PermissionError:
+                    raise HTTPException(403, "Insufficient role")
+        return project
+
+    @app.get("/api/projects/{id}/improvements")
+    def list_improvements(request: Request, id: str):
+        with sessions() as session:
+            improvement_access(request, session, id, "viewer")
+            return [improve_mod.public_improvement(i) for i in session.scalars(
+                select(Improvement).where(Improvement.project_id == id)
+                .order_by(Improvement.created_at))]
+
+    @app.get("/api/improvements/{id}")
+    def get_improvement(request: Request, id: str):
+        with sessions() as session:
+            imp = session.get(Improvement, id)
+            if imp is None:
+                raise HTTPException(404, "Improvement not found")
+            improvement_access(request, session, imp.project_id, "viewer")
+            prompts = [{"id": p.id, "path": p.path, "version": p.version, "status": p.status,
+                        "content": p.content}
+                       for p in session.scalars(select(PromptVersion).where(
+                           PromptVersion.improvement_id == imp.id).order_by(PromptVersion.version))]
+            return {**improve_mod.public_improvement(imp), "prompts": prompts}
+
+    @app.post("/api/projects/{id}/improvements", status_code=201)
+    def create_improvement(request: Request, id: str, body: ImprovementInput):
+        with sessions.begin() as session:
+            project = improvement_access(request, session, id, "member")
+            account_id = None
+            resolved = session_auth(request, session)
+            if resolved is not None:
+                account_id = resolved[1].id
+            evidence, evidence_text = [], ""
+            if body.evidence_event_id:
+                event = session.scalars(select(Event).where(
+                    Event.project_id == project.id, Event.id == body.evidence_event_id)).first()
+                if event is None:
+                    raise HTTPException(404, "Evidence event not found")
+                evidence = [{"event_id": event.id, "conversation_id": event.conversation_id,
+                             "content": event.content[:280]}]
+                evidence_text = event.content
+            draft = improve_mod.suggest(body.signal_kind, body.tool, evidence_text)
+            if body.prompt_path:
+                draft["prompt_path"] = body.prompt_path.strip()[:200] or draft["prompt_path"]
+                draft["candidate_diff"] = draft["candidate_diff"].replace(
+                    "prompts/support-agent.md", draft["prompt_path"], 1)
+            imp = Improvement(id=str(uuid4()), project_id=project.id, title=draft["title"],
+                              signal_kind=body.signal_kind, evidence=evidence,
+                              cause=draft["cause"], uncertainty=draft["uncertainty"],
+                              candidate_diff=draft["candidate_diff"], state="proposed",
+                              created_by=account_id)
+            session.add(imp)
+            session.flush()
+            if project.org_id is not None:
+                audit(session, project.org_id, "improvement.create", imp.id, account_id)
+            return improve_mod.public_improvement(imp)
+
+    @app.post("/api/improvements/{id}/eval")
+    def attach_eval(request: Request, id: str, body: ImprovementEval):
+        with sessions.begin() as session:
+            imp = session.get(Improvement, id)
+            if imp is None:
+                raise HTTPException(404, "Improvement not found")
+            project = improvement_access(request, session, imp.project_id, "member")
+            run = session.get(EvalRun, body.eval_run_id)
+            if run is None or run.project_id != imp.project_id:
+                raise HTTPException(404, "Evaluation run not found")
+            imp.eval_run_id = run.id
+            imp.updated_at = utc_now()
+            resolved = session_auth(request, session)
+            if project.org_id is not None:
+                audit(session, project.org_id, "improvement.eval", imp.id,
+                      resolved[1].id if resolved else None)
+            return improve_mod.public_improvement(imp)
+
+    @app.post("/api/improvements/{id}/transition")
+    def transition_improvement(request: Request, id: str, body: ImprovementTransition):
+        approve_states = {"deployed", "rolled_back", "cancelled"}
+        with sessions.begin() as session:
+            imp = session.get(Improvement, id)
+            if imp is None:
+                raise HTTPException(404, "Improvement not found")
+            minimum = "admin" if body.to in approve_states else "member"
+            project = improvement_access(request, session, imp.project_id, minimum)
+            resolved = session_auth(request, session)
+            account_id = resolved[1].id if resolved else None
+            ok, reason = improve_mod.check_transition(imp, body.to, session)
+            if not ok:
+                raise HTTPException(422, reason)
+            if body.to == "deployed":
+                path, added = improve_mod.parse_prompt_block(imp.candidate_diff)
+                improve_mod.activate_prompt(session, imp.project_id, path,
+                                            "\n".join(added), imp.id, account_id)
+                imp.approved_by = account_id
+                imp.deployed_at = utc_now()
+            if body.to == "rolled_back":
+                path, _ = improve_mod.parse_prompt_block(imp.candidate_diff)
+                improve_mod.rollback_prompt(session, imp.project_id, path)
+            if body.to in ("resolved", "rolled_back"):
+                imp.measurements = improve_mod.measure_outcome(
+                    session, imp.project_id, imp.signal_kind, imp.deployed_at)
+            imp.state = body.to
+            imp.updated_at = utc_now()
+            if project.org_id is not None:
+                audit(session, project.org_id, f"improvement.{body.to}", imp.id, account_id)
+            return improve_mod.public_improvement(imp)
+
+    @app.get("/api/improvements/{id}/measurements")
+    def improvement_measurements(request: Request, id: str, window_days: int = Query(default=7, ge=1, le=90)):
+        with sessions() as session:
+            imp = session.get(Improvement, id)
+            if imp is None:
+                raise HTTPException(404, "Improvement not found")
+            improvement_access(request, session, imp.project_id, "viewer")
+            return {"improvement_id": imp.id,
+                    **improve_mod.measure_outcome(session, imp.project_id, imp.signal_kind,
+                                                  imp.deployed_at, window_days)}
+
+    @app.get("/api/projects/{id}/prompts")
+    def list_prompts(request: Request, id: str):
+        with sessions() as session:
+            improvement_access(request, session, id, "viewer")
+            return [{"id": p.id, "path": p.path, "version": p.version, "status": p.status,
+                     "improvement_id": p.improvement_id,
+                     "created_at": iso(p.created_at)}
+                    for p in session.scalars(select(PromptVersion).where(
+                        PromptVersion.project_id == id).order_by(PromptVersion.path, PromptVersion.version))]
 
     @app.post("/api/demo/seed")
     def seed_demo(background_tasks: BackgroundTasks):

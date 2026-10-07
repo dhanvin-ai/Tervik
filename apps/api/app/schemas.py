@@ -219,3 +219,62 @@ class AlertRulePatch(BaseModel):
     enabled: bool | None = None
     threshold: float | None = Field(default=None, ge=0, le=1000000)
     cooldown_hours: int | None = Field(default=None, ge=1, le=720)
+
+
+class EvalToolFixture(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=200)
+    recorded_output: str = Field(default="", max_length=8000)
+
+
+class EvalExpectation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    response_contains: str | None = Field(default=None, max_length=1000)
+    response_regex: str | None = Field(default=None, max_length=500)
+    tools_called: list[str] | None = None
+    no_violations: list[str] | None = None
+
+
+class EvalCase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1, max_length=200)
+    input: str = Field(min_length=1, max_length=8000)
+    tools: list[EvalToolFixture] = Field(default_factory=list, max_length=20)
+    expected: EvalExpectation = Field(default_factory=EvalExpectation)
+
+
+class EvalDatasetInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=120)
+    cases: list[EvalCase] = Field(min_length=1, max_length=200)
+
+
+class EvalDatasetPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["draft", "reviewed", "approved"]
+
+
+class AgentDescriptor(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=120)
+    version: str = Field(default="1", max_length=40)
+    model: str | None = Field(default=None, max_length=200)
+    tools_plan: list[dict] = Field(default_factory=list, max_length=20)
+    response_template: str = Field(default="{input}", max_length=8000)
+    latency_ms: float | None = Field(default=None, ge=0)
+    cost_usd: float | None = Field(default=None, ge=0)
+
+
+class EvalRunInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    baseline: AgentDescriptor
+    candidate: AgentDescriptor
+    repeats: int = Field(default=1, ge=1, le=5)
+
+
+class FindingsDatasetInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=120)
+    signal_kinds: list[str] = Field(min_length=1, max_length=20)
+    include_controls: bool = True
+    limit: int = Field(default=20, ge=1, le=100)

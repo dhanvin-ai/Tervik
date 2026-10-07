@@ -276,6 +276,34 @@ class Plan(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class EvalDataset(Base):
+    """Phase 8 evaluation dataset built from production findings + controls."""
+    __tablename__ = "eval_datasets"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    version: Mapped[str] = mapped_column(String(20), default="1")
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    cases: Mapped[list] = mapped_column(JSON, default=list)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class EvalRun(Base):
+    """Phase 8 baseline-vs-candidate comparison with reproducible artifacts."""
+    __tablename__ = "eval_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    dataset_id: Mapped[str] = mapped_column(ForeignKey("eval_datasets.id"), index=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    baseline: Mapped[dict] = mapped_column(JSON, default=dict)
+    candidate: Mapped[dict] = mapped_column(JSON, default=dict)
+    repeats: Mapped[int] = mapped_column(Integer, default=1)
+    state: Mapped[str] = mapped_column(String(20), default="complete")
+    results: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class ClusterState(Base):
     __tablename__ = "cluster_states"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)

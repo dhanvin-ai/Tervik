@@ -19,19 +19,20 @@ from . import analysis
 from . import otlp as otlp_mod
 from . import queue as queue_mod
 from . import alerts as alerts_mod
+from . import evaluate as evaluate_mod
 from .auth import (ROLES, SESSION_PREFIX, add_membership, create_organization,
                    create_session, credential_for_token, hash_password, is_ingest_token,
                    new_ingest_key, normalize_email, project_role, require_project_role,
                    resolve_session, sha256_hex, verify_password)
 from .capture import project_settings
 from .config import Settings
-from .db import (Account, AlertDelivery, AlertRule, AuditRecord, BehaviorRule, ClusterState, Credential, Environment, Event, IngestionJob,
+from .db import (Account, AlertDelivery, AlertRule, AuditRecord, BehaviorRule, ClusterState, Credential, Environment, EvalDataset, EvalRun, Event, IngestionJob,
                  Intent, Membership, Organization, PayloadObject, Plan, Project, SemanticCluster, SemanticMembership, Session, UsageRecord,
                  iso, make_database, utc, utc_now)
 from .demo import DEMO_PROJECT_ID, demo_events
 from .mirror import mirror_events
-from .schemas import (AlertRuleInput, AlertRulePatch, CaptureInput, ClusterPatch, CredentialInput, DiscoveryMembers, DiscoveryMerge,
-                      DiscoveryRename, DiscoveryStatus, EventBatch, IntentInput,
+from .schemas import (AgentDescriptor, AlertRuleInput, AlertRulePatch, CaptureInput, ClusterPatch, CredentialInput, DiscoveryMembers, DiscoveryMerge,
+                      DiscoveryRename, DiscoveryStatus, EvalCase, EvalDatasetInput, EvalDatasetPatch, EvalRunInput, EventBatch, FindingsDatasetInput, IntentInput,
                       IntentPatch, LoginInput,
                       MemberInput, MemberPatch, OrgInput, OrgProjectInput, ProjectInput, RuleInput,
                       RulePatch, SignupInput)
@@ -1464,6 +1465,177 @@ def create_app(settings: Settings | None = None):
                     "messages_total": len(recent),
                     "users_total": len({e.user_id for e in recent if e.user_id})},
             }
+
+    # ---- Phase 8: evaluations and replay ----
+
+    def dataset_dict(dataset):
+        return {"id": dataset.id, "project_id": dataset.project_id, "name": dataset.name,
+                "version": dataset.version, "status": dataset.status,
+                "cases": dataset.cases, "case_count": len(dataset.cases or []),
+                "created_at": iso(dataset.created_at)}
+
+    def run_dict(run):
+        return {"id": run.id, "dataset_id": run.dataset_id, "project_id": run.project_id,
+                "baseline": run.baseline, "candidate": run.candidate,
+                "repeats": run.repeats, "state": run.state, "results": run.results,
+                "created_at": iso(run.created_at)}
+
+    @app.get("/api/projects/{id}/datasets")
+    def list_datasets(request: Request, id: str):
+        with sessions() as session:
+            project = session.get(Project, id)
+            if project is None:
+                raise HTTPException(404, "Project not found")
+            dashboard_access(request, session, project)
+            return [dataset_dict(d) for d in session.scalars(
+                select(EvalDataset).where(EvalDataset.project_id == project.id)
+                .order_by(EvalDataset.created_at))]
+
+    @app.post("/api/projects/{id}/datasets", status_code=201)
+    def create_dataset(request: Request, id: str, body: EvalDatasetInput):
+        with sessions.begin() as session:
+            project = session.get(Project, id)
+            if project is None:
+                raise HTTPException(404, "Project not found")
+            dashboard_access(request, session, project)
+            account_id = None
+            if project.org_id is not None:
+                _, account = require_session(request, session)
+                org_project(session, project.id, account.id, "admin")
+                account_id = account.id
+            dataset = EvalDataset(id=str(uuid4()), project_id=project.id, name=body.name.strip(),
+                                  version="1", status="draft",
+                                  cases=[c.model_dump() for c in body.cases], created_by=account_id)
+            session.add(dataset)
+            session.flush()
+            if project.org_id is not None:
+                audit(session, project.org_id, "dataset.create", dataset.id, account_id)
+            return dataset_dict(dataset)
+
+    @app.post("/api/projects/{id}/datasets/from-findings", status_code=201)
+    def dataset_from_findings(request: Request, id: str, body: FindingsDatasetInput):
+        """Build reviewable cases from production signals plus healthy controls."""
+        with sessions.begin() as session:
+            project = session.get(Project, id)
+            if project is None:
+                raise HTTPException(404, "Project not found")
+            dashboard_access(request, session, project)
+            account_id = None
+            if project.org_id is not None:
+                _, account = require_session(request, session)
+                org_project(session, project.id, account.id, "admin")
+                account_id = account.id
+            events = list(session.scalars(select(Event).where(
+                Event.project_id == project.id).order_by(Event.timestamp, Event.id)))
+            signals = analysis.analyze(events)
+            by_conv = {}
+            for event in events:
+                by_conv.setdefault(event.conversation_id, []).append(event)
+            cases = []
+            for signal in signals:
+                if signal["kind"] not in body.signal_kinds:
+                    continue
+                if len(cases) >= body.limit:
+                    break
+                messages = by_conv.get(signal["conversation_id"], [])
+                user_text = next((m.content for m in messages if m.role == "user"), "")
+                tools = [{"name": m.name or "tool", "recorded_output": m.content}
+                         for m in messages if m.role == "tool" and m.span_id][:5]
+                cases.append({"id": f"finding-{signal['event_id']}", "input": user_text,
+                              "tools": tools,
+                              "expected": {"tools_called": [t["name"] for t in tools],
+                                           "no_violations": [signal["kind"]]}})
+            if body.include_controls:
+                healthy = [cid for cid, ms in by_conv.items()
+                           if not any(s["conversation_id"] == cid for s in signals)][:body.limit]
+                for cid in healthy:
+                    if len(cases) >= body.limit:
+                        break
+                    messages = by_conv[cid]
+                    user_text = next((m.content for m in messages if m.role == "user"), "")
+                    cases.append({"id": f"control-{cid[:8]}", "input": user_text, "tools": [],
+                                  "expected": {"no_violations": body.signal_kinds}})
+            if not cases:
+                raise HTTPException(422, "No matching findings or controls in this project")
+            dataset = EvalDataset(id=str(uuid4()), project_id=project.id, name=body.name.strip(),
+                                  version="1", status="draft", cases=cases, created_by=account_id)
+            session.add(dataset)
+            session.flush()
+            if project.org_id is not None:
+                audit(session, project.org_id, "dataset.create", dataset.id, account_id)
+            return dataset_dict(dataset)
+
+    @app.patch("/api/datasets/{id}")
+    def update_dataset(request: Request, id: str, body: EvalDatasetPatch):
+        with sessions.begin() as session:
+            dataset = session.get(EvalDataset, id)
+            if dataset is None:
+                raise HTTPException(404, "Dataset not found")
+            project = session.get(Project, dataset.project_id)
+            if project is not None and project.org_id is not None:
+                _, account = require_session(request, session)
+                org_project(session, project.id, account.id, "admin")
+                audit(session, project.org_id, "dataset.review", dataset.id, account.id)
+            if body.status == "draft" and dataset.status != "draft":
+                raise HTTPException(422, "Reviewed datasets stay reviewed")
+            dataset.status = body.status
+            return dataset_dict(dataset)
+
+    @app.delete("/api/datasets/{id}")
+    def delete_dataset(request: Request, id: str):
+        with sessions.begin() as session:
+            dataset = session.get(EvalDataset, id)
+            if dataset is None:
+                raise HTTPException(404, "Dataset not found")
+            project = session.get(Project, dataset.project_id)
+            if project is not None and project.org_id is not None:
+                _, account = require_session(request, session)
+                org_project(session, project.id, account.id, "admin")
+                audit(session, project.org_id, "dataset.delete", dataset.id, account.id)
+            session.execute(delete(EvalRun).where(EvalRun.dataset_id == dataset.id))
+            session.delete(dataset)
+            return {"ok": True}
+
+    @app.post("/api/datasets/{id}/runs", status_code=201)
+    def create_run(request: Request, id: str, body: EvalRunInput):
+        with sessions.begin() as session:
+            dataset = session.get(EvalDataset, id)
+            if dataset is None:
+                raise HTTPException(404, "Dataset not found")
+            project = session.get(Project, dataset.project_id)
+            if project is not None and project.org_id is not None:
+                _, account = require_session(request, session)
+                org_project(session, project.id, account.id, "admin")
+                account_id = account.id
+            else:
+                account_id = None
+            if dataset.status == "draft":
+                raise HTTPException(422, "Review the dataset before running it")
+            results = evaluate_mod.run_dataset(
+                dataset.project_id, dataset.cases or [],
+                body.baseline.model_dump(), body.candidate.model_dump(), body.repeats)
+            run = EvalRun(id=str(uuid4()), dataset_id=dataset.id, project_id=dataset.project_id,
+                          baseline=body.baseline.model_dump(), candidate=body.candidate.model_dump(),
+                          repeats=body.repeats, state="complete", results=results,
+                          created_by=account_id)
+            session.add(run)
+            session.flush()
+            if project is not None and project.org_id is not None:
+                audit(session, project.org_id, "eval.run", run.id, account_id)
+            return run_dict(run)
+
+    @app.get("/api/datasets/{id}/runs")
+    def list_runs(request: Request, id: str):
+        with sessions() as session:
+            dataset = session.get(EvalDataset, id)
+            if dataset is None:
+                raise HTTPException(404, "Dataset not found")
+            project = session.get(Project, dataset.project_id)
+            if project is not None:
+                dashboard_access(request, session, project)
+            return [run_dict(r) for r in session.scalars(
+                select(EvalRun).where(EvalRun.dataset_id == dataset.id)
+                .order_by(EvalRun.created_at))]
 
     @app.post("/api/demo/seed")
     def seed_demo(background_tasks: BackgroundTasks):

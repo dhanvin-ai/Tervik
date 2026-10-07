@@ -7,9 +7,18 @@ description: Add Tervik analytics to an AI agent application's real conversation
 
 Connect the existing agent application to Tervik. This skill configures instrumentation; the customer's running application continues exporting telemetry after this coding session ends.
 
+## Find the application first
+
+The installed or extracted `tervik` skill folder contains instructions and portable clients. It is not the application to monitor. Installing the skill does not connect the coding assistant's own chat to Tervik.
+
+- Use the application path or repository supplied by the user. Otherwise inspect the active workspace, including application subdirectories in a monorepo, for the real conversation handler and tools.
+- If the workspace contains only this skill bundle (`SKILL.md`, `references/`, `scripts/`) or the target is ambiguous, ask one focused question: "Which agent application should I connect? Open its project in this chat, or share its local folder path or repository URL." Treat this as missing target context, not an unsupported application. Do not search unrelated folders or repeatedly inspect the skill bundle.
+- Once the target is available, inspect its source to determine the handler, language, tools, and streaming behavior. Do not require the user to supply function names or runtime details that can be discovered from the code. Continue the procedure in that application.
+- If the user wants to monitor the coding assistant itself, explain that this recipe needs access to its conversation runtime or a supported telemetry integration; modifying the skill folder does not provide that access. Do not fabricate a demo application or events to claim a connection.
+
 ## Procedure
 
-Follow these steps in order. Stop and explain when a step cannot be completed.
+After locating the target application, follow these steps in order. If required context is missing, ask for that context and resume when it is available. If a technical step fails, explain the specific blocker and the next action needed.
 
 1. Inspect the customer's repository and identify the actual agent entrypoint: the real conversation handler, its streaming behavior, and its real tools. Preserve existing project conventions.
 2. Detect existing instrumentation. Search for `tervik`, `TERVIK_API_KEY`, and the `tervik.instrumented` marker. When instrumentation already exists, reuse it in place and update it; re-running this skill must add no duplicate wrappers, clients, or capture calls. Instrumenting an MCP tool server alone captures its tools; it does not capture the conversation unless the agent's actual turn handler is also instrumented.
@@ -28,4 +37,4 @@ Follow these steps in order. Stop and explain when a step cannot be completed.
 
 ## Unsupported applications
 
-When the application structure is unsupported (no identifiable server-side handler, browser-only execution, or an incompatible runtime), do not invent an integration. Explain which step failed, what was found instead, and the smallest change that would make the application supportable.
+After inspecting the target application's source, if its structure is unsupported (no identifiable server-side handler, browser-only execution, or an incompatible runtime), do not invent an integration. Explain which step failed, what was found instead, and the smallest change that would make the application supportable. A skill-only folder is a missing target, so use the application-discovery guidance above instead.

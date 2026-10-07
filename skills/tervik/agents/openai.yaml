@@ -1,4 +1,4 @@
 interface:
   display_name: "Tervik"
   short_description: "Connect agent conversations and tool spans to Tervik"
-  default_prompt: "Use the Tervik skill to add analytics to this agent."
+  default_prompt: "Use $tervik to add Tervik analytics to the agent application in this workspace. If this is only the skill folder, ask me for the application path or repository URL first."

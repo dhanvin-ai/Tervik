@@ -9,9 +9,16 @@ runs this checklist independently; a Tervik engineer only observes.
 npx skills add dhanvin-ai/tervik --skill tervik
 ```
 
+Open your agent application's project in your coding assistant, then run:
+
 ```text
-Use the tervik skill to add Tervik analytics to this agent.
+Use the tervik skill to add Tervik analytics to the agent application in this workspace. If this is only the skill folder, ask me for the application path or repository URL first.
 ```
+
+The extracted `tervik` folder is the skill bundle, not the application to
+monitor. If that is your current workspace, open the application project
+or provide its local path or repository URL. The skill discovers handler
+and runtime details from the source; you do not need to name them yourself.
 
 ## 2. Connect
 

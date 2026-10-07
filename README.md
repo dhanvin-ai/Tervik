@@ -26,9 +26,11 @@ In the dashboard's **Integration** page, retrieve the project key and endpoint. 
 npx skills add dhanvin-ai/tervik --skill tervik
 ```
 
-Then ask your coding agent:
+Open your agent application's project in your coding assistant, then ask:
 
-> Use the tervik skill to add Tervik analytics to this agent.
+> Use the tervik skill to add Tervik analytics to the agent application in this workspace. If this is only the skill folder, ask me for the application path or repository URL first.
+
+The downloaded `tervik` folder contains the skill and clients, not your agent application. If you opened that folder, switch to the application project or include its local path or repository URL in the prompt. The coding assistant will discover the handler, tools, language, and streaming behavior from the source. This recipe instruments your application; monitoring the coding assistant's own chat requires access to its runtime or a supported telemetry integration.
 
 The repository is currently private, so GitHub installation requires authenticated access to `dhanvin-ai/tervik`. The dashboard also offers a self-contained skill ZIP. Extract its `tervik` folder into your coding agent's skill directory. The skill includes portable Node.js and Python clients; it does not depend on an unpublished npm package. `@tervik/sdk` is a buildable workspace package, not yet published to npm.
 

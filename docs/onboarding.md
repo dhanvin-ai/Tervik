@@ -20,6 +20,16 @@ monitor. If that is your current workspace, open the application project
 or provide its local path or repository URL. The skill discovers handler
 and runtime details from the source; you do not need to name them yourself.
 
+To monitor OpenCode's own chats instead of an application, use:
+
+```text
+Use the tervik skill to monitor this OpenCode instance's own conversations and tool calls. Install the OpenCode plugin and configure my Tervik project.
+```
+
+That mode installs the included runtime plugin, configures a private ingest
+credential, and requires an OpenCode restart. It can run from the extracted
+skill folder. See [the OpenCode recipe](../skills/tervik/references/opencode.md).
+
 ## 2. Connect
 
 1. Sign up in the dashboard (or ask for an account) and create a project.

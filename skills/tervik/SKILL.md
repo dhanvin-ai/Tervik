@@ -1,11 +1,17 @@
 ---
 name: tervik
-description: Add Tervik analytics to an AI agent application's real conversation handlers and tool calls, configure server-side telemetry, and verify ingestion. Use when integrating or repairing Tervik monitoring in a customer project.
+description: Add Tervik analytics to an AI agent application's conversation handlers and tools, or monitor OpenCode's own chats through its plugin hooks. Use when integrating or repairing Tervik monitoring.
 ---
 
 # Tervik integration
 
-Connect the existing agent application to Tervik. This skill configures instrumentation; the customer's running application continues exporting telemetry after this coding session ends.
+Connect the existing agent application or OpenCode runtime to Tervik. Monitoring continues in that runtime after this coding session ends.
+
+## Choose what to monitor
+
+If the user wants to monitor OpenCode's own conversations and tools, use [references/opencode.md](references/opencode.md) and the included plugin installer. This mode works even when the current workspace is the extracted skill folder; do not ask for an application handler. When "this agent" is ambiguous in a coding assistant, ask whether they mean OpenCode itself or an application they are building. For other coding assistants, check for a supported runtime telemetry integration before claiming support.
+
+For a customer application, continue below.
 
 ## Find the application first
 
@@ -14,7 +20,7 @@ The installed or extracted `tervik` skill folder contains instructions and porta
 - Use the application path or repository supplied by the user. Otherwise inspect the active workspace, including application subdirectories in a monorepo, for the real conversation handler and tools.
 - If the workspace contains only this skill bundle (`SKILL.md`, `references/`, `scripts/`) or the target is ambiguous, ask one focused question: "Which agent application should I connect? Open its project in this chat, or share its local folder path or repository URL." Treat this as missing target context, not an unsupported application. Do not search unrelated folders or repeatedly inspect the skill bundle.
 - Once the target is available, inspect its source to determine the handler, language, tools, and streaming behavior. Do not require the user to supply function names or runtime details that can be discovered from the code. Continue the procedure in that application.
-- If the user wants to monitor the coding assistant itself, explain that this recipe needs access to its conversation runtime or a supported telemetry integration; modifying the skill folder does not provide that access. Do not fabricate a demo application or events to claim a connection.
+- For OpenCode itself, use the plugin recipe above. For another coding assistant, explain any missing runtime access or telemetry integration. Do not fabricate a demo application or events to claim a connection.
 
 ## Procedure
 

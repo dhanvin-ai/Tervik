@@ -60,6 +60,24 @@ Coverage: `{conversations_total, conversations_analyzed, messages_total, users_t
 - `POST /api/projects/{id}/discovery/merge` body `{source_ids[], label}` → cluster (admin+).
 - `POST /api/projects/{id}/discovery/split` body `{label, member_conversation_ids[]}` → `{id, label, members, remainder_id}` (admin+).
 
+## Phase 7: alerts, billing, export, ops
+
+`AlertRule`: `{id, project_id, name, kind, signal_kind, threshold, window_hours, min_samples, cooldown_hours, channels[{type, configured}], enabled, state, last_fired_at, resolved_at}`. Kind is `threshold|trend|summary`.
+
+- `GET /api/projects/{id}/alerts` → `AlertRule[]` (secrets never returned).
+- `POST /api/projects/{id}/alerts` body `{name, kind, signal_kind?, threshold?, window_hours?, min_samples?, cooldown_hours?, channels[{type, target}]}` → `AlertRule` (admin+).
+- `PATCH /api/alerts/{id}` body `{enabled?, threshold?, cooldown_hours?}` → `AlertRule` (admin+).
+- `DELETE /api/alerts/{id}` → `{ok}` (admin+).
+- `POST /api/projects/{id}/alerts/evaluate` → `{evaluated, results[{rule_id, fired, detail}]}` (admin+).
+- `GET /api/projects/{id}/deliveries?limit=50` → deliveries without targets.
+- `POST /api/deliveries/{id}/replay` → `{ok}` (admin+).
+- `GET /api/orgs/{id}/billing` → `{org_id, plan, monthly_event_limit, used_this_month, percent}` (admin+).
+- `GET /api/projects/{id}/export?range=7d&limit=1000` → `{project_id, truncated, events[]}`.
+- `DELETE /api/projects/{id}` → `{ok}` (admin+; erases all project data).
+- `GET /api/ops/summary` → `{queue{backlog, oldest_pending_seconds}, deliveries_24h, analysis_coverage_24h}`.
+
+Over-quota ingestion returns 429. Email delivery needs `SMTP_*` settings; otherwise the channel reports `email_not_configured` without retrying blindly.
+
 `evidence`: `[{event_id, conversation_id, content, reason}]`.
 
 `Span`: `{id, parent_id, name, kind, status, duration_ms, input, output}`. Nullable parent. Input/output may be strings or JSON values.

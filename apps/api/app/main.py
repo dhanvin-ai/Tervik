@@ -18,18 +18,19 @@ from starlette.responses import JSONResponse
 from . import analysis
 from . import otlp as otlp_mod
 from . import queue as queue_mod
+from . import alerts as alerts_mod
 from .auth import (ROLES, SESSION_PREFIX, add_membership, create_organization,
                    create_session, credential_for_token, hash_password, is_ingest_token,
                    new_ingest_key, normalize_email, project_role, require_project_role,
                    resolve_session, sha256_hex, verify_password)
 from .capture import project_settings
 from .config import Settings
-from .db import (Account, AuditRecord, BehaviorRule, ClusterState, Credential, Environment, Event, IngestionJob,
-                 Intent, Membership, Organization, Project, SemanticCluster, SemanticMembership, Session,
+from .db import (Account, AlertDelivery, AlertRule, AuditRecord, BehaviorRule, ClusterState, Credential, Environment, Event, IngestionJob,
+                 Intent, Membership, Organization, PayloadObject, Plan, Project, SemanticCluster, SemanticMembership, Session, UsageRecord,
                  iso, make_database, utc, utc_now)
 from .demo import DEMO_PROJECT_ID, demo_events
 from .mirror import mirror_events
-from .schemas import (CaptureInput, ClusterPatch, CredentialInput, DiscoveryMembers, DiscoveryMerge,
+from .schemas import (AlertRuleInput, AlertRulePatch, CaptureInput, ClusterPatch, CredentialInput, DiscoveryMembers, DiscoveryMerge,
                       DiscoveryRename, DiscoveryStatus, EventBatch, IntentInput,
                       IntentPatch, LoginInput,
                       MemberInput, MemberPatch, OrgInput, OrgProjectInput, ProjectInput, RuleInput,
@@ -91,6 +92,38 @@ def project_dict(project):
 def audit(session, org_id, action, resource="", account_id=None):
     session.add(AuditRecord(id=str(uuid4()), org_id=org_id, account_id=account_id,
                             action=action, resource=resource))
+
+
+def month_start(now):
+    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def month_usage(session, org_id):
+    """Accepted events this calendar month across the org's projects."""
+    start = month_start(utc_now())
+    project_ids = list(session.scalars(select(Project.id).where(Project.org_id == org_id)))
+    if not project_ids:
+        return 0
+    return session.execute(select(func.count()).select_from(UsageRecord).where(
+        UsageRecord.project_id.in_(project_ids), UsageRecord.created_at >= start)).scalar_one()
+
+
+def ensure_plan(session, org_id):
+    plan = session.get(Plan, org_id)
+    if plan is None:
+        plan = Plan(org_id=org_id, name="beta", monthly_event_limit=100000)
+        session.add(plan)
+        session.flush()
+    return plan
+
+
+def check_quota(session, project):
+    """Paid-beta plan enforcement. Legacy projects without orgs are exempt."""
+    if not project.org_id:
+        return
+    plan = ensure_plan(session, project.org_id)
+    if month_usage(session, project.org_id) >= plan.monthly_event_limit:
+        raise HTTPException(429, "Monthly event quota exceeded for this organization")
 
 
 def session_auth(request, session):
@@ -318,6 +351,7 @@ def create_app(settings: Settings | None = None):
     def ingest(body: EventBatch, request: Request, background_tasks: BackgroundTasks):
         with sessions.begin() as session:
             project, environment, _ = resolve_ingest(request, session)
+            check_quota(session, project)
             accepted, duplicates, _ = queue_mod.enqueue_events(
                 session, engine, project, body.events, environment=environment)
         if settings.inline_process:
@@ -341,6 +375,7 @@ def create_app(settings: Settings | None = None):
             raise HTTPException(400, "Invalid OTLP JSON body")
         with sessions.begin() as session:
             project, environment, _ = resolve_ingest(request, session)
+            check_quota(session, project)
             normalized = otlp_mod.normalize_otlp_traces(body if isinstance(body, dict) else {})
             if not normalized:
                 raise HTTPException(422, "No spans found in OTLP payload")
@@ -451,6 +486,7 @@ def create_app(settings: Settings | None = None):
             session.flush()
             org = create_organization(session, body.name.strip() if body.name else f"{email} workspace")
             add_membership(session, org.id, account.id, "owner")
+            ensure_plan(session, org.id)
             record, token = create_session(session, account.id, org.id)
             audit(session, org.id, "account.signup", account.id, account.id)
             return {"account": {"id": account.id, "email": email},
@@ -499,6 +535,7 @@ def create_app(settings: Settings | None = None):
             _, account = require_session(request, session)
             org = create_organization(session, name)
             add_membership(session, org.id, account.id, "owner")
+            ensure_plan(session, org.id)
             audit(session, org.id, "org.create", org.id, account.id)
             return {"id": org.id, "name": org.name, "role": "owner"}
 
@@ -1185,6 +1222,248 @@ def create_app(settings: Settings | None = None):
                 audit(session, project.org_id, "discovery.split", first.id, account_id)
             return {"id": first.id, "label": first.label,
                     "members": subset, "remainder_id": kept.id}
+
+    # ---- Phase 7: alerts, billing, export, ops ----
+
+    @app.get("/api/projects/{id}/alerts")
+    def list_alerts(request: Request, id: str):
+        with sessions() as session:
+            project = session.get(Project, id)
+            if project is None:
+                raise HTTPException(404, "Project not found")
+            dashboard_access(request, session, project)
+            return [alerts_mod.public_rule(r) for r in session.scalars(
+                select(AlertRule).where(AlertRule.project_id == project.id)
+                .order_by(AlertRule.created_at))]
+
+    @app.post("/api/projects/{id}/alerts", status_code=201)
+    def create_alert(request: Request, id: str, body: AlertRuleInput):
+        with sessions.begin() as session:
+            project = session.get(Project, id)
+            if project is None:
+                raise HTTPException(404, "Project not found")
+            dashboard_access(request, session, project)
+            account_id = None
+            if project.org_id is not None:
+                _, account = require_session(request, session)
+                org_project(session, project.id, account.id, "admin")
+                account_id = account.id
+            rule = AlertRule(id=str(uuid4()), project_id=project.id, name=body.name.strip(),
+                             kind=body.kind, signal_kind=body.signal_kind,
+                             threshold=body.threshold, window_hours=body.window_hours,
+                             min_samples=body.min_samples, cooldown_hours=body.cooldown_hours,
+                             channels=[c.model_dump() for c in body.channels],
+                             enabled=True, state="ok", created_by=account_id)
+            session.add(rule)
+            session.flush()
+            if project.org_id is not None:
+                audit(session, project.org_id, "alert.create", rule.id, account_id)
+            return alerts_mod.public_rule(rule)
+
+    @app.patch("/api/alerts/{id}")
+    def update_alert(request: Request, id: str, body: AlertRulePatch):
+        with sessions.begin() as session:
+            rule = session.get(AlertRule, id)
+            if rule is None:
+                raise HTTPException(404, "Alert not found")
+            project = session.get(Project, rule.project_id)
+            if project is not None and project.org_id is not None:
+                _, account = require_session(request, session)
+                org_project(session, project.id, account.id, "admin")
+                audit(session, project.org_id, "alert.update", rule.id, account.id)
+            if body.enabled is not None:
+                rule.enabled = body.enabled
+            if body.threshold is not None:
+                rule.threshold = body.threshold
+            if body.cooldown_hours is not None:
+                rule.cooldown_hours = body.cooldown_hours
+            return alerts_mod.public_rule(rule)
+
+    @app.delete("/api/alerts/{id}")
+    def delete_alert(request: Request, id: str):
+        with sessions.begin() as session:
+            rule = session.get(AlertRule, id)
+            if rule is None:
+                raise HTTPException(404, "Alert not found")
+            project = session.get(Project, rule.project_id)
+            if project is not None and project.org_id is not None:
+                _, account = require_session(request, session)
+                org_project(session, project.id, account.id, "admin")
+                audit(session, project.org_id, "alert.delete", rule.id, account.id)
+            session.execute(delete(AlertDelivery).where(AlertDelivery.rule_id == rule.id))
+            session.delete(rule)
+            return {"ok": True}
+
+    @app.post("/api/projects/{id}/alerts/evaluate")
+    def evaluate_alerts(request: Request, id: str):
+        with sessions.begin() as session:
+            project = session.get(Project, id)
+            if project is None:
+                raise HTTPException(404, "Project not found")
+            dashboard_access(request, session, project)
+            if project.org_id is not None:
+                _, account = require_session(request, session)
+                org_project(session, project.id, account.id, "admin")
+            results = []
+            for rule in session.scalars(select(AlertRule).where(
+                    AlertRule.project_id == project.id, AlertRule.enabled == True)):  # noqa: E712
+                fired, detail = alerts_mod.evaluate_rule(session, rule)
+                results.append({"rule_id": rule.id, "fired": fired, "detail": detail})
+            return {"evaluated": len(results), "results": results}
+
+    @app.get("/api/projects/{id}/deliveries")
+    def list_deliveries(request: Request, id: str, limit: int = Query(default=50, ge=1, le=200)):
+        with sessions() as session:
+            project = session.get(Project, id)
+            if project is None:
+                raise HTTPException(404, "Project not found")
+            dashboard_access(request, session, project)
+            rows = list(session.scalars(select(AlertDelivery).where(
+                AlertDelivery.project_id == project.id)
+                .order_by(AlertDelivery.created_at.desc()).limit(limit)))
+            return [alerts_mod.public_delivery(d) for d in rows]
+
+    @app.post("/api/deliveries/{id}/replay")
+    def replay_delivery(request: Request, id: str):
+        with sessions.begin() as session:
+            delivery = session.get(AlertDelivery, id)
+            if delivery is None:
+                raise HTTPException(404, "Delivery not found")
+            project = session.get(Project, delivery.project_id)
+            if project is not None and project.org_id is not None:
+                _, account = require_session(request, session)
+                org_project(session, project.id, account.id, "admin")
+                audit(session, project.org_id, "delivery.replay", delivery.id, account.id)
+            delivery.state = "queued"
+            delivery.error_code = None
+            delivery.next_retry_at = utc_now()
+            return {"ok": True}
+
+    @app.get("/api/orgs/{id}/billing")
+    def org_billing(request: Request, id: str):
+        with sessions() as session:
+            _, account = require_session(request, session)
+            membership = org_membership(session, id, account.id)
+            from .auth import has_role as _has_role
+            if not _has_role(membership.role, "admin"):
+                raise HTTPException(403, "Admin role required")
+            plan = ensure_plan(session, id)
+            used = month_usage(session, id)
+            return {"org_id": id, "plan": plan.name,
+                    "monthly_event_limit": plan.monthly_event_limit,
+                    "used_this_month": used,
+                    "percent": round(100 * used / plan.monthly_event_limit, 2)
+                    if plan.monthly_event_limit else 0}
+
+    @app.get("/api/projects/{id}/export")
+    def export_project(request: Request, id: str, range: Range = "7d", limit: int = Query(default=1000, ge=1, le=5000)):
+        with sessions() as session:
+            project = session.get(Project, id)
+            if project is None:
+                raise HTTPException(404, "Project not found")
+            dashboard_access(request, session, project)
+            account_id = None
+            if project.org_id is not None:
+                _, account = require_session(request, session)
+                org_project(session, project.id, account.id, "member")
+                account_id = account.id
+            start, end = window(range)
+            rows = list(session.scalars(select(Event).where(
+                Event.project_id == project.id).order_by(Event.timestamp, Event.id).limit(limit + 1)))
+            in_range = [e for e in rows if start <= utc(e.timestamp) <= end][:limit]
+            if project.org_id is not None:
+                with sessions.begin() as audit_session:
+                    audit(audit_session, project.org_id, "project.export", project.id, account_id)
+            return {"project_id": project.id, "truncated": len(rows) > limit,
+                    "events": [analysis.event_dict(e) for e in in_range]}
+
+    @app.delete("/api/projects/{id}")
+    def delete_project(request: Request, id: str):
+        with sessions.begin() as session:
+            project = session.get(Project, id)
+            if project is None:
+                raise HTTPException(404, "Project not found")
+            dashboard_access(request, session, project)
+            account_id = None
+            if project.org_id is not None:
+                _, account = require_session(request, session)
+                org_project(session, project.id, account.id, "admin")
+                account_id = account.id
+                audit(session, project.org_id, "project.delete", project.id, account_id)
+            for row in session.scalars(select(AlertRule).where(AlertRule.project_id == project.id)):
+                session.execute(delete(AlertDelivery).where(AlertDelivery.rule_id == row.id))
+            session.execute(delete(AlertDelivery).where(AlertDelivery.project_id == project.id))
+            session.execute(delete(AlertRule).where(AlertRule.project_id == project.id))
+            session.execute(delete(BehaviorRule).where(BehaviorRule.project_id == project.id))
+            session.execute(delete(Intent).where(Intent.project_id == project.id))
+            for row in session.scalars(select(SemanticCluster).where(
+                    SemanticCluster.project_id == project.id)):
+                session.execute(delete(SemanticMembership).where(
+                    SemanticMembership.cluster_id == row.id))
+            session.execute(delete(SemanticCluster).where(SemanticCluster.project_id == project.id))
+            session.execute(delete(ClusterState).where(ClusterState.project_id == project.id))
+            session.execute(delete(Event).where(Event.project_id == project.id))
+            session.execute(delete(UsageRecord).where(UsageRecord.project_id == project.id))
+            session.execute(delete(IngestionJob).where(IngestionJob.project_id == project.id))
+            session.execute(delete(PayloadObject).where(PayloadObject.project_id == project.id))
+            session.execute(delete(Credential).where(Credential.project_id == project.id))
+            session.execute(delete(Environment).where(Environment.project_id == project.id))
+            session.delete(project)
+            return {"ok": True}
+
+    def ops_scope(request, db_session):
+        resolved = session_auth(request, db_session)
+        if resolved is None:
+            return None, "instance"
+        _, account = resolved
+        org_ids = [m.org_id for m in db_session.scalars(
+            select(Membership).where(Membership.account_id == account.id))]
+        project_ids = list(db_session.scalars(select(Project.id).where(
+            Project.org_id.in_(org_ids)))) if org_ids else []
+        return project_ids, "organization"
+
+    @app.get("/api/ops/summary")
+    def ops_summary(request: Request):
+        from . import analysis as analysis_mod
+        with sessions() as session:
+            project_ids, _ = ops_scope(request, session)
+            jobs = select(IngestionJob.state, func.count()).group_by(IngestionJob.state)
+            if project_ids is not None:
+                jobs = jobs.where(IngestionJob.project_id.in_(project_ids))
+            backlog = {state: 0 for state in ("pending", "processed", "failed", "dead", "expired")}
+            for state, count in session.execute(jobs).all():
+                backlog[state] = count
+            pending_oldest = None
+            pending_query = select(func.min(IngestionJob.created_at)).where(
+                IngestionJob.state.in_(("pending", "failed")))
+            if project_ids is not None:
+                pending_query = pending_query.where(IngestionJob.project_id.in_(project_ids))
+            oldest = session.execute(pending_query).scalar_one_or_none()
+            if oldest is not None:
+                pending_oldest = max(0, int((utc_now() - utc(oldest)).total_seconds()))
+            day_ago = utc_now() - timedelta(hours=24)
+            deliveries = select(AlertDelivery.state, func.count()).where(
+                AlertDelivery.created_at >= day_ago).group_by(AlertDelivery.state)
+            if project_ids is not None:
+                deliveries = deliveries.where(AlertDelivery.project_id.in_(project_ids))
+            states = {state: count for state, count in session.execute(deliveries).all()}
+            sent, failed = states.get("sent", 0), states.get("failed", 0) + states.get("sending", 0)
+            events = select(Event).where(Event.timestamp >= day_ago)
+            if project_ids is not None:
+                events = events.where(Event.project_id.in_(project_ids))
+            recent = list(session.scalars(events))
+            convs = {e.conversation_id for e in recent}
+            analyzed = {e.conversation_id for e in recent if (e.content or "").strip()}
+            return {
+                "queue": {"backlog": backlog, "oldest_pending_seconds": pending_oldest},
+                "deliveries_24h": {"sent": sent, "failed": failed,
+                                   "success_rate": round(100 * sent / (sent + failed), 1)
+                                   if sent + failed else 100.0},
+                "analysis_coverage_24h": {
+                    "conversations_total": len(convs), "conversations_analyzed": len(analyzed),
+                    "messages_total": len(recent),
+                    "users_total": len({e.user_id for e in recent if e.user_id})},
+            }
 
     @app.post("/api/demo/seed")
     def seed_demo(background_tasks: BackgroundTasks):

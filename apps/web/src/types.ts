@@ -119,6 +119,33 @@ export interface Discovery {
     unassigned: number;
   };
 }
+export interface AlertRule {
+  id: string;
+  project_id: string;
+  name: string;
+  kind: 'threshold' | 'trend' | 'summary';
+  signal_kind: string | null;
+  threshold: number;
+  window_hours: number;
+  min_samples: number;
+  cooldown_hours: number;
+  channels: { type: string; configured: boolean }[];
+  enabled: boolean;
+  state: string;
+  last_fired_at: string | null;
+  resolved_at: string | null;
+}
+export interface Delivery {
+  id: string;
+  rule_id: string;
+  state: string;
+  attempts: number;
+  channel_type: string;
+  title: string;
+  error_code: string | null;
+  sent_at: string | null;
+  created_at: string;
+}
 export interface Span {
   id: string;
   parent_id: string | null;

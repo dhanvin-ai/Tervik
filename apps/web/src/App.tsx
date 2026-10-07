@@ -8,7 +8,7 @@ import {
   Zap, type LucideIcon,
 } from 'lucide-react';
 import { query, request } from './api';
-import type { BehaviorRule, Cluster, ClusterDetail, Conversation, ConversationDetail, Discovery, DiscoveryIntent, Overview, Page, Project, Range, SetupStatus } from './types';
+import type { AlertRule, BehaviorRule, Cluster, ClusterDetail, Conversation, ConversationDetail, Delivery, Discovery, DiscoveryIntent, Overview, Page, Project, Range, SetupStatus } from './types';
 
 const INSTALL_COMMAND = 'npx skills add dhanvin-ai/tervik --skill tervik';
 const INSTALL_PROMPT = 'Use the tervik skill to add Tervik analytics to this agent.';
@@ -242,6 +242,32 @@ function RulesManager({ projectId, refresh }: { projectId: string; refresh: numb
   </section>;
 }
 
+function AlertsPanel({ projectId, refresh }: { projectId: string; refresh: number }) {
+  const rules = useResource<AlertRule[]>(`/api/projects/${encodeURIComponent(projectId)}/alerts`, refresh);
+  const deliveries = useResource<Delivery[]>(`/api/projects/${encodeURIComponent(projectId)}/deliveries`, refresh);
+  const [name, setName] = useState('');
+  const [kind, setKind] = useState<'threshold' | 'trend' | 'summary'>('threshold');
+  const [signalKind, setSignalKind] = useState('');
+  const [threshold, setThreshold] = useState('5');
+  const [channelType, setChannelType] = useState<'webhook' | 'email'>('webhook');
+  const [target, setTarget] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const act = async (work: () => Promise<unknown>) => {
+    setBusy(true); setError('');
+    try { await work(); rules.retry(); deliveries.retry(); } catch (cause) { setError((cause as Error).message); } finally { setBusy(false); }
+  };
+  return <section className="panel"><div className="panel-heading"><div><h2>Alerts</h2><p>Threshold, trend, and daily-summary rules. A qualifying finding sends once per cooldown window.</p></div><button className="button button-secondary" disabled={busy} onClick={() => act(() => request(`/api/projects/${encodeURIComponent(projectId)}/alerts/evaluate`, { method: 'POST' }))}>Evaluate now</button></div>
+    {error && <p className="inline-error">{error}</p>}
+    {rules.loading ? <Loading label="Loading alerts" /> : rules.error ? <ErrorState message={rules.error} onRetry={rules.retry} /> :
+      <div>{rules.data?.length ? rules.data.map(rule => <div key={rule.id} className="related-conversation"><TriangleAlert size={15} /><span><strong>{rule.name}</strong><small>{rule.kind}{rule.signal_kind ? ` · ${rule.signal_kind}` : ''} · threshold {rule.threshold} · {rule.window_hours}h window · {rule.state}{rule.enabled ? '' : ' · disabled'}</small></span><button className="text-button" onClick={() => act(() => request(`/api/alerts/${encodeURIComponent(rule.id)}`, { method: 'PATCH', body: JSON.stringify({ enabled: !rule.enabled }) }))}>{rule.enabled ? 'Disable' : 'Enable'}</button><button className="text-button" onClick={() => act(() => request(`/api/alerts/${encodeURIComponent(rule.id)}`, { method: 'DELETE' }))}>Delete</button></div>) : <p className="muted">No alert rules yet. Add one to get notified when failures spike.</p>}</div>}
+    <form className="modal-body" onSubmit={event => { event.preventDefault(); if (!name.trim() || !target.trim()) return; act(() => request(`/api/projects/${encodeURIComponent(projectId)}/alerts`, { method: 'POST', body: JSON.stringify({ name: name.trim(), kind, signal_kind: signalKind.trim() || null, threshold: Number(threshold) || 1, channels: [{ type: channelType, target: target.trim() }] }) })).then(() => { setName(''); setSignalKind(''); setTarget(''); }); }}><label className="field-label" htmlFor="alert-name">Rule name</label><input id="alert-name" className="text-field" value={name} onChange={event => setName(event.target.value)} required maxLength={120} placeholder="e.g. Frustration spike" /><div className="modal-actions" style={{ justifyContent: 'flex-start', gap: 8 }}><select aria-label="Alert kind" className="text-field" value={kind} onChange={event => setKind(event.target.value as typeof kind)}><option value="threshold">Threshold</option><option value="trend">Trend</option><option value="summary">Daily summary</option></select><input aria-label="Signal kind (optional)" className="text-field" value={signalKind} onChange={event => setSignalKind(event.target.value)} placeholder="signal kind, e.g. frustration" /><input aria-label="Threshold" className="text-field" value={threshold} onChange={event => setThreshold(event.target.value)} inputMode="decimal" placeholder="5" /></div><label className="field-label" htmlFor="alert-target">{channelType === 'webhook' ? 'Slack-compatible webhook URL' : 'Email address'}</label><div className="modal-actions" style={{ justifyContent: 'flex-start', gap: 8 }}><select aria-label="Channel type" className="text-field" value={channelType} onChange={event => setChannelType(event.target.value as typeof channelType)}><option value="webhook">Webhook</option><option value="email">Email</option></select><input id="alert-target" className="text-field" value={target} onChange={event => setTarget(event.target.value)} required maxLength={500} placeholder={channelType === 'webhook' ? 'https://hooks.slack.com/...' : 'team@example.com'} /></div><div className="modal-actions"><button type="submit" className="button button-primary" disabled={busy}><Plus size={16} />Add alert</button></div></form>
+    <div className="detail-section"><div className="section-label"><Zap size={15} />Recent deliveries<span>{deliveries.data?.length || 0}</span></div>
+      {deliveries.data?.map(delivery => <div key={delivery.id} className="related-conversation"><span className={`span-kind ${delivery.state === 'sent' ? '' : 'span-error'}`}>{delivery.state === 'sent' ? <Check size={15} /> : <TriangleAlert size={15} />}</span><span><strong>{delivery.title}</strong><small>{delivery.channel_type} · {delivery.attempts} attempts{delivery.error_code ? ` · ${delivery.error_code}` : ''} · {dateTime(delivery.created_at)}</small></span>{delivery.state !== 'sent' && <button className="text-button" onClick={() => act(() => request(`/api/deliveries/${encodeURIComponent(delivery.id)}/replay`, { method: 'POST' }))}>Retry</button>}</div>)}
+    </div>
+  </section>;
+}
+
 function FailuresPage({ projectId, range, refresh, onSelect }: { projectId: string; range: Range; refresh: number; onSelect: (id: string) => void }) {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
@@ -255,6 +281,7 @@ function FailuresPage({ projectId, range, refresh, onSelect }: { projectId: stri
       {resource.loading ? <Loading label="Finding patterns" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : resource.data?.length ? resource.data.map(cluster => <ClusterRow key={cluster.id} cluster={cluster} onClick={() => onSelect(cluster.id)} />) : <EmptyState icon={search ? Search : CheckCheck} title={search ? 'No matching clusters' : status === 'resolved' ? 'No resolved clusters yet' : 'No failure signals in this period'} description={search ? 'Try a different search or clear your filters.' : status === 'resolved' ? 'Clusters you mark as resolved will appear here.' : 'Choose another date range or send conversations from your agent.'} />}
       <div className="list-footer"><span>{formatNumber(resource.data?.length || 0)} {resource.data?.length === 1 ? 'cluster' : 'clusters'}</span><span><ShieldCheck size={13} />Resolving a cluster records your review. It doesn’t change your agent.</span></div>
     </section>
+    <AlertsPanel projectId={projectId} refresh={refresh} />
     <RulesManager projectId={projectId} refresh={refresh} />
   </>;
 }

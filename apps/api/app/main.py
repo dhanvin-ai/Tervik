@@ -24,12 +24,13 @@ from .auth import (ROLES, SESSION_PREFIX, add_membership, create_organization,
                    resolve_session, sha256_hex, verify_password)
 from .capture import project_settings
 from .config import Settings
-from .db import (Account, AuditRecord, ClusterState, Credential, Environment, Event, IngestionJob,
+from .db import (Account, AuditRecord, BehaviorRule, ClusterState, Credential, Environment, Event, IngestionJob,
                  Membership, Organization, Project, Session, iso, make_database, utc, utc_now)
 from .demo import DEMO_PROJECT_ID, demo_events
 from .mirror import mirror_events
 from .schemas import (CaptureInput, ClusterPatch, CredentialInput, EventBatch, LoginInput,
-                      MemberInput, MemberPatch, OrgInput, OrgProjectInput, ProjectInput, SignupInput)
+                      MemberInput, MemberPatch, OrgInput, OrgProjectInput, ProjectInput, RuleInput,
+                      RulePatch, SignupInput)
 
 Range = Literal["24h", "7d", "30d"]
 
@@ -235,7 +236,9 @@ def create_app(settings: Settings | None = None):
                                       .order_by(Event.timestamp, Event.id)))
         states = {state.id: state.status for state in session.scalars(
             select(ClusterState).where(ClusterState.project_id == project_id))}
-        return events, analysis.analyze(events), states
+        rules = list(session.scalars(select(BehaviorRule).where(
+            BehaviorRule.project_id == project_id, BehaviorRule.enabled == True)))  # noqa: E712
+        return events, analysis.analyze(events, rules), states
 
     def window(range):
         end = utc_now()
@@ -423,7 +426,9 @@ def create_app(settings: Settings | None = None):
             project = session.get(Project, events[0].project_id)
             if project is not None:
                 dashboard_access(request, session, project)
-            signals = analysis.analyze(events)
+            rules = list(session.scalars(select(BehaviorRule).where(
+                BehaviorRule.project_id == events[0].project_id, BehaviorRule.enabled == True)))  # noqa: E712
+            signals = analysis.analyze(events, rules)
             return {**analysis.summary(events, signals), "messages": [analysis.event_dict(e) for e in events],
                     "signals": [analysis.public_signal(s) for s in signals], "spans": analysis.spans(events)}
 
@@ -742,6 +747,93 @@ def create_app(settings: Settings | None = None):
             result = queue_mod.run_retention(session, engine, project)
             audit(session, project.org_id, "project.retention", project.id, account.id)
             return {"project_id": project.id, **result}
+
+    # ---- Phase 5: behavior rules ----
+
+    def rule_dict(rule):
+        return {"id": rule.id, "project_id": rule.project_id, "name": rule.name, "kind": rule.kind,
+                "pattern": rule.pattern, "tool": rule.tool, "severity": rule.severity,
+                "enabled": rule.enabled, "version": rule.version,
+                "created_at": iso(rule.created_at)}
+
+    @app.get("/api/projects/{id}/rules")
+    def list_rules(request: Request, id: str):
+        with sessions() as session:
+            project = session.get(Project, id)
+            if project is None:
+                raise HTTPException(404, "Project not found")
+            dashboard_access(request, session, project)
+            resolved = session_auth(request, session)
+            if project.org_id is not None and resolved is not None:
+                require_project_role(session, project, resolved[1].id, "member")
+            return [rule_dict(r) for r in session.scalars(
+                select(BehaviorRule).where(BehaviorRule.project_id == project.id)
+                .order_by(BehaviorRule.created_at))]
+
+    @app.post("/api/projects/{id}/rules", status_code=201)
+    def create_rule(request: Request, id: str, body: RuleInput):
+        import re as re_module
+        if body.kind == "forbidden_phrase":
+            if not (body.pattern or "").strip():
+                raise HTTPException(422, "pattern is required for forbidden_phrase")
+            try:
+                re_module.compile(body.pattern)
+            except re_module.error:
+                raise HTTPException(422, "pattern is not a valid regex")
+        if body.kind == "required_tool" and not (body.tool or "").strip():
+            raise HTTPException(422, "tool is required for required_tool")
+        with sessions.begin() as session:
+            project = session.get(Project, id)
+            if project is None or (project.org_id is None and session_auth(request, session)):
+                raise HTTPException(404, "Project not found")
+            account_id = None
+            if project.org_id is not None:
+                _, account = require_session(request, session)
+                org_project(session, project.id, account.id, "admin")
+                account_id = account.id
+            rule = BehaviorRule(id=str(uuid4()), project_id=project.id, name=body.name,
+                                kind=body.kind, pattern=body.pattern, tool=body.tool,
+                                severity=body.severity, enabled=True, version="1",
+                                created_by=account_id)
+            session.add(rule)
+            session.flush()
+            if project.org_id is not None:
+                audit(session, project.org_id, "rule.create", rule.id, account_id)
+            return rule_dict(rule)
+
+    @app.patch("/api/rules/{id}")
+    def update_rule(request: Request, id: str, body: RulePatch):
+        with sessions.begin() as session:
+            rule = session.get(BehaviorRule, id)
+            if rule is None:
+                raise HTTPException(404, "Rule not found")
+            project = session.get(Project, rule.project_id)
+            account_id = None
+            if project is not None and project.org_id is not None:
+                _, account = require_session(request, session)
+                org_project(session, project.id, account.id, "admin")
+                account_id = account.id
+            if body.enabled is not None:
+                rule.enabled = body.enabled
+            if body.severity is not None:
+                rule.severity = body.severity
+            if project is not None and project.org_id is not None:
+                audit(session, project.org_id, "rule.update", rule.id, account_id)
+            return rule_dict(rule)
+
+    @app.delete("/api/rules/{id}")
+    def delete_rule(request: Request, id: str):
+        with sessions.begin() as session:
+            rule = session.get(BehaviorRule, id)
+            if rule is None:
+                raise HTTPException(404, "Rule not found")
+            project = session.get(Project, rule.project_id)
+            if project is not None and project.org_id is not None:
+                _, account = require_session(request, session)
+                org_project(session, project.id, account.id, "admin")
+                audit(session, project.org_id, "rule.delete", rule.id, account.id)
+            session.delete(rule)
+            return {"ok": True}
 
     @app.post("/api/demo/seed")
     def seed_demo(background_tasks: BackgroundTasks):

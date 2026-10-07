@@ -172,6 +172,22 @@ class AuditRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class BehaviorRule(Base):
+    """Phase 5 customer-defined behavior rule. Evaluated deterministically."""
+    __tablename__ = "behavior_rules"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(30))
+    pattern: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    tool: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    severity: Mapped[str] = mapped_column(String(20), default="high")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    version: Mapped[str] = mapped_column(String(20), default="1")
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class ClusterState(Base):
     __tablename__ = "cluster_states"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)

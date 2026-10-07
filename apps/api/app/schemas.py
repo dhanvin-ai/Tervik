@@ -118,3 +118,26 @@ class CaptureInput(BaseModel):
     capture_content: bool | None = None
     redact_keys: list[str] | None = None
     retention_days: int | None = Field(default=None, ge=1, le=3650)
+
+
+class RuleInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=120)
+    kind: Literal["forbidden_phrase", "required_tool"]
+    pattern: str | None = Field(default=None, max_length=500)
+    tool: str | None = Field(default=None, max_length=200)
+    severity: Literal["critical", "high", "medium", "low"] = "high"
+
+    @field_validator("name")
+    @classmethod
+    def clean_rule_name(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("name cannot be blank")
+        return value
+
+
+class RulePatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool | None = None
+    severity: Literal["critical", "high", "medium", "low"] | None = None

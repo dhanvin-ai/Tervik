@@ -26,9 +26,17 @@ In the dashboard's **Integration** page, retrieve the project key and endpoint. 
 npx skills add dhanvin-ai/tervik --skill tervik
 ```
 
-Then ask your coding agent:
+Open your agent application's project in your coding assistant, then ask:
 
-> Use the tervik skill to add Tervik analytics to this agent.
+> Use the tervik skill to add Tervik analytics to the agent application in this workspace. If this is only the skill folder, ask me for the application path or repository URL first.
+
+The downloaded `tervik` folder contains the skill and clients, not your agent application. If you opened that folder, switch to the application project or include its local path or repository URL in the prompt. The coding assistant will discover the handler, tools, language, and streaming behavior from the source.
+
+To monitor **OpenCode itself**, ask instead:
+
+> Use the tervik skill to monitor this OpenCode instance's own conversations and tool calls. Install the OpenCode plugin and configure my Tervik project.
+
+The skill includes an [OpenCode plugin recipe](skills/tervik/references/opencode.md) and installer. This mode uses OpenCode's runtime hooks and works from the extracted skill folder. It captures new messages and tool outcomes, omits raw tool inputs/outputs, and needs an ingest key, endpoint, and OpenCode restart. Other coding assistants need their own supported runtime integration.
 
 The repository is currently private, so GitHub installation requires authenticated access to `dhanvin-ai/tervik`. The dashboard also offers a self-contained skill ZIP. Extract its `tervik` folder into your coding agent's skill directory. The skill includes portable Node.js and Python clients; it does not depend on an unpublished npm package. `@tervik/sdk` is a buildable workspace package, not yet published to npm.
 

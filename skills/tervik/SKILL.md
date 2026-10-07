@@ -1,15 +1,32 @@
 ---
 name: tervik
-description: Add Tervik analytics to an AI agent application's real conversation handlers and tool calls, configure server-side telemetry, and verify ingestion. Use when integrating or repairing Tervik monitoring in a customer project.
+description: Add Tervik analytics to an AI agent application's conversation handlers and tools, or monitor OpenCode's own chats through its plugin hooks. Use when integrating or repairing Tervik monitoring.
 ---
 
 # Tervik integration
 
-Connect the existing agent application to Tervik. This skill configures instrumentation; the customer's running application continues exporting telemetry after this coding session ends.
+Connect the existing agent application or OpenCode runtime to Tervik. Monitoring continues in that runtime after this coding session ends.
+
+## Choose what to monitor
+
+If the user wants to monitor OpenCode's own conversations and tools, use [references/opencode.md](references/opencode.md) and the included plugin installer. This mode works even when the current workspace is the extracted skill folder; do not ask for an application handler. When running in OpenCode from a skill-only workspace, a request to add analytics to "this agent" refers to OpenCode itself unless the user supplies another application target. Select the OpenCode recipe before searching for an application handler. In other ambiguous workspaces, ask which target they mean. For other coding assistants, check for a supported runtime telemetry integration before claiming support.
+
+For OpenCode monitoring, check for an already-installed plugin and configured destination first. If new events are arriving, report the existing connection and verify the current interaction; do not say setup is blocked because the skill folder has no handler. An earlier reply in the chat may have used older application-only guidance, so use the current OpenCode recipe.
+
+For a customer application, continue below.
+
+## Find the application first
+
+The installed or extracted `tervik` skill folder contains instructions and portable clients. It is not the application to monitor. Installing the skill does not connect the coding assistant's own chat to Tervik.
+
+- Use the application path or repository supplied by the user. Otherwise inspect the active workspace, including application subdirectories in a monorepo, for the real conversation handler and tools.
+- If the workspace contains only this skill bundle (`SKILL.md`, `references/`, `scripts/`) or the target is ambiguous, ask one focused question: "Which agent application should I connect? Open its project in this chat, or share its local folder path or repository URL." Treat this as missing target context, not an unsupported application. Do not search unrelated folders or repeatedly inspect the skill bundle.
+- Once the target is available, inspect its source to determine the handler, language, tools, and streaming behavior. Do not require the user to supply function names or runtime details that can be discovered from the code. Continue the procedure in that application.
+- For OpenCode itself, use the plugin recipe above. For another coding assistant, explain any missing runtime access or telemetry integration. Do not fabricate a demo application or events to claim a connection.
 
 ## Procedure
 
-Follow these steps in order. Stop and explain when a step cannot be completed.
+After locating the target application, follow these steps in order. If required context is missing, ask for that context and resume when it is available. If a technical step fails, explain the specific blocker and the next action needed.
 
 1. Inspect the customer's repository and identify the actual agent entrypoint: the real conversation handler, its streaming behavior, and its real tools. Preserve existing project conventions.
 2. Detect existing instrumentation. Search for `tervik`, `TERVIK_API_KEY`, and the `tervik.instrumented` marker. When instrumentation already exists, reuse it in place and update it; re-running this skill must add no duplicate wrappers, clients, or capture calls. Instrumenting an MCP tool server alone captures its tools; it does not capture the conversation unless the agent's actual turn handler is also instrumented.
@@ -28,4 +45,4 @@ Follow these steps in order. Stop and explain when a step cannot be completed.
 
 ## Unsupported applications
 
-When the application structure is unsupported (no identifiable server-side handler, browser-only execution, or an incompatible runtime), do not invent an integration. Explain which step failed, what was found instead, and the smallest change that would make the application supportable.
+After inspecting the target application's source, if its structure is unsupported (no identifiable server-side handler, browser-only execution, or an incompatible runtime), do not invent an integration. Explain which step failed, what was found instead, and the smallest change that would make the application supportable. A skill-only folder is a missing target, so use the application-discovery guidance above instead.

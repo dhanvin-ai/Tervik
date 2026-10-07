@@ -68,7 +68,8 @@ def _cosine(matrix):
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
     norms[norms == 0] = 1.0
     normalized = matrix / norms
-    return normalized @ normalized.T
+    # Rounded so BLAS-level (ARM vs x86) wobble cannot flip thresholds.
+    return np.round(normalized @ normalized.T, 6)
 
 
 def segment_messages(messages):
@@ -98,31 +99,44 @@ def segment_messages(messages):
     return merged
 
 
-def _birch_centers(matrix):
-    from sklearn.cluster import Birch
+def _birch_centers(matrix, texts=None):
+    # Deterministic compression replacing the CF tree. BIRCH was evaluated
+    # and removed: its incremental splits flip on ARM-vs-x86 BLAS wobble,
+    # which moved the discovery gate across platforms with identical library
+    # versions. Exact token-signature compression is platform-proof and
+    # keeps the same contract (radius-bounded pure cores): units sharing a
+    # normalized token multiset compress to their mean; everything else
+    # stays a singleton for mutual-best grouping downstream.
     n = matrix.shape[0]
     if n <= 3:
         return matrix, np.arange(n)
-    # Pure CF-tree compression (no forced partitioning); density grouping
-    # happens in group_units. Threshold tuned on scripts/evaluate_discovery.py.
-    birch = Birch(threshold=0.3, n_clusters=None)
-    labels = birch.fit_predict(matrix)
-    centers, membership = [], []
-    for label in sorted(set(labels.tolist())):
-        members = np.where(labels == label)[0]
-        membership.append(members)
-        centers.append(matrix[members].mean(axis=0))
+    order = sorted(range(n), key=lambda i: (sorted(texts[i]) if texts else i))
+    centers, membership, seen = [], [], {}
+    for index in order:
+        signature = tuple(sorted(texts[index])) if texts else (index,)
+        if signature in seen:
+            position = seen[signature]
+            members = membership[position]
+            combined = np.vstack([matrix[members].mean(axis=0), matrix[index]])
+            centers[position] = combined.mean(axis=0)
+            membership[position] = np.append(members, index)
+        else:
+            seen[signature] = len(centers)
+            centers.append(matrix[index].copy())
+            membership.append(np.asarray([index]))
     return np.asarray(centers), membership
 
 
-def group_units(matrix):
-    """BIRCH compression plus mutual-best density grouping.
+def group_units(matrix, token_sigs=None):
+    """Deterministic compression plus mutual-best density grouping.
 
-    BIRCH compresses units into radius-bounded candidates. Candidates merge
-    only on mutual-best centroid matches above MERGE_THRESHOLD, which keeps
-    dense topics together without chaining through shared-word hubs.
-    Leftover units join above ASSIGN_THRESHOLD; members below
-    EJECT_THRESHOLD are ejected. Noise is never a group.
+    Compression groups units sharing a normalized token multiset (exact,
+    platform-proof); BIRCH was evaluated and removed after its CF-tree
+    splits flipped between ARM and x86 with identical library versions.
+    Compressed candidates merge only on mutual-best centroid matches above
+    MERGE_THRESHOLD, which keeps dense topics together without chaining
+    through shared-word hubs. Leftover units join above ASSIGN_THRESHOLD;
+    members below EJECT_THRESHOLD are ejected. Noise is never a group.
     """
     n = matrix.shape[0]
     if n == 0:
@@ -132,13 +146,9 @@ def group_units(matrix):
     similarity = _cosine(matrix)
     if n == 2:
         return [0, 0] if float(similarity[0, 1]) >= ASSIGN_THRESHOLD else [-1, -1]
-    centers, membership = _birch_centers(matrix)
+    centers, membership = _birch_centers(matrix, token_sigs)
     order = list(range(len(membership)))
-    member_of = {}
-    for center_index, members in enumerate(membership):
-        for member in members:
-            member_of[int(member)] = center_index
-    # Radius-bounded BIRCH centers with 2+ members are pure cores already.
+    # Radius-bounded compressed centers with 2+ members are pure cores already.
     groups = []
     assigned = set()
     for members in membership:
@@ -177,7 +187,7 @@ def group_units(matrix):
     for center_index in order:
         core_groups.setdefault(find(center_index), []).append(center_index)
     for members in core_groups.values():
-        units = sorted(member_of[m] for center in members for m in membership[center])
+        units = sorted(int(u) for center in members for u in membership[center])
         if len(units) >= 2 and not any(u in assigned for u in units):
             groups.append(units)
             assigned.update(units)
@@ -231,7 +241,8 @@ def discover(units):
     if not units:
         return []
     matrix, _ = embed_texts(texts)
-    labels = group_units(matrix)
+    token_sigs = [tuple(sorted(_tokenize(t))) for t in texts]
+    labels = group_units(matrix, token_sigs)
     groups, by_label = [], {}
     for index, label in enumerate(labels):
         if label < 0:

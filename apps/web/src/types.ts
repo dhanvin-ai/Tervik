@@ -178,6 +178,22 @@ export interface EvalRun {
   };
   created_at: string;
 }
+export interface Improvement {
+  id: string;
+  project_id: string;
+  title: string;
+  signal_kind: string | null;
+  evidence: { event_id: string; conversation_id: string; content: string }[];
+  cause: string;
+  uncertainty: string;
+  candidate_diff: string;
+  state: string;
+  eval_run_id: string | null;
+  approved_by: string | null;
+  deployed_at: string | null;
+  measurements: Record<string, number | string>;
+  created_at: string;
+}
 export interface Span {
   id: string;
   parent_id: string | null;

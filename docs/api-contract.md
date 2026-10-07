@@ -90,6 +90,18 @@ Over-quota ingestion returns 429. Email delivery needs `SMTP_*` settings; otherw
 - `POST /api/datasets/{id}/runs` body `{baseline, candidate, repeats?}` → run with `{cases, repeats, reproducible, baseline_pass, candidate_pass, fixed[], regressed[], baseline_violations, candidate_violations, verdict, details[]}` (admin+; drafts cannot run).
 - `GET /api/datasets/{id}/runs` → runs with results.
 
+## Phase 9: improvements and delivery
+
+`Improvement`: `{id, project_id, title, signal_kind, evidence[{event_id, conversation_id, content}], cause, uncertainty, candidate_diff, state, eval_run_id, approved_by, deployed_at, measurements, created_at}`.
+
+- `GET /api/projects/{id}/improvements` → `Improvement[]`.
+- `GET /api/improvements/{id}` → improvement plus `prompts[{id, path, version, status, content}]`.
+- `POST /api/projects/{id}/improvements` body `{signal_kind, tool?, evidence_event_id?, prompt_path?}` → proposed `Improvement` (member+).
+- `POST /api/improvements/{id}/eval` body `{eval_run_id}` → `Improvement` (member+).
+- `POST /api/improvements/{id}/transition` body `{to}` → `Improvement` (member+; admin for deployed/rolled_back/cancelled; guarded, 422 on violation).
+- `GET /api/improvements/{id}/measurements?window_days=7` → before/after flagged rates.
+- `GET /api/projects/{id}/prompts` → prompt versions without full history duplication.
+
 `evidence`: `[{event_id, conversation_id, content, reason}]`.
 
 `Span`: `{id, parent_id, name, kind, status, duration_ms, input, output}`. Nullable parent. Input/output may be strings or JSON values.

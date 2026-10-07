@@ -765,7 +765,10 @@ def create_app(settings: Settings | None = None):
             dashboard_access(request, session, project)
             resolved = session_auth(request, session)
             if project.org_id is not None and resolved is not None:
-                require_project_role(session, project, resolved[1].id, "member")
+                try:
+                    require_project_role(session, project, resolved[1].id, "viewer")
+                except PermissionError:
+                    raise HTTPException(403, "Insufficient role")
             return [rule_dict(r) for r in session.scalars(
                 select(BehaviorRule).where(BehaviorRule.project_id == project.id)
                 .order_by(BehaviorRule.created_at))]

@@ -70,7 +70,7 @@ RULES = {
 CORRECTION = re.compile(r"\b(?:that(?:'s| is) (?:wrong|incorrect|not what i)|you misunderstood|i (?:asked for|meant)|no[,!]?\s+(?:i meant|that(?:'s| is) not)|not what i (?:asked|meant)|the answer is (?:wrong|incorrect))\b", re.I)
 FRUSTRATION = re.compile(r"\b(?:frustrat(?:ing|ed)|useless|this (?:doesn't|does not) work|this is not working|still (?:doesn't|does not) work|stop (?:ignoring|repeating)|waste of (?:my )?time|you keep (?:ignoring|getting it wrong))\b", re.I)
 TIMEOUT = re.compile(r"\b(?:timed?\s?out|timeout|deadline\s+exceeded|ETIMEDOUT|exceeded.*deadline)\b", re.I)
-UNRESOLVED = re.compile(r"\b(?:that (?:didn't|did not) work|still (?:broken|failing|not working)|you (?:didn't|did not) (?:fix|answer|resolve)|not (?:fixed|resolved|answered)|same problem|still (?:having|have) (?:this|the) (?:issue|problem)|issue (?:persists|remains)|didn'?t (?:help|solve))\b", re.I)
+UNRESOLVED = re.compile(r"\b(?:that (?:didn't|did not|didnt) work|still (?:broken|failing|not working)|you (?:didn't|did not|didnt) (?:fix|answer|resolve)|not (?:fixed|resolved|answered)|same problem|still (?:having|have) (?:this|the) (?:issue|problem)|issue (?:persists|remains)|(?:didn'?t|did not|didnt) (?:help|solve))\b", re.I)
 ACTION_CLAIM = re.compile(r"\b(?:i['’]?(?:ve| have) (?:sent|booked|created|deleted|updated|fixed|deployed|emailed|scheduled|cancelled|refunded|processed)|sent the|booking is confirmed|refund(?:ed|s)? (?:issued|processed)|order (?:is |has been )?(?:placed|cancelled)|email (?:has been )?sent|i['’]?ll have (?:sent|booked)|all done|taken care of)\b", re.I)
 
 

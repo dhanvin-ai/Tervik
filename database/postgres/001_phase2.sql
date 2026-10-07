@@ -155,3 +155,47 @@ CREATE TABLE IF NOT EXISTS semantic_memberships (
     score DOUBLE PRECISION NOT NULL DEFAULT 0,
     PRIMARY KEY (cluster_id, conversation_id)
 );
+
+-- Phase 7: alert rules, deliveries, and usage plans.
+CREATE TABLE IF NOT EXISTS alert_rules (
+    id VARCHAR(36) PRIMARY KEY,
+    project_id VARCHAR(36) NOT NULL REFERENCES projects(id),
+    name VARCHAR(120) NOT NULL,
+    kind VARCHAR(20) NOT NULL,
+    signal_kind VARCHAR(40),
+    threshold DOUBLE PRECISION NOT NULL DEFAULT 0,
+    window_hours INTEGER NOT NULL DEFAULT 24,
+    min_samples INTEGER NOT NULL DEFAULT 10,
+    cooldown_hours INTEGER NOT NULL DEFAULT 24,
+    channels JSONB NOT NULL DEFAULT '[]',
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    state VARCHAR(20) NOT NULL DEFAULT 'ok',
+    last_fired_at TIMESTAMPTZ,
+    resolved_at TIMESTAMPTZ,
+    created_by VARCHAR(36),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS alert_deliveries (
+    id VARCHAR(36) PRIMARY KEY,
+    rule_id VARCHAR(36) NOT NULL REFERENCES alert_rules(id),
+    project_id VARCHAR(36) NOT NULL,
+    dedup_key VARCHAR(160) NOT NULL UNIQUE,
+    state VARCHAR(20) NOT NULL DEFAULT 'queued',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    channel_type VARCHAR(20) NOT NULL DEFAULT 'webhook',
+    target_hash VARCHAR(64) NOT NULL DEFAULT '',
+    title VARCHAR(200) NOT NULL DEFAULT '',
+    body TEXT NOT NULL DEFAULT '',
+    error_code VARCHAR(80),
+    next_retry_at TIMESTAMPTZ,
+    sent_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS plans (
+    org_id VARCHAR(36) PRIMARY KEY REFERENCES organizations(id),
+    name VARCHAR(40) NOT NULL DEFAULT 'beta',
+    monthly_event_limit INTEGER NOT NULL DEFAULT 100000,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

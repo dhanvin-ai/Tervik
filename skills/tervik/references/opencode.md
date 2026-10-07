@@ -6,6 +6,14 @@ Use this recipe when the user wants the coding assistant's own OpenCode chats an
 
 Obtain the user's Tervik base endpoint and project ingest credential. Reuse the selected project and existing credentials when possible. Do not invent a destination or send events to an unrelated project. If no destination is supplied, ask whether to set up a local Tervik instance or use an existing instance. Keep the key out of prompts and command arguments.
 
+First run the included safe status helper from the skill folder:
+
+```sh
+python3 scripts/status-opencode.py
+```
+
+It reports plugin presence, whether a key is configured, endpoint health, and project ingestion counts without displaying the key. Do not use a raw file-read tool on private `tervik.json`, since that would put its secret in tool output. The helper uses a separate `TERVIK_ADMIN_TOKEN` environment variable when dashboard authorization requires it; it never sends the ingest key to dashboard routes. Reuse a working installation; a repeated setup prompt should confirm its status, not require application source or reinstall the plugin. If the chat is still following older application-only guidance, load the current skill and this reference in a new chat.
+
 The included installer uses the `TERVIK_API_KEY` and `TERVIK_ENDPOINT` environment variables when available:
 
 ```sh

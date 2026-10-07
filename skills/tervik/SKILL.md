@@ -9,7 +9,9 @@ Connect the existing agent application or OpenCode runtime to Tervik. Monitoring
 
 ## Choose what to monitor
 
-If the user wants to monitor OpenCode's own conversations and tools, use [references/opencode.md](references/opencode.md) and the included plugin installer. This mode works even when the current workspace is the extracted skill folder; do not ask for an application handler. When "this agent" is ambiguous in a coding assistant, ask whether they mean OpenCode itself or an application they are building. For other coding assistants, check for a supported runtime telemetry integration before claiming support.
+If the user wants to monitor OpenCode's own conversations and tools, use [references/opencode.md](references/opencode.md) and the included plugin installer. This mode works even when the current workspace is the extracted skill folder; do not ask for an application handler. When running in OpenCode from a skill-only workspace, a request to add analytics to "this agent" refers to OpenCode itself unless the user supplies another application target. Select the OpenCode recipe before searching for an application handler. In other ambiguous workspaces, ask which target they mean. For other coding assistants, check for a supported runtime telemetry integration before claiming support.
+
+For OpenCode monitoring, check for an already-installed plugin and configured destination first. If new events are arriving, report the existing connection and verify the current interaction; do not say setup is blocked because the skill folder has no handler. An earlier reply in the chat may have used older application-only guidance, so use the current OpenCode recipe.
 
 For a customer application, continue below.
 

@@ -34,6 +34,8 @@ export interface Cluster {
   created_at: string;
   last_seen: string;
   suggested_fix: string;
+  detector_version: string;
+  rule_version: string;
 }
 export interface Conversation {
   id: string;
@@ -68,6 +70,20 @@ export interface Signal {
   kind: string;
   reason: string;
   severity: string;
+  detector_version: string;
+  rule_version: string;
+}
+export interface BehaviorRule {
+  id: string;
+  project_id: string;
+  name: string;
+  kind: 'forbidden_phrase' | 'required_tool';
+  pattern: string | null;
+  tool: string | null;
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  enabled: boolean;
+  version: string;
+  created_at: string;
 }
 export interface Span {
   id: string;

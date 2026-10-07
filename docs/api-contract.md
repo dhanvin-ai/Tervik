@@ -30,7 +30,16 @@ Dashboard authorization: optional `Authorization: Bearer <TERVIK_ADMIN_TOKEN>`. 
 
 `ConversationSummary`: `{id, project_id, user_id, started_at, last_at, message_count, latency_ms, status, tags, preview, model, cost_usd}`. Status is `healthy|flagged`; tags are strings.
 
-`Signal`: `{id, event_id, conversation_id, kind, reason, severity}`.
+`Signal`: `{id, event_id, conversation_id, kind, reason, severity, detector_version, rule_version}`.
+
+`Cluster` gains `{detector_version, rule_version}`.
+
+`BehaviorRule`: `{id, project_id, name, kind, pattern, tool, severity, enabled, version, created_at}`. Kind is `forbidden_phrase|required_tool`.
+
+- `GET /api/projects/{id}/rules` → `BehaviorRule[]`.
+- `POST /api/projects/{id}/rules` body `{name, kind, pattern?, tool?, severity?}` → `BehaviorRule` (admin+).
+- `PATCH /api/rules/{id}` body `{enabled?, severity?}` → `BehaviorRule` (admin+).
+- `DELETE /api/rules/{id}` → `{ok}` (admin+).
 
 `evidence`: `[{event_id, conversation_id, content, reason}]`.
 

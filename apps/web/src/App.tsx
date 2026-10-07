@@ -8,7 +8,7 @@ import {
   Zap, type LucideIcon,
 } from 'lucide-react';
 import { query, request } from './api';
-import type { Cluster, ClusterDetail, Conversation, ConversationDetail, Overview, Page, Project, Range, SetupStatus } from './types';
+import type { BehaviorRule, Cluster, ClusterDetail, Conversation, ConversationDetail, Overview, Page, Project, Range, SetupStatus } from './types';
 
 const INSTALL_COMMAND = 'npx skills add dhanvin-ai/tervik --skill tervik';
 const INSTALL_PROMPT = 'Use the tervik skill to add Tervik analytics to this agent.';
@@ -212,6 +212,35 @@ function GuideCard({ icon: Icon, title, text }: { icon: LucideIcon; title: strin
   return <div className="guide-card"><Icon size={21} /><h3>{title}</h3><p>{text}</p></div>;
 }
 
+function RulesManager({ projectId, refresh }: { projectId: string; refresh: number }) {
+  const resource = useResource<BehaviorRule[]>(`/api/projects/${encodeURIComponent(projectId)}/rules`, refresh);
+  const [name, setName] = useState('');
+  const [kind, setKind] = useState<'forbidden_phrase' | 'required_tool'>('forbidden_phrase');
+  const [pattern, setPattern] = useState('');
+  const [tool, setTool] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true); setError('');
+    try {
+      await request('/api/projects/' + encodeURIComponent(projectId) + '/rules', {
+        method: 'POST', body: JSON.stringify(kind === 'forbidden_phrase' ? { name, kind, pattern } : { name, kind, tool }),
+      });
+      setName(''); setPattern(''); setTool(''); resource.retry();
+    } catch (cause) { setError((cause as Error).message); } finally { setBusy(false); }
+  };
+  const mutate = async (action: () => Promise<unknown>) => {
+    setError('');
+    try { await action(); resource.retry(); } catch (cause) { setError((cause as Error).message); }
+  };
+  return <section className="panel"><div className="panel-heading"><div><h2>Behavior rules</h2><p>Your definitions. Violations cite the rule and the matching record.</p></div></div>
+    {resource.loading ? <Loading label="Loading rules" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> :
+      <div>{resource.data?.length ? resource.data.map(rule => <div key={rule.id} className="related-conversation"><ShieldCheck size={15} /><span><strong>{rule.name}</strong><small>{rule.kind === 'forbidden_phrase' ? `forbidden phrase: ${rule.pattern}` : `required tool: ${rule.tool}`} · {rule.enabled ? 'enabled' : 'disabled'} · v{rule.version}</small></span><button className="text-button" onClick={() => mutate(() => request(`/api/rules/${encodeURIComponent(rule.id)}`, { method: 'PATCH', body: JSON.stringify({ enabled: !rule.enabled }) }))}>{rule.enabled ? 'Disable' : 'Enable'}</button><button className="text-button" onClick={() => mutate(() => request(`/api/rules/${encodeURIComponent(rule.id)}`, { method: 'DELETE' }))}>Delete</button></div>) : <p className="muted">No behavior rules yet. Add one to catch project-specific failures.</p>}</div>}
+    <form className="modal-body" onSubmit={submit}><label className="field-label" htmlFor="rule-name">Rule name</label><input id="rule-name" className="text-field" value={name} onChange={event => setName(event.target.value)} required maxLength={120} placeholder="e.g. Never promise refunds" /><label className="field-label" htmlFor="rule-kind">Rule kind</label><select id="rule-kind" className="text-field" value={kind} onChange={event => setKind(event.target.value as typeof kind)}><option value="forbidden_phrase">Forbidden phrase (regex on assistant messages)</option><option value="required_tool">Required tool (must succeed per conversation)</option></select>{kind === 'forbidden_phrase' ? <><label className="field-label" htmlFor="rule-pattern">Pattern</label><input id="rule-pattern" className="text-field" value={pattern} onChange={event => setPattern(event.target.value)} required maxLength={500} placeholder="e.g. guarantee\w*" /></> : <><label className="field-label" htmlFor="rule-tool">Tool name</label><input id="rule-tool" className="text-field" value={tool} onChange={event => setTool(event.target.value)} required maxLength={200} placeholder="e.g. lookup_policy" /></>}{error && <p className="inline-error">{error}</p>}<div className="modal-actions"><button type="submit" className="button button-primary" disabled={busy || !name.trim()}>{busy ? <LoaderCircle size={16} className="spin" /> : <Plus size={16} />}Add rule</button></div></form>
+  </section>;
+}
+
 function FailuresPage({ projectId, range, refresh, onSelect }: { projectId: string; range: Range; refresh: number; onSelect: (id: string) => void }) {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
@@ -225,6 +254,7 @@ function FailuresPage({ projectId, range, refresh, onSelect }: { projectId: stri
       {resource.loading ? <Loading label="Finding patterns" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : resource.data?.length ? resource.data.map(cluster => <ClusterRow key={cluster.id} cluster={cluster} onClick={() => onSelect(cluster.id)} />) : <EmptyState icon={search ? Search : CheckCheck} title={search ? 'No matching clusters' : status === 'resolved' ? 'No resolved clusters yet' : 'No failure signals in this period'} description={search ? 'Try a different search or clear your filters.' : status === 'resolved' ? 'Clusters you mark as resolved will appear here.' : 'Choose another date range or send conversations from your agent.'} />}
       <div className="list-footer"><span>{formatNumber(resource.data?.length || 0)} {resource.data?.length === 1 ? 'cluster' : 'clusters'}</span><span><ShieldCheck size={13} />Resolving a cluster records your review. It doesn’t change your agent.</span></div>
     </section>
+    <RulesManager projectId={projectId} refresh={refresh} />
   </>;
 }
 
@@ -253,7 +283,7 @@ function ClusterDrawer({ id, range, onClose, onConversation, onChanged }: { id: 
       <div className="detail-section"><div className="section-label"><MessageSquare size={15} />Evidence<span>{cluster.evidence.length}</span></div><p className="section-intro">What triggered this signal in {rangeLabels[range].toLowerCase()}.</p>
         {cluster.evidence.length ? cluster.evidence.map((evidence, index) => <div className="evidence-card" key={`${evidence.event_id}-${index}`}><span className="evidence-marker">{String(index + 1).padStart(2, '0')}</span><blockquote>“{evidence.content}”</blockquote><p><TriangleAlert size={13} />{evidence.reason}</p><button className="text-button" onClick={() => onConversation(evidence.conversation_id)}>Open conversation<ArrowUpRight size={14} /></button></div>) : <p className="muted">No evidence within this date range. Try a longer range.</p>}
       </div>
-      <div className="suggestion-card"><div className="section-label"><Sparkles size={16} />Suggested next step</div><p>{cluster.suggested_fix || 'Review the flagged conversation and reproduce the issue before making a change.'}</p><span>Rule-based suggestion · Review and validate before applying.</span></div>
+      <div className="suggestion-card"><div className="section-label"><Sparkles size={16} />Suggested next step</div><p>{cluster.suggested_fix || 'Review the flagged conversation and reproduce the issue before making a change.'}</p><span>Detector {cluster.detector_version} · rule {cluster.rule_version} · Review and validate before applying.</span></div>
       <div className="detail-section"><div className="section-label"><Layers3 size={15} />Related conversations</div>{cluster.conversations.map(conversation => <button key={conversation.id} className="related-conversation" onClick={() => onConversation(conversation.id)}><MessageSquare size={15} /><span><strong>{shortId(conversation.id)}</strong><small>{conversation.preview}</small></span><ChevronRight size={15} /></button>)}</div>
       <div className="drawer-bottom"><span>Last seen {dateTime(cluster.last_seen)}</span>{saveError && <p className="inline-error">{saveError}</p>}<button className={`button ${cluster.status === 'open' ? 'button-primary' : 'button-secondary'}`} disabled={saving} onClick={async () => {
         setSaving(true); setSaveError('');
@@ -278,7 +308,7 @@ function ConversationDrawer({ id, onClose }: { id: string; onClose: () => void }
       <div className="drawer-tabs"><button className={tab === 'messages' ? 'active' : ''} onClick={() => setTab('messages')}><MessageSquare size={15} />Messages<span>{conversation.messages.length}</span></button><button className={tab === 'trace' ? 'active' : ''} onClick={() => setTab('trace')}><GitBranch size={15} />Trace<span>{conversation.spans.length}</span></button></div>
       {tab === 'messages' ? <div className="message-timeline">{conversation.messages.map(message => {
         const signals = conversation.signals.filter(signal => signal.event_id === message.id);
-        return <div key={message.id} className={`message-entry role-${message.role} ${signals.length ? 'message-flagged' : ''}`}><span className="message-avatar">{message.role === 'assistant' ? <Bot size={16} /> : message.role === 'user' ? <Users size={15} /> : <Terminal size={15} />}</span><div className="message-body"><div className="message-heading"><strong>{message.role === 'assistant' ? 'Agent' : friendlyKind(message.role)}{message.name && <small>{message.name}</small>}</strong><span>{new Date(message.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span></div><p>{message.content}</p>{signals.map(signal => <div key={signal.id} className="message-signal"><TriangleAlert size={13} /><span>{signal.reason}</span></div>)}{message.status === 'error' && !signals.length && <div className="message-signal"><TriangleAlert size={13} />Reported error</div>}</div></div>;
+        return <div key={message.id} className={`message-entry role-${message.role} ${signals.length ? 'message-flagged' : ''}`}><span className="message-avatar">{message.role === 'assistant' ? <Bot size={16} /> : message.role === 'user' ? <Users size={15} /> : <Terminal size={15} />}</span><div className="message-body"><div className="message-heading"><strong>{message.role === 'assistant' ? 'Agent' : friendlyKind(message.role)}{message.name && <small>{message.name}</small>}</strong><span>{new Date(message.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span></div><p>{message.content}</p>{signals.map(signal => <div key={signal.id} className="message-signal" title={`Detector ${signal.detector_version} · rule ${signal.rule_version}`}><TriangleAlert size={13} /><span>{signal.reason}</span></div>)}{message.status === 'error' && !signals.length && <div className="message-signal"><TriangleAlert size={13} />Reported error</div>}</div></div>;
       })}</div> : <div className="trace-explorer"><p className="section-intro">Select a span to inspect the reported inputs and outputs.</p>{conversation.spans.length ? <><div className="trace-list">{conversation.spans.map(span => <button key={span.id} className={`trace-row ${spanId === span.id ? 'selected' : ''} ${span.parent_id ? 'trace-child' : ''}`} onClick={() => setSpanId(span.id)}><span className={`span-kind ${span.status === 'error' ? 'span-error' : ''}`}>{span.kind === 'tool' ? <Terminal size={15} /> : <Bot size={15} />}</span><span><strong>{span.name}</strong><small>{friendlyKind(span.kind)} · {span.status}</small></span><span className="trace-duration">{latency(span.duration_ms)}</span><ChevronRight size={14} /></button>)}</div>{selectedSpan && <div className="span-detail"><div className="section-label">{selectedSpan.name}<CopyButton text={selectedSpan.id} label="Copy span ID" compact /></div><span className="span-id">{selectedSpan.id}</span><h4>Input</h4><pre>{typeof selectedSpan.input === 'string' ? selectedSpan.input : JSON.stringify(selectedSpan.input, null, 2) || 'Not reported'}</pre><h4>Output</h4><pre>{typeof selectedSpan.output === 'string' ? selectedSpan.output : JSON.stringify(selectedSpan.output, null, 2) || 'Not reported'}</pre></div>}</> : <EmptyState icon={GitBranch} title="No spans reported" description="Send trace and span IDs with your events to inspect agent execution here." />}</div>}
     </div>}
   </Modal>;

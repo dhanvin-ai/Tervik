@@ -106,3 +106,18 @@ CREATE TABLE IF NOT EXISTS audit_records (
     resource VARCHAR(200) NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Phase 5: customer-defined behavior rules.
+CREATE TABLE IF NOT EXISTS behavior_rules (
+    id VARCHAR(36) PRIMARY KEY,
+    project_id VARCHAR(36) NOT NULL REFERENCES projects(id),
+    name VARCHAR(120) NOT NULL,
+    kind VARCHAR(30) NOT NULL,
+    pattern VARCHAR(500),
+    tool VARCHAR(200),
+    severity VARCHAR(20) NOT NULL DEFAULT 'high',
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    version VARCHAR(20) NOT NULL DEFAULT '1',
+    created_by VARCHAR(36),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

@@ -8,13 +8,14 @@ import {
   Zap, type LucideIcon,
 } from 'lucide-react';
 import { query, request } from './api';
-import type { BehaviorRule, Cluster, ClusterDetail, Conversation, ConversationDetail, Overview, Page, Project, Range, SetupStatus } from './types';
+import type { BehaviorRule, Cluster, ClusterDetail, Conversation, ConversationDetail, Discovery, DiscoveryIntent, Overview, Page, Project, Range, SetupStatus } from './types';
 
 const INSTALL_COMMAND = 'npx skills add dhanvin-ai/tervik --skill tervik';
 const INSTALL_PROMPT = 'Use the tervik skill to add Tervik analytics to this agent.';
 const rangeLabels: Record<Range, string> = { '24h': 'Last 24 hours', '7d': 'Last 7 days', '30d': 'Last 30 days' };
 const titles: Record<Page, string> = {
-  overview: 'Overview', failures: 'Failure clusters', conversations: 'Conversations',
+  overview: 'Overview', failures: 'Failure clusters', discovery: 'Discovery',
+  conversations: 'Conversations',
   integration: 'Connect your agent', welcome: 'Welcome',
 };
 
@@ -258,6 +259,76 @@ function FailuresPage({ projectId, range, refresh, onSelect }: { projectId: stri
   </>;
 }
 
+function DiscoveryPage({ projectId, range, refresh, onConversation }: { projectId: string; range: Range; refresh: number; onConversation: (id: string) => void }) {
+  const resource = useResource<Discovery>(`/api/projects/${encodeURIComponent(projectId)}/discovery?range=${range}`, refresh);
+  const intents = useResource<DiscoveryIntent[]>(`/api/projects/${encodeURIComponent(projectId)}/intents`, refresh);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [checked, setChecked] = useState<string[]>([]);
+  const [label, setLabel] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [intentName, setIntentName] = useState('');
+  const [intentExamples, setIntentExamples] = useState('');
+  const data = resource.data;
+  const cluster = data?.clusters.find(item => item.id === selected) || null;
+  const act = async (work: () => Promise<unknown>) => {
+    setBusy(true); setError('');
+    try { await work(); resource.retry(); intents.retry(); setChecked([]); setLabel(''); }
+    catch (cause) { setError((cause as Error).message); } finally { setBusy(false); }
+  };
+  const toggle = (id: string) => setChecked(items => items.includes(id) ? items.filter(item => item !== id) : [...items, id]);
+  return <>
+    <div className="context-banner"><span className="context-icon"><Sparkles size={18} /></span><div><strong>What are users trying to accomplish?</strong><span>Recurring topics group here with the conversations that explain them. Messages, conversations, and users are different counts.</span></div><span className="subtle-pill">Discovery {data?.clusters[0]?.detector_version || '6.0.0'}</span></div>
+    {resource.loading ? <Loading label="Discovering topics" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : data && <>
+      <div className="metric-grid">
+        <Metric label="Grouped conversations" value={`${formatNumber(data.coverage.clustered)} / ${formatNumber(data.coverage.conversations_analyzed)}`} icon={Layers3} detail={`${formatNumber(data.coverage.messages_total)} messages · ${formatNumber(data.coverage.users_total)} users`} />
+        <Metric label="Topics" value={formatNumber(data.clusters.length)} icon={MessageSquare} detail={`${formatNumber(data.coverage.unassigned)} unassigned conversations`} />
+        <Metric label="Intents matched" value={formatNumber(data.intents.reduce((sum, item) => sum + item.conversations, 0))} icon={Users} detail={`${data.intents.length} configured intents`} />
+      </div>
+      <section className="panel"><div className="panel-heading"><div><h2>Recurring topics</h2><p>Select topics to merge, or open one to rename, split, or dismiss. Edits never touch the underlying conversations.</p></div>{checked.length >= 2 && <div><input className="text-field" aria-label="Merged topic label" placeholder="Merged topic label..." value={label} onChange={event => setLabel(event.target.value)} /><button className="button button-primary" disabled={busy || !label.trim()} onClick={() => act(() => request(`/api/projects/${encodeURIComponent(projectId)}/discovery/merge`, { method: 'POST', body: JSON.stringify({ source_ids: checked, label: label.trim() }) }))}>Merge {checked.length}</button></div>}</div>
+        {error && <p className="inline-error">{error}</p>}
+        {data.clusters.length ? data.clusters.map(item => <div key={item.id} className="related-conversation"><input type="checkbox" aria-label={`Select ${item.label}`} checked={checked.includes(item.id)} onChange={() => toggle(item.id)} /><MessageSquare size={15} /><span><strong>{item.label}</strong><small>{formatNumber(item.count)} conversations · {formatNumber(item.affected_users)} users · {item.status}</small></span><button className="text-button" onClick={() => setSelected(item.id)}>Open<ChevronRight size={15} /></button></div>) : <EmptyState icon={Sparkles} title="No recurring topics yet" description="Send more conversations and related phrasings will group here." />}
+        <div className="list-footer"><span>Coverage: {formatNumber(data.coverage.clustered)} of {formatNumber(data.coverage.conversations_analyzed)} analyzed conversations grouped</span><span><ShieldCheck size={13} />Dismissing hides a topic. Conversations stay intact.</span></div>
+      </section>
+      <section className="panel"><div className="panel-heading"><div><h2>Configured intents</h2><p>Intents match before traffic accumulates. Examples define each intent.</p></div></div>
+        {intents.data?.map(intent => <div key={intent.id} className="related-conversation"><MessageSquare size={15} /><span><strong>{intent.name}</strong><small>{intent.examples.length} examples · {(data.intents.find(i => i.intent_id === intent.id)?.conversations || 0)} conversations · {intent.enabled ? 'enabled' : 'disabled'}</small></span><button className="text-button" onClick={() => act(() => request(`/api/intents/${encodeURIComponent(intent.id)}`, { method: 'PATCH', body: JSON.stringify({ enabled: !intent.enabled }) }))}>{intent.enabled ? 'Disable' : 'Enable'}</button><button className="text-button" onClick={() => act(() => request(`/api/intents/${encodeURIComponent(intent.id)}`, { method: 'DELETE' }))}>Delete</button></div>)}
+        <form className="modal-body" onSubmit={event => { event.preventDefault(); if (!intentName.trim() || !intentExamples.trim()) return; act(() => request(`/api/projects/${encodeURIComponent(projectId)}/intents`, { method: 'POST', body: JSON.stringify({ name: intentName.trim(), examples: intentExamples.split('\n').map(s => s.trim()).filter(Boolean) }) })).then(() => { setIntentName(''); setIntentExamples(''); }); }}><label className="field-label" htmlFor="intent-name">Intent name</label><input id="intent-name" className="text-field" value={intentName} onChange={event => setIntentName(event.target.value)} required maxLength={120} placeholder="e.g. Refund request" /><label className="field-label" htmlFor="intent-examples">Examples (one per line)</label><textarea id="intent-examples" className="text-field" value={intentExamples} onChange={event => setIntentExamples(event.target.value)} rows={3} placeholder={"get a refund\nrefund my order"} /><div className="modal-actions"><button type="submit" className="button button-primary" disabled={busy}><Plus size={16} />Add intent</button></div></form>
+      </section>
+    </>}
+    {cluster && <DiscoveryDrawer cluster={cluster} projectId={projectId} onClose={() => setSelected(null)} onConversation={onConversation} onChanged={() => { resource.retry(); }} />}
+  </>;
+}
+
+function DiscoveryDrawer({ cluster, projectId, onClose, onConversation, onChanged }: { cluster: Discovery['clusters'][number]; projectId: string; onClose: () => void; onConversation: (id: string) => void; onChanged: () => void }) {
+  const [rename, setRename] = useState(cluster.label);
+  const [split, setSplit] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const act = async (work: () => Promise<unknown>) => {
+    setBusy(true); setError('');
+    try { await work(); onChanged(); } catch (cause) { setError((cause as Error).message); } finally { setBusy(false); }
+  };
+  return <Modal title="Topic investigation" onClose={onClose} sheet>
+    <div className="drawer-content">
+      <div className="drawer-eyebrow"><Status status="open" /><span>{formatNumber(cluster.count)} conversations</span></div>
+      <h2 className="drawer-title">{cluster.label}</h2>
+      <div className="detail-section"><div className="section-label"><MessageSquare size={15} />Evidence<span>{cluster.evidence.length}</span></div>
+        {cluster.evidence.map((item, index) => <div className="evidence-card" key={`${item.conversation_id}-${index}`}><span className="evidence-marker">{String(index + 1).padStart(2, '0')}</span><blockquote>“{item.excerpt}”</blockquote><p><TriangleAlert size={13} />{item.reason}</p><button className="text-button" onClick={() => onConversation(item.conversation_id)}>Open conversation<ArrowUpRight size={14} /></button></div>)}
+      </div>
+      <div className="detail-section"><div className="section-label"><Layers3 size={15} />Members<span>{cluster.members.length}</span></div>
+        {cluster.members.map(id => <div key={id} className="related-conversation"><input type="checkbox" aria-label={`Split ${shortId(id)}`} checked={split.includes(id)} onChange={() => setSplit(items => items.includes(id) ? items.filter(item => item !== id) : [...items, id])} /><MessageSquare size={15} /><span><strong>{shortId(id)}</strong></span><button className="text-button" onClick={() => onConversation(id)}>Open<ChevronRight size={15} /></button></div>)}
+      </div>
+      {error && <p className="inline-error">{error}</p>}
+      <div className="detail-section"><div className="section-label"><Settings2 size={15} />Manage</div>
+        <label className="field-label" htmlFor="discovery-rename">Rename (evidence untouched)</label>
+        <div className="key-box"><input id="discovery-rename" className="text-field" value={rename} onChange={event => setRename(event.target.value)} maxLength={200} /><button className="button button-secondary" disabled={busy || !rename.trim()} onClick={() => act(() => request(`/api/discovery/${encodeURIComponent(cluster.id)}/rename`, { method: 'POST', body: JSON.stringify({ label: rename.trim() }) }))}>Save</button></div>
+        <div className="drawer-bottom"><button className="button button-secondary" disabled={busy} onClick={() => act(() => request(`/api/discovery/${encodeURIComponent(cluster.id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'dismissed' }) }).then(onClose))}>Dismiss topic</button>
+        <button className="button button-primary" disabled={busy || split.length === 0 || split.length >= cluster.members.length} onClick={() => act(() => request(`/api/projects/${encodeURIComponent(projectId)}/discovery/split`, { method: 'POST', body: JSON.stringify({ label: `${cluster.label} (split)`, member_conversation_ids: split }) }).then(onClose))}>Split selection</button></div>
+      </div>
+    </div>
+  </Modal>;
+}
+
 function ConversationsPage({ projectId, range, refresh, onSelect }: { projectId: string; range: Range; refresh: number; onSelect: (id: string) => void }) {
   const [search, setSearch] = useState('');
   const [flagged, setFlagged] = useState(false);
@@ -409,7 +480,7 @@ export default function App() {
   };
   const modalClose = () => { setCreateOpen(false); setProjectName(''); setCreateError(''); };
   const noProject = <div className="panel no-project-panel"><EmptyState icon={Layers3} title="A clearer view of your agents starts here." description="Create your first project to connect an agent, or explore a sample workspace to see how Tervik works."><button className="button button-primary" onClick={() => setCreateOpen(true)}><Plus size={16} />Create your first project</button><button className="button button-secondary" disabled={demoBusy} onClick={seedDemo}>{demoBusy ? <LoaderCircle size={15} className="spin" /> : <Layers3 size={16} />}Explore sample workspace</button></EmptyState></div>;
-  const navItems: { page: Page; icon: LucideIcon; label: string }[] = [{ page: 'overview', icon: LayoutDashboard, label: 'Overview' }, { page: 'failures', icon: Layers3, label: 'Failure clusters' }, { page: 'conversations', icon: MessageSquare, label: 'Conversations' }];
+  const navItems: { page: Page; icon: LucideIcon; label: string }[] = [{ page: 'overview', icon: LayoutDashboard, label: 'Overview' }, { page: 'failures', icon: Layers3, label: 'Failure clusters' }, { page: 'discovery', icon: Sparkles, label: 'Discovery' }, { page: 'conversations', icon: MessageSquare, label: 'Conversations' }];
   return <>
     {page === 'welcome' ? <><Welcome onStart={() => navigate('overview')} onDemo={seedDemo} demoBusy={demoBusy} />{actionError && <div className="welcome-error"><ErrorState message={actionError} onRetry={seedDemo} /></div>}</> : <div className="app-shell">
       {mobileOpen && <button className="sidebar-scrim" onClick={() => setMobileOpen(false)} aria-label="Close navigation" />}
@@ -418,9 +489,9 @@ export default function App() {
         <div className="sidebar-bottom"><div className="sidebar-tip"><span><Sparkles size={17} /></span><strong>A better next turn.</strong><p>Your users are showing you what to improve. Follow the signals.</p><button onClick={() => navigate('integration')}>Connect an agent<ArrowRight size={14} /></button></div><button className="settings-button" onClick={() => { setAdminToken(sessionStorage.getItem('tervik_admin_token') || ''); setSessionToken(sessionStorage.getItem('tervik_session') || ''); setSettingsOpen(true); }}><Settings2 size={17} /><span>Connection settings</span></button><div className="workspace-footer"><span className="user-avatar">T</span><span><strong>Local workspace</strong><small>Development foundation</small></span><span className="local-dot" /></div></div>
       </aside>
       <div className="main-shell"><header className="topbar"><div className="breadcrumb"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Open navigation"><Menu size={20} /></button><span>Workspace</span><ChevronRight size={12} /><strong>{project?.name || 'Getting started'}</strong>{project?.is_demo && <span className="demo-badge">SAMPLE DATA</span>}</div><div className="topbar-right"><span className={`api-health ${health.data ? 'connected' : ''}`}><span />{health.data ? 'API connected' : health.loading ? 'Connecting' : 'API offline'}</span><button className="topbar-icon" onClick={() => navigate('integration')} aria-label="Open integration guide" title="Integration guide"><FileCode2 size={18} /></button></div></header>
-        <main className="main-content"><div className="page-heading"><div><div className="page-eyebrow">AGENT INTELLIGENCE</div><h1>{titles[page]}</h1><p>{page === 'overview' ? 'Know what’s working. See what needs a closer look.' : page === 'failures' ? 'The moments that deserve your attention, connected to the evidence.' : page === 'conversations' ? 'A closer look at what your users and agents are saying.' : 'A few small steps between your agent and its next insight.'}</p></div>{page !== 'integration' && <div className="heading-actions"><label className="date-range"><Clock3 size={15} /><select aria-label="Date range" value={range} onChange={event => setRange(event.target.value as Range)}>{Object.entries(rangeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><ChevronDown size={13} /></label><button className="button button-primary heading-connect" onClick={() => project ? navigate('integration') : setCreateOpen(true)}><Plus size={15} />{project ? 'Connect agent' : 'New project'}</button></div>}</div>
+        <main className="main-content"><div className="page-heading"><div><div className="page-eyebrow">AGENT INTELLIGENCE</div><h1>{titles[page]}</h1><p>{page === 'overview' ? 'Know what’s working. See what needs a closer look.' : page === 'failures' ? 'The moments that deserve your attention, connected to the evidence.' : page === 'discovery' ? 'What users are trying to accomplish, grouped with evidence.' : page === 'conversations' ? 'A closer look at what your users and agents are saying.' : 'A few small steps between your agent and its next insight.'}</p></div>{page !== 'integration' && <div className="heading-actions"><label className="date-range"><Clock3 size={15} /><select aria-label="Date range" value={range} onChange={event => setRange(event.target.value as Range)}>{Object.entries(rangeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><ChevronDown size={13} /></label><button className="button button-primary heading-connect" onClick={() => project ? navigate('integration') : setCreateOpen(true)}><Plus size={15} />{project ? 'Connect agent' : 'New project'}</button></div>}</div>
           {actionError && <div className="action-error"><TriangleAlert size={16} /><span>{actionError}</span><button className="icon-button" onClick={() => setActionError('')} aria-label="Dismiss error"><X size={15} /></button></div>}
-          {projects.loading ? <Loading /> : projects.error ? <ErrorState message={projects.error} onRetry={projects.retry} /> : !project ? noProject : page === 'overview' ? <OverviewPage {...overview} range={range} onPage={navigate} onCluster={setClusterId} onConversation={selectConversation} onDemo={seedDemo} demoBusy={demoBusy} /> : page === 'failures' ? <FailuresPage projectId={project.id} range={range} refresh={refresh} onSelect={setClusterId} /> : page === 'conversations' ? <ConversationsPage projectId={project.id} range={range} refresh={refresh} onSelect={selectConversation} /> : <IntegrationPage key={project.id} project={project} refresh={refresh} />}
+          {projects.loading ? <Loading /> : projects.error ? <ErrorState message={projects.error} onRetry={projects.retry} /> : !project ? noProject : page === 'overview' ? <OverviewPage {...overview} range={range} onPage={navigate} onCluster={setClusterId} onConversation={selectConversation} onDemo={seedDemo} demoBusy={demoBusy} /> : page === 'failures' ? <FailuresPage projectId={project.id} range={range} refresh={refresh} onSelect={setClusterId} /> : page === 'discovery' ? <DiscoveryPage projectId={project.id} range={range} refresh={refresh} onConversation={selectConversation} /> : page === 'conversations' ? <ConversationsPage projectId={project.id} range={range} refresh={refresh} onSelect={selectConversation} /> : <IntegrationPage key={project.id} project={project} refresh={refresh} />}
           <footer className="dashboard-footer"><span>Tervik<span className="footer-separator">/</span>Find failures. Build better agents.</span><span><span className="pulse-dot" />Rule-based analysis</span></footer>
         </main>
       </div>

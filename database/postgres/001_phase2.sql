@@ -121,3 +121,37 @@ CREATE TABLE IF NOT EXISTS behavior_rules (
     created_by VARCHAR(36),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Phase 6: configured intents and discovered topics.
+CREATE TABLE IF NOT EXISTS intents (
+    id VARCHAR(36) PRIMARY KEY,
+    project_id VARCHAR(36) NOT NULL REFERENCES projects(id),
+    name VARCHAR(120) NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    examples JSONB NOT NULL DEFAULT '[]',
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    version VARCHAR(20) NOT NULL DEFAULT '1',
+    created_by VARCHAR(36),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS semantic_clusters (
+    id VARCHAR(36) PRIMARY KEY,
+    project_id VARCHAR(36) NOT NULL REFERENCES projects(id),
+    key VARCHAR(64) NOT NULL,
+    label VARCHAR(200) NOT NULL DEFAULT '',
+    label_override VARCHAR(200),
+    status VARCHAR(20) NOT NULL DEFAULT 'open',
+    merged_into VARCHAR(36),
+    member_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (project_id, key)
+);
+
+CREATE TABLE IF NOT EXISTS semantic_memberships (
+    cluster_id VARCHAR(36) NOT NULL REFERENCES semantic_clusters(id),
+    conversation_id VARCHAR(36) NOT NULL,
+    score DOUBLE PRECISION NOT NULL DEFAULT 0,
+    PRIMARY KEY (cluster_id, conversation_id)
+);

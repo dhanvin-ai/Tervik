@@ -1,5 +1,5 @@
 export type Range = '24h' | '7d' | '30d';
-export type Page = 'overview' | 'failures' | 'conversations' | 'integration' | 'welcome';
+export type Page = 'overview' | 'failures' | 'discovery' | 'conversations' | 'integration' | 'welcome';
 export interface Project {
   id: string;
   name: string;
@@ -84,6 +84,40 @@ export interface BehaviorRule {
   enabled: boolean;
   version: string;
   created_at: string;
+}
+export interface DiscoveryIntent {
+  id: string;
+  project_id: string;
+  name: string;
+  description: string;
+  examples: string[];
+  enabled: boolean;
+  version: string;
+  created_at: string;
+}
+export interface DiscoveryCluster {
+  id: string;
+  key: string;
+  label: string;
+  status: string;
+  count: number;
+  affected_users: number;
+  evidence: { conversation_id: string; excerpt: string; reason: string }[];
+  members: string[];
+  detector_version: string;
+}
+export interface Discovery {
+  project: Project;
+  clusters: DiscoveryCluster[];
+  intents: { intent_id: string; intent_name: string; conversations: number; sample: string[] }[];
+  coverage: {
+    conversations_total: number;
+    conversations_analyzed: number;
+    messages_total: number;
+    users_total: number;
+    clustered: number;
+    unassigned: number;
+  };
 }
 export interface Span {
   id: string;

@@ -41,6 +41,25 @@ Dashboard authorization: optional `Authorization: Bearer <TERVIK_ADMIN_TOKEN>`. 
 - `PATCH /api/rules/{id}` body `{enabled?, severity?}` → `BehaviorRule` (admin+).
 - `DELETE /api/rules/{id}` → `{ok}` (admin+).
 
+## Phase 6: intents and discovery
+
+`Intent`: `{id, project_id, name, description, examples, enabled, version, created_at}`.
+
+- `GET /api/projects/{id}/intents` → `Intent[]`.
+- `POST /api/projects/{id}/intents` body `{name, description?, examples[]}` → `Intent` (admin+).
+- `PATCH /api/intents/{id}` body `{enabled?, description?}` → `Intent` (admin+).
+- `DELETE /api/intents/{id}` → `{ok}` (admin+).
+
+`GET /api/projects/{id}/discovery?range=7d` → `{project, clusters, intents, coverage}`.
+Cluster: `{id, key, label, status, count, affected_users, evidence[{conversation_id, excerpt, reason}], members[], detector_version}`.
+Coverage: `{conversations_total, conversations_analyzed, messages_total, users_total, clustered, unassigned}` — messages, conversations, and users are different denominators.
+
+- `PATCH /api/discovery/{id}` body `{status: "open"|"dismissed"}` → `{id, status}` (member+).
+- `POST /api/discovery/{id}/rename` body `{label}` → `{id, label}` (member+).
+- `POST /api/projects/{id}/discovery/manual` body `{label, member_conversation_ids[]}` → cluster (admin+).
+- `POST /api/projects/{id}/discovery/merge` body `{source_ids[], label}` → cluster (admin+).
+- `POST /api/projects/{id}/discovery/split` body `{label, member_conversation_ids[]}` → `{id, label, members, remainder_id}` (admin+).
+
 `evidence`: `[{event_id, conversation_id, content, reason}]`.
 
 `Span`: `{id, parent_id, name, kind, status, duration_ms, input, output}`. Nullable parent. Input/output may be strings or JSON values.

@@ -17,6 +17,8 @@ from types import SimpleNamespace
 
 _SECRET_FIELD = re.compile(r"^(authorization|proxy-authorization|cookie|set-cookie|password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key)$", re.I)
 _EVENT_FIELDS = {"id", "conversation_id", "user_id", "role", "content", "timestamp", "trace_id", "span_id", "parent_span_id", "name", "status", "latency_ms", "tokens", "cost_usd", "model", "metadata"}
+CLIENT_VERSION = "0.1.0"
+CLIENT_NAME = "tervik"
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -207,7 +209,7 @@ class Tervik:
         body = json.dumps({"events": events}, ensure_ascii=False, allow_nan=False).encode("utf-8")
         for attempt in range(self._retries + 1):
             delay = min(2.0, self._retry_base * 2 ** attempt)
-            request = urllib.request.Request(self._url, data=body, headers={"Authorization": "Bearer " + self._key, "Content-Type": "application/json"}, method="POST")
+            request = urllib.request.Request(self._url, data=body, headers={"Authorization": "Bearer " + self._key, "Content-Type": "application/json", "X-Tervik-Client": CLIENT_NAME + "/" + CLIENT_VERSION}, method="POST")
             try:
                 with self._opener.open(request, timeout=self._timeout) as response:
                     result = json.load(response)

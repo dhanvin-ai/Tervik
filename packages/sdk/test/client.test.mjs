@@ -38,6 +38,7 @@ test('captures snapshots, redacts before export, follows the API and batches at 
     const first = api.requests[0];
     assert.equal(first.url, '/v1/events');
     assert.equal(first.headers.authorization, 'Bearer project-test-key');
+    assert.match(first.headers['x-tervik-client'], /^@tervik\/sdk\/\d+\.\d+\.\d+$/);
     assert.equal(first.body.events[0].id, id);
     assert.equal(first.body.events[0].content, 'token Bearer [REDACTED]');
     assert.equal(first.body.events[0].metadata.api_key, '[REDACTED]');

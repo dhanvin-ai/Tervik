@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
+export const SDK_VERSION = '0.1.0';
+export const SDK_NAME = '@tervik/sdk';
+
 export type Role = 'user' | 'assistant' | 'tool' | 'system';
 export type DropReason = 'configuration' | 'authentication' | 'queue_full' | 'invalid_event' | 'redaction' | 'server_rejected' | 'retry_exhausted' | 'closed';
 export interface Event {
@@ -233,7 +236,7 @@ export class Tervik {
       const timeout = setTimeout(() => controller.abort(), this.options.requestTimeoutMs);
       let retryAfter = 0;
       try {
-        const response = await fetch(this.url, { method: 'POST', headers: { authorization: `Bearer ${this.apiKey}`, 'content-type': 'application/json' }, body, signal: controller.signal, redirect: 'error' });
+        const response = await fetch(this.url, { method: 'POST', headers: { authorization: `Bearer ${this.apiKey}`, 'content-type': 'application/json', 'x-tervik-client': `${SDK_NAME}/${SDK_VERSION}` }, body, signal: controller.signal, redirect: 'error' });
         if (response.status === 401 || response.status === 403) {
           await response.body?.cancel();
           this.disabled = 'authentication'; this.drop('authentication', events.length);

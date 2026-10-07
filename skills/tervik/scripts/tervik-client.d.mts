@@ -1,3 +1,5 @@
+export declare const SDK_VERSION = "0.1.0";
+export declare const SDK_NAME = "@tervik/sdk";
 export type Role = 'user' | 'assistant' | 'tool' | 'system';
 export type DropReason = 'configuration' | 'authentication' | 'queue_full' | 'invalid_event' | 'redaction' | 'server_rejected' | 'retry_exhausted' | 'closed';
 export interface Event {

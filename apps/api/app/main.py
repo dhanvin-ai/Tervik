@@ -334,6 +334,15 @@ def create_app(settings: Settings | None = None):
             connection.exec_driver_sql("SELECT 1")
         return {"status": "ok", "storage": engine.dialect.name, "analysis_mode": analysis.ANALYSIS_MODE}
 
+    @app.get("/api/compat")
+    def compat():
+        """Minimum supported SDK versions. Older clients keep working on the
+        stable v2 event contract; this advertises the tested floor."""
+        return {"event_contract": "events-v2",
+                "minimum_clients": {"@tervik/sdk": "0.1.0", "tervik": "0.1.0",
+                                    "tervik-node": "0.1.0", "tervik-python": "0.1.0"},
+                "deprecated": []}
+
     @app.get("/api/projects")
     def projects():
         with sessions() as session:

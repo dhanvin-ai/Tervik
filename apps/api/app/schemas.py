@@ -194,3 +194,28 @@ class DiscoveryMerge(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source_ids: list[str] = Field(min_length=2, max_length=50)
     label: str = Field(min_length=1, max_length=200)
+
+
+class AlertChannel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["webhook", "email"]
+    target: str = Field(min_length=1, max_length=500)
+
+
+class AlertRuleInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=120)
+    kind: Literal["threshold", "trend", "summary"]
+    signal_kind: str | None = Field(default=None, max_length=40)
+    threshold: float = Field(default=1, ge=0, le=1000000)
+    window_hours: int = Field(default=24, ge=1, le=720)
+    min_samples: int = Field(default=10, ge=1, le=1000000)
+    cooldown_hours: int = Field(default=24, ge=1, le=720)
+    channels: list[AlertChannel] = Field(min_length=1, max_length=5)
+
+
+class AlertRulePatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool | None = None
+    threshold: float | None = Field(default=None, ge=0, le=1000000)
+    cooldown_hours: int | None = Field(default=None, ge=1, le=720)

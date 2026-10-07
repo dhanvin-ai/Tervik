@@ -227,6 +227,55 @@ class SemanticMembership(Base):
     score: Mapped[float] = mapped_column(Float, default=0.0)
 
 
+class AlertRule(Base):
+    """Phase 7 alert rule. Threshold, trend, or daily summary cadence."""
+    __tablename__ = "alert_rules"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(20))
+    signal_kind: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    threshold: Mapped[float] = mapped_column(Float, default=0)
+    window_hours: Mapped[int] = mapped_column(Integer, default=24)
+    min_samples: Mapped[int] = mapped_column(Integer, default=10)
+    cooldown_hours: Mapped[int] = mapped_column(Integer, default=24)
+    channels: Mapped[list] = mapped_column(JSON, default=list)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    state: Mapped[str] = mapped_column(String(20), default="ok")
+    last_fired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AlertDelivery(Base):
+    """One delivery attempt series. Secrets never stored: only a target hash."""
+    __tablename__ = "alert_deliveries"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    rule_id: Mapped[str] = mapped_column(ForeignKey("alert_rules.id"), index=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    dedup_key: Mapped[str] = mapped_column(String(160), unique=True, index=True)
+    state: Mapped[str] = mapped_column(String(20), default="queued")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    channel_type: Mapped[str] = mapped_column(String(20), default="webhook")
+    target_hash: Mapped[str] = mapped_column(String(64), default="")
+    title: Mapped[str] = mapped_column(String(200), default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class Plan(Base):
+    """Phase 7 usage plan per organization. Provider billing plugs in later."""
+    __tablename__ = "plans"
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), primary_key=True)
+    name: Mapped[str] = mapped_column(String(40), default="beta")
+    monthly_event_limit: Mapped[int] = mapped_column(Integer, default=100000)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class ClusterState(Base):
     __tablename__ = "cluster_states"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)

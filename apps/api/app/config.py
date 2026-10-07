@@ -18,6 +18,12 @@ class Settings:
     s3_endpoint: str | None = None
     s3_bucket: str | None = None
     inline_process: bool = True
+    # Phase 7: email delivery. Unset = email channel reports not-configured.
+    smtp_host: str | None = None
+    smtp_port: int = 25
+    smtp_user: str | None = None
+    smtp_password: str = ""
+    smtp_from: str = "tervik@localhost"
 
     @classmethod
     def from_env(cls):
@@ -44,4 +50,9 @@ class Settings:
             s3_endpoint=os.getenv("S3_ENDPOINT") or None,
             s3_bucket=os.getenv("S3_BUCKET") or None,
             inline_process=os.getenv("TERVIK_INLINE_PROCESS", "true").lower() == "true",
+            smtp_host=os.getenv("SMTP_HOST") or None,
+            smtp_port=int(os.getenv("SMTP_PORT", "25")),
+            smtp_user=os.getenv("SMTP_USER") or None,
+            smtp_password=os.getenv("SMTP_PASSWORD", ""),
+            smtp_from=os.getenv("SMTP_FROM", "tervik@localhost"),
         )

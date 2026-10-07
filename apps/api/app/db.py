@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, create_engine, event
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.engine import make_url
@@ -170,6 +170,61 @@ class AuditRecord(Base):
     action: Mapped[str] = mapped_column(String(80))
     resource: Mapped[str] = mapped_column(String(200), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class BehaviorRule(Base):
+    """Phase 5 customer-defined behavior rule. Evaluated deterministically."""
+    __tablename__ = "behavior_rules"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(30))
+    pattern: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    tool: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    severity: Mapped[str] = mapped_column(String(20), default="high")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    version: Mapped[str] = mapped_column(String(20), default="1")
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class Intent(Base):
+    """Phase 6 configured intent: customer-owned definition that works
+    before the project has substantial traffic."""
+    __tablename__ = "intents"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text, default="")
+    examples: Mapped[list] = mapped_column(JSON, default=list)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    version: Mapped[str] = mapped_column(String(20), default="1")
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class SemanticCluster(Base):
+    """Phase 6 discovered topic. `key` is the deterministic group identity;
+    `label` is editable without touching evidence."""
+    __tablename__ = "semantic_clusters"
+    __table_args__ = (UniqueConstraint("project_id", "key", name="uq_semantic_cluster_key"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    key: Mapped[str] = mapped_column(String(64), index=True)
+    label: Mapped[str] = mapped_column(String(200), default="")
+    label_override: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="open")
+    merged_into: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    member_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class SemanticMembership(Base):
+    __tablename__ = "semantic_memberships"
+    cluster_id: Mapped[str] = mapped_column(ForeignKey("semantic_clusters.id"), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    score: Mapped[float] = mapped_column(Float, default=0.0)
 
 
 class ClusterState(Base):

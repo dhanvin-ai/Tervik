@@ -239,7 +239,7 @@ def test_demo_seed_idempotence_and_sample_labels(client):
     assert p["is_demo"] is True and p["name"] == "Sample workspace"
     summary = overview(client, p)
     assert summary["metrics"]["conversations"] == 54
-    assert {row["kind"] for row in client.get("/api/clusters").json()} == {"correction", "frustration", "repetition", "tool_error"}
+    assert {row["kind"] for row in client.get("/api/clusters").json()} == {"correction", "frustration", "repetition", "tool_error", "tool_timeout"}
     detail = client.get(f'/api/conversations/{summary["recent_conversations"][0]["id"]}').json()
     assert all(message["metadata"]["sample"] for message in detail["messages"])
 

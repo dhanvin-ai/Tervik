@@ -30,7 +30,35 @@ Dashboard authorization: optional `Authorization: Bearer <TERVIK_ADMIN_TOKEN>`. 
 
 `ConversationSummary`: `{id, project_id, user_id, started_at, last_at, message_count, latency_ms, status, tags, preview, model, cost_usd}`. Status is `healthy|flagged`; tags are strings.
 
-`Signal`: `{id, event_id, conversation_id, kind, reason, severity}`.
+`Signal`: `{id, event_id, conversation_id, kind, reason, severity, detector_version, rule_version}`.
+
+`Cluster` gains `{detector_version, rule_version}`.
+
+`BehaviorRule`: `{id, project_id, name, kind, pattern, tool, severity, enabled, version, created_at}`. Kind is `forbidden_phrase|required_tool`.
+
+- `GET /api/projects/{id}/rules` → `BehaviorRule[]`.
+- `POST /api/projects/{id}/rules` body `{name, kind, pattern?, tool?, severity?}` → `BehaviorRule` (admin+).
+- `PATCH /api/rules/{id}` body `{enabled?, severity?}` → `BehaviorRule` (admin+).
+- `DELETE /api/rules/{id}` → `{ok}` (admin+).
+
+## Phase 6: intents and discovery
+
+`Intent`: `{id, project_id, name, description, examples, enabled, version, created_at}`.
+
+- `GET /api/projects/{id}/intents` → `Intent[]`.
+- `POST /api/projects/{id}/intents` body `{name, description?, examples[]}` → `Intent` (admin+).
+- `PATCH /api/intents/{id}` body `{enabled?, description?}` → `Intent` (admin+).
+- `DELETE /api/intents/{id}` → `{ok}` (admin+).
+
+`GET /api/projects/{id}/discovery?range=7d` → `{project, clusters, intents, coverage}`.
+Cluster: `{id, key, label, status, count, affected_users, evidence[{conversation_id, excerpt, reason}], members[], detector_version}`.
+Coverage: `{conversations_total, conversations_analyzed, messages_total, users_total, clustered, unassigned}` — messages, conversations, and users are different denominators.
+
+- `PATCH /api/discovery/{id}` body `{status: "open"|"dismissed"}` → `{id, status}` (member+).
+- `POST /api/discovery/{id}/rename` body `{label}` → `{id, label}` (member+).
+- `POST /api/projects/{id}/discovery/manual` body `{label, member_conversation_ids[]}` → cluster (admin+).
+- `POST /api/projects/{id}/discovery/merge` body `{source_ids[], label}` → cluster (admin+).
+- `POST /api/projects/{id}/discovery/split` body `{label, member_conversation_ids[]}` → `{id, label, members, remainder_id}` (admin+).
 
 `evidence`: `[{event_id, conversation_id, content, reason}]`.
 

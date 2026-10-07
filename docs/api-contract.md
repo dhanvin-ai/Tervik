@@ -78,6 +78,18 @@ Coverage: `{conversations_total, conversations_analyzed, messages_total, users_t
 
 Over-quota ingestion returns 429. Email delivery needs `SMTP_*` settings; otherwise the channel reports `email_not_configured` without retrying blindly.
 
+## Phase 8: evaluations and replay
+
+`EvalDataset`: `{id, project_id, name, version, status, cases, case_count, created_at}`. Case: `{id, input, tools[{name, recorded_output}], expected{response_contains?, response_regex?, tools_called[]?, no_violations[]?}}`. Agent descriptor: `{name, version, model?, tools_plan[{name, args?, optional?}], response_template, latency_ms?, cost_usd?}`.
+
+- `GET /api/projects/{id}/datasets` → `EvalDataset[]`.
+- `POST /api/projects/{id}/datasets` body `{name, cases[]}` → draft `EvalDataset` (admin+).
+- `POST /api/projects/{id}/datasets/from-findings` body `{name, signal_kinds[], include_controls?, limit?}` → draft `EvalDataset` (admin+).
+- `PATCH /api/datasets/{id}` body `{status: "draft"|"reviewed"|"approved"}` → `EvalDataset` (admin+; reviewed never returns to draft).
+- `DELETE /api/datasets/{id}` → `{ok}` (admin+).
+- `POST /api/datasets/{id}/runs` body `{baseline, candidate, repeats?}` → run with `{cases, repeats, reproducible, baseline_pass, candidate_pass, fixed[], regressed[], baseline_violations, candidate_violations, verdict, details[]}` (admin+; drafts cannot run).
+- `GET /api/datasets/{id}/runs` → runs with results.
+
 `evidence`: `[{event_id, conversation_id, content, reason}]`.
 
 `Span`: `{id, parent_id, name, kind, status, duration_ms, input, output}`. Nullable parent. Input/output may be strings or JSON values.

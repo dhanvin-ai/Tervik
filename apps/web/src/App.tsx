@@ -8,7 +8,7 @@ import {
   Zap, type LucideIcon,
 } from 'lucide-react';
 import { query, request } from './api';
-import type { AlertRule, BehaviorRule, Cluster, ClusterDetail, Conversation, ConversationDetail, Delivery, Discovery, DiscoveryIntent, Overview, Page, Project, Range, SetupStatus } from './types';
+import type { AlertRule, BehaviorRule, Cluster, ClusterDetail, Conversation, ConversationDetail, Delivery, Discovery, DiscoveryIntent, EvalDataset, EvalRun, Overview, Page, Project, Range, SetupStatus } from './types';
 
 const INSTALL_COMMAND = 'npx skills add dhanvin-ai/tervik --skill tervik';
 const INSTALL_PROMPT = 'Use the tervik skill to add Tervik analytics to this agent.';
@@ -268,6 +268,45 @@ function AlertsPanel({ projectId, refresh }: { projectId: string; refresh: numbe
   </section>;
 }
 
+function EvaluationsPanel({ projectId, refresh }: { projectId: string; refresh: number }) {
+  const datasets = useResource<EvalDataset[]>(`/api/projects/${encodeURIComponent(projectId)}/datasets`, refresh);
+  const [runs, setRuns] = useState<Record<string, EvalRun[]>>({});
+  const [name, setName] = useState('');
+  const [kinds, setKinds] = useState('unsupported_claim,tool_error');
+  const [baseline, setBaseline] = useState('{"name":"baseline","version":"v1","tools_plan":[],"response_template":"We got your message about {input}."}');
+  const [candidate, setCandidate] = useState('{"name":"candidate","version":"v2","tools_plan":[],"response_template":"Checked: {input}."}');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const act = async (work: () => Promise<unknown>) => {
+    setBusy(true); setError('');
+    try { await work(); datasets.retry(); } catch (cause) { setError((cause as Error).message); } finally { setBusy(false); }
+  };
+  const loadRuns = async (id: string) => {
+    try {
+      const rows = await request<EvalRun[]>(`/api/datasets/${encodeURIComponent(id)}/runs`);
+      setRuns(prev => ({ ...prev, [id]: rows }));
+    } catch (cause) { setError((cause as Error).message); }
+  };
+  const runComparison = async (id: string) => {
+    let base, cand;
+    try { base = JSON.parse(baseline); cand = JSON.parse(candidate); }
+    catch { setError('Baseline/candidate must be valid JSON agent descriptors.'); return; }
+    await act(async () => {
+      await request(`/api/datasets/${encodeURIComponent(id)}/runs`, { method: 'POST', body: JSON.stringify({ baseline: base, candidate: cand, repeats: 2 }) });
+      await loadRuns(id);
+    });
+  };
+  return <section className="panel"><div className="panel-heading"><div><h2>Evaluations</h2><p>Datasets from production findings, reviewed before running. Replay compares candidates without touching live systems.</p></div></div>
+    {error && <p className="inline-error">{error}</p>}
+    {datasets.loading ? <Loading label="Loading datasets" /> : datasets.error ? <ErrorState message={datasets.error} onRetry={datasets.retry} /> :
+      <div>{datasets.data?.length ? datasets.data.map(dataset => <div key={dataset.id}><div className="related-conversation"><Layers3 size={15} /><span><strong>{dataset.name}</strong><small>{dataset.case_count} cases · {dataset.status} · v{dataset.version}</small></span>{dataset.status === 'draft' && <button className="text-button" onClick={() => act(() => request(`/api/datasets/${encodeURIComponent(dataset.id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'reviewed' }) }))}>Mark reviewed</button>}{dataset.status === 'reviewed' && <button className="text-button" onClick={() => act(() => request(`/api/datasets/${encodeURIComponent(dataset.id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'approved' }) }))}>Approve</button>}<button className="text-button" onClick={() => loadRuns(dataset.id)}>Runs</button></div>
+        {(runs[dataset.id] || []).map(run => <div key={run.id} className="evidence-card"><span className="evidence-marker">{run.results.verdict}</span><blockquote>{run.baseline.name} {run.results.baseline_pass}/{run.results.cases} → {run.candidate.name} {run.results.candidate_pass}/{run.results.cases}{run.results.reproducible ? ' · reproducible' : ' · UNSTABLE'}</blockquote><p>Fixed: {run.results.fixed.join(', ') || '—'} · Regressed: {run.results.regressed.join(', ') || '—'} · violations {run.results.baseline_violations} → {run.results.candidate_violations}</p></div>)}
+        {dataset.status !== 'draft' && <div className="modal-body"><label className="field-label">Baseline JSON</label><textarea className="text-field" rows={2} value={baseline} onChange={event => setBaseline(event.target.value)} /><label className="field-label">Candidate JSON</label><textarea className="text-field" rows={2} value={candidate} onChange={event => setCandidate(event.target.value)} /><div className="modal-actions"><button className="button button-primary" disabled={busy} onClick={() => runComparison(dataset.id)}>Run comparison ×2</button></div></div>}
+      </div>) : <p className="muted">No evaluation datasets yet. Build one from production findings below.</p>}</div>}
+    <form className="modal-body" onSubmit={event => { event.preventDefault(); if (!name.trim()) return; act(() => request(`/api/projects/${encodeURIComponent(projectId)}/datasets/from-findings`, { method: 'POST', body: JSON.stringify({ name: name.trim(), signal_kinds: kinds.split(',').map(s => s.trim()).filter(Boolean), include_controls: true, limit: 20 }) })).then(() => setName('')); }}><label className="field-label" htmlFor="dataset-name">Build from findings</label><input id="dataset-name" className="text-field" value={name} onChange={event => setName(event.target.value)} required maxLength={120} placeholder="e.g. Refund regressions" /><input aria-label="Signal kinds" className="text-field" value={kinds} onChange={event => setKinds(event.target.value)} placeholder="unsupported_claim,tool_error" /><div className="modal-actions"><button type="submit" className="button button-primary" disabled={busy}><Plus size={16} />Build dataset</button></div></form>
+  </section>;
+}
+
 function FailuresPage({ projectId, range, refresh, onSelect }: { projectId: string; range: Range; refresh: number; onSelect: (id: string) => void }) {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
@@ -282,6 +321,7 @@ function FailuresPage({ projectId, range, refresh, onSelect }: { projectId: stri
       <div className="list-footer"><span>{formatNumber(resource.data?.length || 0)} {resource.data?.length === 1 ? 'cluster' : 'clusters'}</span><span><ShieldCheck size={13} />Resolving a cluster records your review. It doesn’t change your agent.</span></div>
     </section>
     <AlertsPanel projectId={projectId} refresh={refresh} />
+    <EvaluationsPanel projectId={projectId} refresh={refresh} />
     <RulesManager projectId={projectId} refresh={refresh} />
   </>;
 }

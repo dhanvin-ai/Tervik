@@ -146,6 +146,38 @@ export interface Delivery {
   sent_at: string | null;
   created_at: string;
 }
+export interface EvalDataset {
+  id: string;
+  project_id: string;
+  name: string;
+  version: string;
+  status: 'draft' | 'reviewed' | 'approved';
+  cases: { id: string; input: string }[];
+  case_count: number;
+  created_at: string;
+}
+export interface EvalRun {
+  id: string;
+  dataset_id: string;
+  project_id: string;
+  baseline: { name: string; version: string };
+  candidate: { name: string; version: string };
+  repeats: number;
+  state: string;
+  results: {
+    cases: number;
+    repeats: number;
+    reproducible: boolean;
+    baseline_pass: number;
+    candidate_pass: number;
+    fixed: string[];
+    regressed: string[];
+    baseline_violations: number;
+    candidate_violations: number;
+    verdict: string;
+  };
+  created_at: string;
+}
 export interface Span {
   id: string;
   parent_id: string | null;

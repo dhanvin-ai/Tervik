@@ -1677,11 +1677,11 @@ code, pre { font-family: var(--font-mono); }
   justify-content: center;
   gap: 8px;
   font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  font-size: 12px;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #a1a1aa;
-  margin: 0 auto 24px;
+  margin: 0 auto 20px;
   padding: 5px 14px;
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.03);
@@ -1708,22 +1708,26 @@ code, pre { font-family: var(--font-mono); }
   color: #71717a;
 }
 .m-hero-title {
-  font-size: clamp(28px, 3.3vw, 46px);
+  font-size: clamp(36px, 4.8vw, 72px);
   font-weight: 400;
-  line-height: 1.18;
-  letter-spacing: -0.035em;
+  line-height: 0.95;
+  letter-spacing: -0.05em;
   color: #ffffff;
-  margin: 0 auto 20px;
-  max-width: 760px;
+  margin: 0 auto 24px;
+  max-width: 1080px;
   text-align: center;
+  text-shadow: 0 2px 20px rgba(0, 0, 0, 0.5);
+  user-select: none;
 }
 .m-hero-subtitle {
-  font-size: clamp(14px, 1.1vw, 15px);
-  color: #a1a1aa;
-  line-height: 1.6;
-  max-width: 580px;
-  margin: 0 auto 30px;
+  font-size: clamp(14px, 1.35vw, 20px);
+  color: #d4d4d8;
+  line-height: 1.5;
+  max-width: 672px;
+  margin: 0 auto 36px;
   text-align: center;
+  font-weight: 400;
+  text-shadow: 0 0 20px rgba(0, 0, 0, 0.9), 0 0 40px rgba(0, 0, 0, 0.7);
 }
 .m-hero-actions {
   display: flex;
@@ -1731,7 +1735,7 @@ code, pre { font-family: var(--font-mono); }
   justify-content: center;
   gap: 12px;
   flex-wrap: wrap;
-  margin: 0 auto 30px;
+  margin: 0 auto 36px;
 }
 .m-hero-primary-btn {
   display: inline-flex;
@@ -1740,10 +1744,11 @@ code, pre { font-family: var(--font-mono); }
   background: #ffffff;
   color: #000000;
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   letter-spacing: -0.01em;
-  padding: 10px 20px;
+  height: 44px;
+  padding: 0 24px;
   border-radius: 6px;
   border: 1px solid #ffffff;
   cursor: pointer;
@@ -1762,7 +1767,8 @@ code, pre { font-family: var(--font-mono); }
   gap: 10px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 6px;
-  padding: 9px 16px;
+  height: 44px;
+  padding: 0 18px;
   background: rgba(15, 15, 18, 0.7);
   backdrop-filter: blur(8px);
   cursor: pointer;
@@ -1774,7 +1780,7 @@ code, pre { font-family: var(--font-mono); }
 }
 .m-hero-cmd-box code {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
   color: #e4e4e7;
 }
 .m-hero-cmd-icon { color: #71717a; }

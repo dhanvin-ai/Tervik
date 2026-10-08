@@ -3,8 +3,8 @@ import {
   Activity, ArrowDownLeft, ArrowRight, ArrowUpRight, Bot, Check,
   CheckCheck, ChevronDown, ChevronRight, ChevronUp, CircleHelp, Clock3, Code2, Copy,
   Download, ExternalLink, Eye, EyeOff, FileCode2, Filter, FolderPlus, GitBranch,
-  Layers3, LayoutDashboard, LoaderCircle, Menu, MessageSquare, Plus,
-  Search, Settings2, ShieldCheck, Sparkles, Terminal, TriangleAlert, Users, X,
+  Layers3, LayoutDashboard, LoaderCircle, Menu, MessageSquare, Pause, Play, Plus,
+  RotateCcw, Search, Settings2, ShieldCheck, Sparkles, Terminal, TriangleAlert, Users, X,
   Zap, type LucideIcon,
 } from 'lucide-react';
 import { query, request } from './api';
@@ -163,14 +163,84 @@ function ClusterRow({ cluster, onClick, compact = false }: { cluster: Cluster; o
 
 function ConversationRow({ conversation, onClick, compact = false }: { conversation: Conversation; onClick: () => void; compact?: boolean }) {
   return <button className={`conversation-row ${compact ? 'conversation-row-compact' : ''}`} onClick={onClick}>
-    <span className={`conversation-icon ${conversation.status}`}><MessageSquare size={16} /></span>
-    <span className="conversation-summary"><strong>{conversation.preview || 'Conversation without a preview'}</strong><span>{shortId(conversation.id)}<i>·</i>{conversation.user_id || 'Anonymous user'}</span></span>
-    {!compact && <span className="conversation-model">{conversation.model || '—'}</span>}
-    {!compact && <span className="conversation-messages">{conversation.message_count}</span>}
+    <span className={`conversation-icon ${conversation.status === 'flagged' ? 'flagged' : 'healthy'}`}>
+      {conversation.status === 'flagged' ? <TriangleAlert size={15} /> : <MessageSquare size={15} />}
+    </span>
+    <span className="conversation-summary">
+      <strong>{conversation.preview || 'Untitled agent conversation'}</strong>
+      <span>
+        {shortId(conversation.id)}<i>·</i>{conversation.user_id || 'Anonymous user'}
+        {conversation.tags?.length > 0 && <small style={{ marginLeft: 6, color: '#f43f5e' }}>· {conversation.tags.map(friendlyKind).join(', ')}</small>}
+      </span>
+    </span>
+    {!compact && <span className="conversation-model">{conversation.model || 'Default'}</span>}
+    {!compact && <span className="conversation-messages">{conversation.message_count} turns</span>}
     <span className="conversation-status"><Status status={conversation.status} /></span>
     <span className="conversation-date">{dateTime(conversation.last_at)}</span>
     <ChevronRight className="row-chevron" size={16} />
   </button>;
+}
+
+function AgentPipelineStoryMap({ data, onPage }: { data: Overview; onPage: (page: Page) => void }) {
+  const signalCount = data.top_clusters.reduce((sum, c) => sum + c.count, 0);
+  return <div className="exec-pipeline">
+    <div className="exec-pipeline-header">
+      <span className="exec-pipeline-title">
+        <Activity size={14} />
+        <span>Agent Execution Pipeline · Live Telemetry Flow</span>
+      </span>
+      <span className="exec-pipeline-mode">
+        <span className="pulse-dot" style={{ display: 'inline-block', marginRight: 6 }} />
+        {data.analysis_mode === 'rule_based' ? 'Deterministic Engine Active' : data.analysis_mode}
+      </span>
+    </div>
+    <div className="exec-pipeline-grid">
+      <button className="exec-pipeline-step" onClick={() => onPage('conversations')}>
+        <div className="exec-pipeline-step-top">
+          <span>01 · INGEST</span>
+          <MessageSquare size={13} />
+        </div>
+        <strong className="exec-pipeline-count">{formatNumber(data.metrics.conversations)}</strong>
+        <span className="exec-pipeline-desc">{formatNumber(data.metrics.messages)} turns buffered</span>
+      </button>
+
+      <button className="exec-pipeline-step" onClick={() => onPage('conversations')}>
+        <div className="exec-pipeline-step-top">
+          <span>02 · SPANS</span>
+          <GitBranch size={13} />
+        </div>
+        <strong className="exec-pipeline-count">{latency(data.metrics.avg_latency_ms)}</strong>
+        <span className="exec-pipeline-desc">Avg execution latency</span>
+      </button>
+
+      <button className="exec-pipeline-step step-signals" onClick={() => onPage('failures')}>
+        <div className="exec-pipeline-step-top">
+          <span>03 · SIGNALS</span>
+          <TriangleAlert size={13} />
+        </div>
+        <strong className="exec-pipeline-count">{formatNumber(signalCount)}</strong>
+        <span className="exec-pipeline-desc">{data.metrics.failure_rate.toFixed(1)}% flagged turns</span>
+      </button>
+
+      <button className="exec-pipeline-step step-clusters" onClick={() => onPage('failures')}>
+        <div className="exec-pipeline-step-top">
+          <span>04 · CLUSTERS</span>
+          <Layers3 size={13} />
+        </div>
+        <strong className="exec-pipeline-count">{data.top_clusters.length}</strong>
+        <span className="exec-pipeline-desc">{formatNumber(data.metrics.affected_users)} affected users</span>
+      </button>
+
+      <button className="exec-pipeline-step step-evals" onClick={() => onPage('failures')}>
+        <div className="exec-pipeline-step-top">
+          <span>05 · REPLAY LAB</span>
+          <ShieldCheck size={13} />
+        </div>
+        <strong className="exec-pipeline-count">Verified</strong>
+        <span className="exec-pipeline-desc">Continuous test suites</span>
+      </button>
+    </div>
+  </div>;
 }
 
 function OverviewPage({ data, loading, error, retry, range, onPage, onCluster, onConversation, onDemo, demoBusy }: {
@@ -187,6 +257,8 @@ function OverviewPage({ data, loading, error, retry, range, onPage, onCluster, o
     <button className="button button-secondary" disabled={demoBusy} onClick={onDemo}>{demoBusy ? <LoaderCircle size={15} className="spin" /> : <Layers3 size={16} />}Explore sample workspace</button>
   </EmptyState></div><div className="getting-started-cards"><GuideCard icon={MessageSquare} title="Follow every conversation" text="See the messages, tool calls, latency, and cost in one place." /><GuideCard icon={TriangleAlert} title="Find the friction" text="Group corrections, repeated requests, frustration, and tool errors." /><GuideCard icon={GitBranch} title="Review the next step" text="Investigate the evidence and turn it into a fix you can validate." /></div></div>;
   return <>
+    <AgentPipelineStoryMap data={data} onPage={onPage} />
+
     <div className="metric-grid">
       <Metric label="Conversations" value={formatNumber(metrics.conversations)} icon={MessageSquare} detail={`${formatNumber(metrics.messages)} messages received`} />
       <Metric label="Flagged conversations" value={`${metrics.failure_rate.toFixed(1)}%`} icon={TriangleAlert} detail="Signals to investigate" accent />
@@ -472,11 +544,48 @@ function ClusterDrawer({ id, range, onClose, onConversation, onChanged }: { id: 
   const resource = useResource<ClusterDetail>(`/api/clusters/${encodeURIComponent(id)}?range=${range}`);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [buildingEval, setBuildingEval] = useState(false);
+  const [evalSuccess, setEvalSuccess] = useState('');
+  const [evalError, setEvalError] = useState('');
   const cluster = resource.data;
   return <Modal title="Cluster investigation" onClose={onClose} sheet>
     {resource.loading ? <Loading label="Loading evidence" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : cluster && <div className="drawer-content">
       <div className="drawer-eyebrow"><Severity severity={cluster.severity} /><Status status={cluster.status} /><span>{friendlyKind(cluster.kind)}</span></div><h2 className="drawer-title">{cluster.title}</h2><p className="drawer-description">{cluster.description}</p>
       <div className="drawer-stats"><div><strong>{formatNumber(cluster.count)}</strong><span>Conversations</span></div><div><strong>{formatNumber(cluster.affected_users)}</strong><span>Affected users</span></div><div><strong>{cluster.share.toFixed(1)}%</strong><span>Conversation share</span></div></div>
+      
+      {/* Closed-loop Replay Suite Generator */}
+      <div className="cluster-eval-builder">
+        <div className="cluster-eval-builder-head">
+          <h4>Turn into Evaluation Suite</h4>
+          <span className="subtle-pill"><Sparkles size={12} style={{ marginRight: 4 }} />Replay Lab</span>
+        </div>
+        <p>Convert this production failure pattern into an automated regression dataset to verify fixes before shipping.</p>
+        <button className="button button-primary" disabled={buildingEval} onClick={async () => {
+          setBuildingEval(true); setEvalError(''); setEvalSuccess('');
+          try {
+            const res = await request<{ id: string; name: string }>(`/api/projects/${encodeURIComponent(cluster.project_id)}/datasets/from-findings`, {
+              method: 'POST',
+              body: JSON.stringify({
+                name: `Regression suite: ${cluster.title.slice(0, 48)}`,
+                signal_kinds: [cluster.kind],
+                include_controls: true,
+                limit: 15,
+              }),
+            });
+            setEvalSuccess(`Created dataset "${res.name}". Open Evaluations to replay baseline vs candidate.`);
+          } catch (e) {
+            setEvalError((e as Error).message);
+          } finally {
+            setBuildingEval(false);
+          }
+        }}>
+          {buildingEval ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}
+          <span>Generate Replay Dataset</span>
+        </button>
+        {evalSuccess && <p style={{ color: '#34d399', fontSize: 11, marginTop: 8 }}>{evalSuccess}</p>}
+        {evalError && <p className="inline-error" style={{ marginTop: 8 }}>{evalError}</p>}
+      </div>
+
       <div className="detail-section"><div className="section-label"><MessageSquare size={15} />Evidence<span>{cluster.evidence.length}</span></div><p className="section-intro">What triggered this signal in {rangeLabels[range].toLowerCase()}.</p>
         {cluster.evidence.length ? cluster.evidence.map((evidence, index) => <div className="evidence-card" key={`${evidence.event_id}-${index}`}><span className="evidence-marker">{String(index + 1).padStart(2, '0')}</span><blockquote>“{evidence.content}”</blockquote><p><TriangleAlert size={13} />{evidence.reason}</p><button className="text-button" onClick={() => onConversation(evidence.conversation_id)}>Open conversation<ArrowUpRight size={14} /></button></div>) : <p className="muted">No evidence within this date range. Try a longer range.</p>}
       </div>
@@ -493,20 +602,135 @@ function ClusterDrawer({ id, range, onClose, onConversation, onChanged }: { id: 
 
 function ConversationDrawer({ id, onClose }: { id: string; onClose: () => void }) {
   const resource = useResource<ConversationDetail>(`/api/conversations/${encodeURIComponent(id)}`);
-  const [tab, setTab] = useState('messages');
+  const [tab, setTab] = useState<'story' | 'messages' | 'waterfall'>('story');
   const [spanId, setSpanId] = useState<string | null>(null);
   const conversation = resource.data;
   const selectedSpan = conversation?.spans.find(span => span.id === spanId);
-  return <Modal title="Conversation explorer" onClose={onClose} sheet>
-    {resource.loading ? <Loading label="Loading conversation" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : conversation && <div className="drawer-content conversation-drawer">
+  const maxSpanDuration = Math.max(1, ...(conversation?.spans.map(s => s.duration_ms || 0) || [100]));
+
+  return <Modal title="Agent Execution Inspector" onClose={onClose} sheet>
+    {resource.loading ? <Loading label="Loading trajectory" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : conversation && <div className="drawer-content conversation-drawer">
       <div className="drawer-eyebrow"><Status status={conversation.status} /><span>{dateTime(conversation.started_at)}</span></div><div className="conversation-id"><h2>{shortId(conversation.id)}</h2><CopyButton text={conversation.id} compact label="Copy conversation ID" /></div>
       <div className="conversation-metadata"><span><Users size={14} />{conversation.user_id || 'Anonymous user'}</span><span><Bot size={14} />{conversation.model || 'Model not reported'}</span><span><Clock3 size={14} />{latency(conversation.latency_ms)}</span><span>{money(conversation.cost_usd)}</span></div>
-      {conversation.signals.length > 0 && <div className="signal-summary"><TriangleAlert size={17} /><div><strong>{conversation.signals.length} {conversation.signals.length === 1 ? 'signal' : 'signals'} to review</strong><span>{Array.from(new Set(conversation.signals.map(signal => friendlyKind(signal.kind)))).join(' · ')}</span></div></div>}
-      <div className="drawer-tabs"><button className={tab === 'messages' ? 'active' : ''} onClick={() => setTab('messages')}><MessageSquare size={15} />Messages<span>{conversation.messages.length}</span></button><button className={tab === 'trace' ? 'active' : ''} onClick={() => setTab('trace')}><GitBranch size={15} />Trace<span>{conversation.spans.length}</span></button></div>
-      {tab === 'messages' ? <div className="message-timeline">{conversation.messages.map(message => {
+      {conversation.signals.length > 0 && <div className="signal-summary"><TriangleAlert size={17} /><div><strong>{conversation.signals.length} {conversation.signals.length === 1 ? 'signal' : 'signals'} intercepted</strong><span>{Array.from(new Set(conversation.signals.map(signal => friendlyKind(signal.kind)))).join(' · ')}</span></div></div>}
+      
+      <div className="drawer-tabs">
+        <button className={tab === 'story' ? 'active' : ''} onClick={() => setTab('story')}><Activity size={15} />Execution Story</button>
+        <button className={tab === 'messages' ? 'active' : ''} onClick={() => setTab('messages')}><MessageSquare size={15} />Transcript<span>{conversation.messages.length}</span></button>
+        <button className={tab === 'waterfall' ? 'active' : ''} onClick={() => setTab('waterfall')}><GitBranch size={15} />Waterfall<span>{conversation.spans.length}</span></button>
+      </div>
+
+      {tab === 'story' && <div className="exec-flow-graph">
+        {/* User Prompt Node */}
+        <div className="exec-flow-node node-prompt">
+          <div className="exec-flow-head">
+            <span className="exec-flow-tag"><Users size={12} />User Prompt Ingestion</span>
+            <span>{dateTime(conversation.started_at)}</span>
+          </div>
+          <div className="exec-flow-content">{conversation.preview || conversation.messages.find(m => m.role === 'user')?.content || 'No prompt content'}</div>
+          <div className="exec-flow-meta">
+            <span>Intent: Analyzed</span>
+            <span>User: {conversation.user_id || 'Anonymous'}</span>
+          </div>
+        </div>
+        <div className="exec-flow-connector" />
+
+        {/* Tool Execution Nodes */}
+        {conversation.spans.filter(s => s.kind === 'tool' || s.name.includes('.')).map((span) => {
+          const isError = span.status === 'error';
+          return <div key={span.id} className={`exec-flow-node ${isError ? 'node-error' : 'node-tool'}`}>
+            <div className="exec-flow-head">
+              <span className="exec-flow-tag" style={{ color: isError ? '#f43f5e' : '#eab308' }}>
+                <Terminal size={12} />
+                Tool Execution: {span.name}
+              </span>
+              <span style={{ color: isError ? '#f43f5e' : '#34d399' }}>{isError ? 'STATUS ERROR' : 'STATUS 200 OK'}</span>
+            </div>
+            <div className="exec-flow-content">
+              {typeof span.output === 'string' ? span.output : JSON.stringify(span.output) || 'Tool executed'}
+            </div>
+            <div className="exec-flow-meta">
+              <span>Latency: {latency(span.duration_ms)}</span>
+              <span>Span ID: {shortId(span.id)}</span>
+            </div>
+          </div>;
+        })}
+        {conversation.spans.filter(s => s.kind === 'tool' || s.name.includes('.')).length > 0 && <div className="exec-flow-connector" />}
+
+        {/* Signals Intercepted Node */}
+        {conversation.signals.map(signal => <div key={signal.id} className="exec-flow-node node-error">
+          <div className="exec-flow-head">
+            <span className="exec-flow-tag" style={{ color: '#f43f5e' }}>
+              <TriangleAlert size={12} />
+              Guardrail Intercepted: {friendlyKind(signal.kind)}
+            </span>
+            <span className={`severity severity-${signal.severity}`}><span />{signal.severity}</span>
+          </div>
+          <div className="exec-flow-content">{signal.reason}</div>
+          <div className="exec-flow-meta">
+            <span>Rule: v{signal.rule_version}</span>
+            <span>Detector: v{signal.detector_version}</span>
+          </div>
+        </div>)}
+        {conversation.signals.length > 0 && <div className="exec-flow-connector" />}
+
+        {/* Agent Turn Outcome */}
+        <div className="exec-flow-node node-agent">
+          <div className="exec-flow-head">
+            <span className="exec-flow-tag" style={{ color: '#818cf8' }}><Bot size={12} />Agent Response Outcome</span>
+            <span>{dateTime(conversation.last_at)}</span>
+          </div>
+          <div className="exec-flow-content">
+            {conversation.messages.filter(m => m.role === 'assistant').slice(-1)[0]?.content || 'Agent completed execution'}
+          </div>
+          <div className="exec-flow-meta">
+            <span>Total Latency: {latency(conversation.latency_ms)}</span>
+            <span>Cost: {money(conversation.cost_usd)}</span>
+            <span>Model: {conversation.model || 'Default'}</span>
+          </div>
+        </div>
+      </div>}
+
+      {tab === 'messages' && <div className="message-timeline">{conversation.messages.map(message => {
         const signals = conversation.signals.filter(signal => signal.event_id === message.id);
         return <div key={message.id} className={`message-entry role-${message.role} ${signals.length ? 'message-flagged' : ''}`}><span className="message-avatar">{message.role === 'assistant' ? <Bot size={16} /> : message.role === 'user' ? <Users size={15} /> : <Terminal size={15} />}</span><div className="message-body"><div className="message-heading"><strong>{message.role === 'assistant' ? 'Agent' : friendlyKind(message.role)}{message.name && <small>{message.name}</small>}</strong><span>{new Date(message.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span></div><p>{message.content}</p>{signals.map(signal => <div key={signal.id} className="message-signal" title={`Detector ${signal.detector_version} · rule ${signal.rule_version}`}><TriangleAlert size={13} /><span>{signal.reason}</span></div>)}{message.status === 'error' && !signals.length && <div className="message-signal"><TriangleAlert size={13} />Reported error</div>}</div></div>;
-      })}</div> : <div className="trace-explorer"><p className="section-intro">Select a span to inspect the reported inputs and outputs.</p>{conversation.spans.length ? <><div className="trace-list">{conversation.spans.map(span => <button key={span.id} className={`trace-row ${spanId === span.id ? 'selected' : ''} ${span.parent_id ? 'trace-child' : ''}`} onClick={() => setSpanId(span.id)}><span className={`span-kind ${span.status === 'error' ? 'span-error' : ''}`}>{span.kind === 'tool' ? <Terminal size={15} /> : <Bot size={15} />}</span><span><strong>{span.name}</strong><small>{friendlyKind(span.kind)} · {span.status}</small></span><span className="trace-duration">{latency(span.duration_ms)}</span><ChevronRight size={14} /></button>)}</div>{selectedSpan && <div className="span-detail"><div className="section-label">{selectedSpan.name}<CopyButton text={selectedSpan.id} label="Copy span ID" compact /></div><span className="span-id">{selectedSpan.id}</span><h4>Input</h4><pre>{typeof selectedSpan.input === 'string' ? selectedSpan.input : JSON.stringify(selectedSpan.input, null, 2) || 'Not reported'}</pre><h4>Output</h4><pre>{typeof selectedSpan.output === 'string' ? selectedSpan.output : JSON.stringify(selectedSpan.output, null, 2) || 'Not reported'}</pre></div>}</> : <EmptyState icon={GitBranch} title="No spans reported" description="Send trace and span IDs with your events to inspect agent execution here." />}</div>}
+      })}</div>}
+
+      {tab === 'waterfall' && <div className="waterfall-container">
+        <p className="section-intro">Inspect the execution timing of every span in this agent run.</p>
+        {conversation.spans.length ? <><div className="waterfall-table">
+          <div className="waterfall-head">
+            <span>Span / Kind</span>
+            <span>Duration Timeline</span>
+            <span style={{ textAlign: 'right' }}>Latency</span>
+          </div>
+          {conversation.spans.map(span => {
+            const isError = span.status === 'error';
+            const widthPct = Math.max(8, Math.min(100, (span.duration_ms / maxSpanDuration) * 100));
+            return <div key={span.id} className={`waterfall-row ${spanId === span.id ? 'selected' : ''}`} onClick={() => setSpanId(span.id)}>
+              <span className="waterfall-name">
+                {span.kind === 'tool' ? <Terminal size={13} style={{ color: isError ? '#f43f5e' : '#eab308' }} /> : <Bot size={13} style={{ color: '#818cf8' }} />}
+                <span>{span.name}</span>
+              </span>
+              <div className="waterfall-track">
+                <div
+                  className={`waterfall-bar ${isError ? 'bar-error' : span.kind === 'assistant' ? 'bar-assistant' : ''}`}
+                  style={{ width: `${widthPct}%`, left: '0%' }}
+                />
+              </div>
+              <span className="waterfall-duration">{latency(span.duration_ms)}</span>
+            </div>;
+          })}
+        </div>
+        {selectedSpan && <div className="span-detail" style={{ marginTop: 14 }}>
+          <div className="section-label">{selectedSpan.name}<CopyButton text={selectedSpan.id} label="Copy span ID" compact /></div>
+          <span className="span-id">{selectedSpan.id}</span>
+          <h4>Input Payload</h4>
+          <pre>{typeof selectedSpan.input === 'string' ? selectedSpan.input : JSON.stringify(selectedSpan.input, null, 2) || 'Not reported'}</pre>
+          <h4>Output Payload</h4>
+          <pre>{typeof selectedSpan.output === 'string' ? selectedSpan.output : JSON.stringify(selectedSpan.output, null, 2) || 'Not reported'}</pre>
+        </div>}</> : <EmptyState icon={GitBranch} title="No spans reported" description="Send trace and span IDs with your events to inspect agent execution here." />}
+      </div>}
     </div>}
   </Modal>;
 }
@@ -553,6 +777,233 @@ function IntegrationPage({ project, refresh }: { project: Project; refresh: numb
     const ItemIcon = Icon as LucideIcon;
     return <div key={title as string}><ItemIcon size={19} /><span><strong>{title as string}</strong><p>{text as string}</p></span></div>;
   })}</div><div className="foundation-note"><span className="pulse-dot" /><strong>Local foundation</strong><p>This version runs on your machine. Signals use transparent rules; hosted access, semantic clustering, and automated fixes are future milestones.</p></div></aside></div>;
+}
+
+function AgentExecutionSimulator({ onStart }: { onStart: () => void }) {
+  const [stage, setStage] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  useEffect(() => {
+    if (!isPlaying) return;
+    const interval = setInterval(() => {
+      setStage(s => (s === 5 ? 1 : ((s + 1) as 1 | 2 | 3 | 4 | 5)));
+    }, 3200);
+    return () => clearInterval(interval);
+  }, [isPlaying]);
+
+  return <div className="m-sim-wrapper">
+    <div className="m-sim-card">
+      <div className="m-sim-header">
+        <div className="m-sim-header-left">
+          <div className="m-window-dots">
+            <span className="m-dot m-dot-red" />
+            <span className="m-dot m-dot-yellow" />
+            <span className="m-dot m-dot-green" />
+          </div>
+          <div className="m-sim-telemetry-strip">
+            <span className="m-sim-telemetry-item">RUN: <strong>#exec-8192</strong></span>
+            <span className="m-sim-telemetry-item">LATENCY: <strong>{stage === 1 ? '12ms' : stage === 2 ? '4.1s' : stage === 3 ? '4.1s' : stage === 4 ? '4.1s' : '182ms'}</strong></span>
+            <span className="m-sim-telemetry-item">TOKENS: <strong>{stage === 1 ? '48' : stage >= 2 ? '342 ($0.0012)' : '0'}</strong></span>
+          </div>
+        </div>
+        <div className={`m-sim-phase-pill phase-${stage}`}>
+          <span className="pulse-dot" style={{ display: 'inline-block' }} />
+          <span>{stage === 1 ? '01 Prompt Ingestion' : stage === 2 ? '02 Spans Executing' : stage === 3 ? '03 Rule Intercept' : stage === 4 ? '04 Cluster Synthesis' : '05 Replay Verified'}</span>
+        </div>
+      </div>
+
+      <div className="m-sim-nav">
+        {[
+          { id: 1, label: '01 Ingest Prompt' },
+          { id: 2, label: '02 Tool Spans' },
+          { id: 3, label: '03 Rule Intercept' },
+          { id: 4, label: '04 Cluster Synthesis' },
+          { id: 5, label: '05 Replay Verified' },
+        ].map(item => <button
+          key={item.id}
+          className={`m-sim-nav-btn ${stage === item.id ? 'active' : ''}`}
+          onClick={() => { setStage(item.id as any); setIsPlaying(false); }}
+        >
+          <span className="m-sim-nav-num">0{item.id}</span>
+          <span>{item.label}</span>
+        </button>)}
+      </div>
+
+      <div className="m-sim-body">
+        {/* Left Column: The Agent Story */}
+        <div className="m-sim-col">
+          <div className="m-sim-panel-box">
+            <div className="m-sim-panel-title">
+              <span>USER PROMPT & RUNTIME CONTEXT</span>
+              <span className="status status-healthy"><span />Buffered</span>
+            </div>
+            <div className="m-chat-message m-chat-user" style={{ marginBottom: 12 }}>
+              <span className="m-chat-avatar"><Users size={13} /></span>
+              <div>
+                <strong>User Input</strong>
+                <p>Deploy the updated Stripe webhook migration to production.</p>
+              </div>
+            </div>
+            <div className="m-sim-span-meta" style={{ fontSize: 10 }}>
+              <span>Environment: <strong>Production-US-East</strong></span>
+              <span>Model: <strong>sample-agent-v1</strong></span>
+              <span>Context: <strong>4.2k tokens</strong></span>
+            </div>
+          </div>
+
+          <div className="m-sim-panel-box">
+            <div className="m-sim-panel-title">
+              <span>TOOL EXECUTION SPANS</span>
+              <span>{stage >= 2 ? '3 spans dispatched' : 'Pending dispatch'}</span>
+            </div>
+            <div className="m-sim-span-list">
+              <div className={`m-sim-span-row ${stage >= 2 ? 'success' : ''}`}>
+                <div className="m-sim-span-left">
+                  {stage >= 2 ? <Check size={12} color="#34d399" /> : <Clock3 size={12} />}
+                  <span>tool: verify_database_connection</span>
+                </div>
+                <div className="m-sim-span-meta">
+                  <span>14ms</span>
+                  <span>200 OK</span>
+                </div>
+              </div>
+              <div className={`m-sim-span-row ${stage >= 2 ? 'success' : ''}`}>
+                <div className="m-sim-span-left">
+                  {stage >= 2 ? <Check size={12} color="#34d399" /> : <Clock3 size={12} />}
+                  <span>tool: check_migration_checksums</span>
+                </div>
+                <div className="m-sim-span-meta">
+                  <span>38ms</span>
+                  <span>200 OK</span>
+                </div>
+              </div>
+              <div className={`m-sim-span-row ${stage >= 2 ? (stage >= 5 ? 'success' : 'error') : ''}`}>
+                <div className="m-sim-span-left">
+                  {stage >= 5 ? <Check size={12} color="#34d399" /> : stage >= 2 ? <TriangleAlert size={12} color="#f43f5e" /> : <Clock3 size={12} />}
+                  <span>tool: execute_migration</span>
+                </div>
+                <div className="m-sim-span-meta">
+                  <span>{stage >= 5 ? '130ms (fallback retry)' : '4,120ms'}</span>
+                  <span style={{ color: stage >= 5 ? '#34d399' : stage >= 2 ? '#f43f5e' : 'inherit' }}>
+                    {stage >= 5 ? '200 OK' : stage >= 2 ? '504 TIMEOUT' : 'QUEUED'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column: Tervik Intelligence & Verification */}
+        <div className="m-sim-col">
+          {stage === 1 && <div className="m-sim-panel-box">
+            <div className="m-sim-panel-title">
+              <span>LAYER 1 · TELEMETRY INGESTION</span>
+              <span style={{ color: '#38bdf8' }}>Async Ingest</span>
+            </div>
+            <p style={{ fontSize: 12, color: '#a1a1aa', lineHeight: 1.6, marginBottom: 14 }}>
+              As soon as a user sends a prompt, Tervik records the turn with non-blocking async background flush. Sub-2ms overhead on your agent process.
+            </p>
+            <div className="m-term-line" style={{ background: '#0c0d12', padding: '10px 12px', borderRadius: 6, fontSize: 11 }}>
+              <span style={{ color: '#38bdf8' }}>✓ Ingested turn:</span> 1 prompt, 0 errors, ready for tool execution telemetry.
+            </div>
+          </div>}
+
+          {stage === 2 && <div className="m-sim-panel-box">
+            <div className="m-sim-panel-title">
+              <span>LAYER 2 · EXECUTION RUNTIME</span>
+              <span style={{ color: '#818cf8' }}>Active Spans</span>
+            </div>
+            <p style={{ fontSize: 12, color: '#a1a1aa', lineHeight: 1.6, marginBottom: 14 }}>
+              Sub-spans branch out across tools, APIs, and file operations. Latency, payload inputs, and error statuses are recorded in real time.
+            </p>
+            <div style={{ background: 'rgba(244, 63, 94, 0.08)', border: '1px solid rgba(244, 63, 94, 0.25)', borderRadius: 6, padding: '10px 12px', fontSize: 11, color: '#f43f5e' }}>
+              <strong>Exception Caught:</strong> worker pool timeout (504) after 4,120ms.
+            </div>
+          </div>}
+
+          {stage === 3 && <div className="m-sim-panel-box">
+            <div className="m-sim-panel-title">
+              <span>LAYER 2 · DETERMINISTIC TRIAGE</span>
+              <span className="severity severity-critical"><span />Critical Intercept</span>
+            </div>
+            <div className="m-signal-card" style={{ marginTop: 0 }}>
+              <div className="m-signal-head">
+                <TriangleAlert size={14} />
+                <strong>Signal #SIG-409 · Tool Timeout</strong>
+                <span className="severity severity-critical"><span />Critical</span>
+              </div>
+              <p>Rule &quot;required_tool&quot; violated: execute_migration timed out after 4000ms deadline.</p>
+              <div className="m-signal-meta">
+                <span>Rule: v1</span>
+                <span>Transparent Regex Guardrail</span>
+                <span>0 Hallucinated LLM tokens</span>
+              </div>
+            </div>
+          </div>}
+
+          {stage === 4 && <div className="m-sim-panel-box">
+            <div className="m-sim-panel-title">
+              <span>LAYER 3 · CROSS-SESSION CLUSTER</span>
+              <span className="count-badge">42 runs</span>
+            </div>
+            <div className="m-cluster-card" style={{ marginTop: 0 }}>
+              <div className="m-cluster-head">
+                <Layers3 size={14} />
+                <strong>Cluster #03 · Database Pool Exhaustion</strong>
+                <span className="count-badge">10.7% Traffic Share</span>
+              </div>
+              <p>Postgres connection pool exhaustion observed across 6 distinct users during peak deployment windows.</p>
+              <div className="m-cluster-action">
+                <span>Evidence cited with exact payload</span>
+                <button className="text-button" onClick={onStart}>Investigate in dashboard<ChevronRight size={13} /></button>
+              </div>
+            </div>
+          </div>}
+
+          {stage === 5 && <div className="m-sim-panel-box" style={{ borderColor: 'rgba(52, 211, 153, 0.3)', background: 'rgba(52, 211, 153, 0.04)' }}>
+            <div className="m-sim-panel-title">
+              <span style={{ color: '#34d399' }}>LAYER 4 · REPLAY EVALUATION LAB</span>
+              <span className="status status-healthy"><span />System Verified</span>
+            </div>
+            <p style={{ fontSize: 12, color: '#d4d4d8', lineHeight: 1.6, marginBottom: 12 }}>
+              A candidate prompt & tool descriptor with exponential backoff and circuit breaker was simulated across 42 historical production failure cases.
+            </p>
+            <div style={{ background: '#090b10', border: '1px solid rgba(52, 211, 153, 0.2)', borderRadius: 6, padding: '10px 14px', fontSize: 11, fontFamily: 'Geist Mono, monospace', marginBottom: 12 }}>
+              <div style={{ color: '#71717a', marginBottom: 4 }}>BASELINE: 0 / 42 passed (42 violations)</div>
+              <div style={{ color: '#34d399', fontWeight: 600 }}>CANDIDATE: 42 / 42 passed (0 violations) · 100% PASS</div>
+            </div>
+            <span style={{ fontSize: 11, color: '#34d399', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Check size={14} />
+              Zero regressions detected. Ready for production rollout.
+            </span>
+          </div>}
+        </div>
+      </div>
+
+      <div className="m-sim-controls">
+        <span>Click tabs or advance to see how Tervik turns execution friction into verified fixes.</span>
+        <div className="m-sim-controls-actions">
+          <button className="m-sim-btn-step" onClick={() => setIsPlaying(!isPlaying)}>
+            {isPlaying ? <Pause size={13} /> : <Play size={13} />}
+            <span>{isPlaying ? 'Pause' : 'Autoplay'}</span>
+          </button>
+          <button
+            className="m-sim-btn-step"
+            onClick={() => { setStage(s => (s === 1 ? 5 : ((s - 1) as any))); setIsPlaying(false); }}
+          >
+            <span>Prev</span>
+          </button>
+          <button
+            className="m-sim-btn-step m-sim-btn-primary"
+            onClick={() => { setStage(s => (s === 5 ? 1 : ((s + 1) as any))); setIsPlaying(false); }}
+          >
+            <span>{stage === 5 ? 'Restart Cycle' : 'Next Phase'}</span>
+            {stage === 5 ? <RotateCcw size={13} /> : <ChevronRight size={13} />}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>;
 }
 
 function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: () => void; demoBusy: boolean }) {
@@ -691,80 +1142,8 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
         </div>
       </div>
 
-      {/* Hero Interactive Screen Mockup */}
-      <div className="m-screen-container">
-        <div className="m-screen-card">
-          <div className="m-screen-header">
-            <div className="m-window-dots">
-              <span className="m-dot m-dot-red" />
-              <span className="m-dot m-dot-yellow" />
-              <span className="m-dot m-dot-green" />
-            </div>
-            <span className="m-screen-title">tervik telemetry · session #conv-8192 · live trace</span>
-            <span className="status status-flagged"><span />1 Flagged Turn</span>
-          </div>
-
-          <div className="m-screen-body">
-            <div className="m-screen-col m-screen-chat">
-              <div className="m-chat-message m-chat-user">
-                <span className="m-chat-avatar"><Users size={13} /></span>
-                <div>
-                  <strong>User</strong>
-                  <p>Deploy the updated Stripe webhook migration to production.</p>
-                </div>
-              </div>
-
-              <div className="m-chat-message m-chat-agent">
-                <span className="m-chat-avatar"><Bot size={13} /></span>
-                <div>
-                  <strong>Agent</strong>
-                  <p>Running schema migration via database migration runner...</p>
-                  <div className="m-tool-pill m-tool-success">
-                    <Check size={12} />
-                    <span>tool: verify_database_connection</span>
-                    <small>12ms</small>
-                  </div>
-                  <div className="m-tool-pill m-tool-fail">
-                    <TriangleAlert size={12} />
-                    <span>tool: execute_migration (pool timeout 504)</span>
-                    <small>4,120ms</small>
-                  </div>
-                  <p className="m-error-text">Migration failed: Tenant connection pool exhausted on worker node.</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="m-screen-col m-screen-signals">
-              <div className="m-signal-card">
-                <div className="m-signal-head">
-                  <TriangleAlert size={14} />
-                  <strong>Signal #SIG-409 · Tool Failure</strong>
-                  <span className="severity severity-critical"><span />Critical</span>
-                </div>
-                <p>Rule &quot;required_tool&quot; violated: execute_migration did not return status ok.</p>
-                <div className="m-signal-meta">
-                  <span>Detector: v6.0.0</span>
-                  <span>Rule: v1</span>
-                  <span>Latency: 4.1s</span>
-                </div>
-              </div>
-
-              <div className="m-cluster-card">
-                <div className="m-cluster-head">
-                  <Layers3 size={14} />
-                  <strong>Synthesized Cluster #03</strong>
-                  <span className="count-badge">42 runs</span>
-                </div>
-                <p>Postgres connection pool exhaustion during peak deployment windows.</p>
-                <div className="m-cluster-action">
-                  <span>Suggested fix attached</span>
-                  <button className="text-button" onClick={onStart}>Investigate in dashboard<ChevronRight size={13} /></button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* Interactive Agent Execution Simulator */}
+      <AgentExecutionSimulator onStart={onStart} />
     </section>
 
     {/* Section Divider */}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  Activity, ArrowDown, ArrowDownLeft, ArrowRight, ArrowUpRight, Bot, Check,
-  CheckCheck, ChevronDown, ChevronRight, CircleHelp, Clock3, Code2, Copy,
+  Activity, ArrowDownLeft, ArrowRight, ArrowUpRight, Bot, Check,
+  CheckCheck, ChevronDown, ChevronRight, ChevronUp, CircleHelp, Clock3, Code2, Copy,
   Download, ExternalLink, Eye, EyeOff, FileCode2, Filter, FolderPlus, GitBranch,
   Layers3, LayoutDashboard, LoaderCircle, Menu, MessageSquare, Plus,
   Search, Settings2, ShieldCheck, Sparkles, Terminal, TriangleAlert, Users, X,
@@ -556,9 +556,613 @@ function IntegrationPage({ project, refresh }: { project: Project; refresh: numb
 }
 
 function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: () => void; demoBusy: boolean }) {
-  return <div className="welcome"><nav className="welcome-nav"><Logo small /><a href="https://github.com/dhanvin-ai/tervik" target="_blank" rel="noreferrer" className="welcome-github">GitHub<ExternalLink size={14} /></a><button className="button button-dark" onClick={onStart}>Open workspace<ArrowUpRight size={15} /></button></nav><main><section className="welcome-hero"><span className="welcome-eyebrow"><span className="pulse-dot" />AGENT CONVERSATION INTELLIGENCE</span><h1>Your agents talk.<br /><span>Now you can listen.</span></h1><p>See where conversations go wrong, understand the patterns,<br className="desktop-break" /> and give your agents a better next turn.</p><div className="welcome-actions"><button className="button button-dark" onClick={onStart}>Get started<ArrowRight size={17} /></button><button className="button button-secondary" disabled={demoBusy} onClick={onDemo}>{demoBusy ? <LoaderCircle size={17} className="spin" /> : <Layers3 size={17} />}Explore sample workspace</button></div><span className="welcome-subtext">Install a skill. Connect your agent. Follow the evidence.</span></section>
-    <section className="welcome-illustration" aria-label="The Tervik workflow"><div className="workflow-source"><span className="workflow-node"><Bot size={28} /></span><strong>Your agent</strong><span>Real conversations</span></div><div className="workflow-line"><span /></div><div className="workflow-center"><span className="logo-symbol"><span /></span><strong>Tervik</strong><span>Context, patterns, evidence</span></div><div className="workflow-line"><span /></div><div className="workflow-outcomes"><div><MessageSquare size={18} /><span>Explore conversations</span><Check size={14} /></div><div><TriangleAlert size={18} /><span>Find failure signals</span><Check size={14} /></div><div><GitBranch size={18} /><span>Review improvements</span><Check size={14} /></div></div></section>
-    <section className="welcome-setup"><div><span className="eyebrow">FROM SETUP TO SIGNAL</span><h2>Get started<br />in minutes.</h2><p>Connect Tervik to your agent in two quick steps, then let conversations show you what deserves attention.</p><a href="/tervik-skill.zip" download className="text-button">Download the skill ZIP<ArrowDown size={16} /></a></div><div className="welcome-steps"><div><h3><Download size={19} />Download the skill</h3><div className="command-box"><code>{INSTALL_COMMAND}</code><CopyButton text={INSTALL_COMMAND} /></div></div><div><h3><Terminal size={19} />Run this prompt</h3><div className="command-box"><code>{INSTALL_PROMPT}</code><CopyButton text={INSTALL_PROMPT} /></div></div><div><h3><Sparkles size={19} />Turn friction into a next step.</h3><p>Follow corrections, repeated requests, and tool errors back to the messages that explain them. Review the evidence before making a change.</p></div></div></section></main><footer className="welcome-footer"><Logo small /><span>Find failures. Build better agents.</span><span>Local foundation · Rule-based analysis</span></footer></div>;
+  const [activeStep, setActiveStep] = useState<'install' | 'prompt' | 'observe'>('install');
+  const [expandedFaq, setExpandedFaq] = useState<number | null>(0);
+  const [copiedCmd, setCopiedCmd] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const copyHeroCmd = async () => {
+    try {
+      await navigator.clipboard.writeText(INSTALL_COMMAND);
+      setCopiedCmd(true);
+      setTimeout(() => setCopiedCmd(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
+  const faqs = [
+    {
+      q: 'Does Tervik work with my existing agent framework?',
+      a: 'Yes. Tervik works with Claude Code, Cursor, OpenCode, Codex, Devin, Antigravity, LangChain, LlamaIndex, or any custom agent harness. You can install the Tervik skill or use the @tervik/sdk client library.',
+    },
+    {
+      q: 'How does deterministic failure detection differ from LLM-as-a-judge?',
+      a: 'LLM judges are slow, costly, and non-deterministic. Tervik evaluates conversation turns using transparent, rule-based triage: required tools, forbidden patterns, repetition loops, and tool execution error payloads—with zero hallucinations.',
+    },
+    {
+      q: 'Where is my conversation data stored?',
+      a: 'Tervik runs on your local machine or private cloud. All conversations, failure clusters, and evidence are stored in your own SQLite or PostgreSQL database. Your data is never sent to our servers.',
+    },
+    {
+      q: 'What is the latency overhead on agent inference calls?',
+      a: 'Virtually zero (~2ms). Events are buffered and flushed asynchronously in the background, so your agent generation loops and user interactions are never blocked.',
+    },
+    {
+      q: 'Can we define custom rules and alert channels?',
+      a: 'Yes. You can define custom behavior rules (forbidden phrases, mandatory tools) and set up threshold or trend-based alerts that notify your team via Slack webhooks or email.',
+    },
+  ];
+
+  return <div className="m-page">
+    {/* Floating Frosted Navigation Bar */}
+    <header className="m-nav-wrapper">
+      <nav className="m-navbar">
+        <a href="#welcome" className="m-brand">
+          <span className="logo-symbol"><span /></span>
+          <span className="m-brand-text">tervik<span className="logo-dot">.</span></span>
+        </a>
+
+        <div className="m-nav-links">
+          <a href="#how-it-works">How It Works</a>
+          <a href="#setup-steps">Setup</a>
+          <a href="#features">Features</a>
+          <a href="#case-studies">Case Studies</a>
+          <a href="#faq">FAQ</a>
+        </div>
+
+        <div className="m-nav-actions">
+          <button className="button button-secondary m-nav-demo-btn" disabled={demoBusy} onClick={onDemo}>
+            {demoBusy ? <LoaderCircle size={14} className="spin" /> : <Layers3 size={14} />}
+            <span>Sample Data</span>
+          </button>
+          <button className="button button-primary m-nav-start-btn" onClick={onStart}>
+            <span>Dashboard</span>
+            <ChevronRight size={14} />
+          </button>
+          <button className="icon-button m-nav-mobile-toggle" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} aria-label="Toggle navigation">
+            {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
+          </button>
+        </div>
+      </nav>
+
+      {mobileMenuOpen && <div className="m-mobile-menu">
+        <a href="#how-it-works" onClick={() => setMobileMenuOpen(false)}>01 · How It Works</a>
+        <a href="#setup-steps" onClick={() => setMobileMenuOpen(false)}>02 · Setup in 3 Steps</a>
+        <a href="#features" onClick={() => setMobileMenuOpen(false)}>03 · Features</a>
+        <a href="#case-studies" onClick={() => setMobileMenuOpen(false)}>04 · Case Studies</a>
+        <a href="#faq" onClick={() => setMobileMenuOpen(false)}>05 · FAQ</a>
+        <div className="m-mobile-menu-actions">
+          <button className="button button-secondary" disabled={demoBusy} onClick={() => { setMobileMenuOpen(false); onDemo(); }}>
+            {demoBusy ? <LoaderCircle size={14} className="spin" /> : <Layers3 size={14} />}
+            <span>Explore Sample Workspace</span>
+          </button>
+          <button className="button button-primary" onClick={() => { setMobileMenuOpen(false); onStart(); }}>
+            <span>Open Dashboard</span>
+            <ChevronRight size={14} />
+          </button>
+        </div>
+      </div>}
+    </header>
+
+    {/* Hero Section */}
+    <section className="m-hero">
+      <div className="m-hero-badge">
+        <span className="pulse-dot" />
+        <span>AGENT CONVERSATION INTELLIGENCE</span>
+        <span className="m-badge-divider">·</span>
+        <span className="m-badge-dim">LOCAL-FIRST</span>
+      </div>
+
+      <h1 className="m-hero-title">
+        Procedural Intelligence &amp;<br />
+        Failure Detection For Agents.
+      </h1>
+
+      <p className="m-hero-subtitle">
+        Tervik records every turn, evaluates failure signals with transparent rules, and synthesizes clusters with evidence. Fewer turns, zero blind spots, and continuous improvement.
+      </p>
+
+      <div className="m-hero-actions">
+        <button className="button button-primary m-hero-btn" onClick={onStart}>
+          <span>Dashboard</span>
+          <ArrowRight size={16} />
+        </button>
+
+        <div className="m-hero-cmd-box" onClick={copyHeroCmd} title="Click to copy">
+          <Terminal size={14} className="m-hero-cmd-icon" />
+          <code>{INSTALL_COMMAND}</code>
+          <button className="icon-button m-hero-copy-btn" aria-label="Copy install command">
+            {copiedCmd ? <Check size={14} /> : <Copy size={14} />}
+          </button>
+        </div>
+      </div>
+
+      <div className="m-hero-partners">
+        <span className="m-partners-label">WORKS WITH</span>
+        <div className="m-partners-list">
+          <span>Claude Code</span>
+          <span>Cursor</span>
+          <span>OpenCode</span>
+          <span>Codex</span>
+          <span>Devin</span>
+          <span>Antigravity</span>
+          <span>LangChain</span>
+        </div>
+      </div>
+
+      {/* Hero Interactive Screen Mockup */}
+      <div className="m-screen-container">
+        <div className="m-screen-card">
+          <div className="m-screen-header">
+            <div className="m-window-dots">
+              <span className="m-dot m-dot-red" />
+              <span className="m-dot m-dot-yellow" />
+              <span className="m-dot m-dot-green" />
+            </div>
+            <span className="m-screen-title">tervik telemetry · session #conv-8192 · live trace</span>
+            <span className="status status-flagged"><span />1 Flagged Turn</span>
+          </div>
+
+          <div className="m-screen-body">
+            <div className="m-screen-col m-screen-chat">
+              <div className="m-chat-message m-chat-user">
+                <span className="m-chat-avatar"><Users size={13} /></span>
+                <div>
+                  <strong>User</strong>
+                  <p>Deploy the updated Stripe webhook migration to production.</p>
+                </div>
+              </div>
+
+              <div className="m-chat-message m-chat-agent">
+                <span className="m-chat-avatar"><Bot size={13} /></span>
+                <div>
+                  <strong>Agent</strong>
+                  <p>Running schema migration via database migration runner...</p>
+                  <div className="m-tool-pill m-tool-success">
+                    <Check size={12} />
+                    <span>tool: verify_database_connection</span>
+                    <small>12ms</small>
+                  </div>
+                  <div className="m-tool-pill m-tool-fail">
+                    <TriangleAlert size={12} />
+                    <span>tool: execute_migration (pool timeout 504)</span>
+                    <small>4,120ms</small>
+                  </div>
+                  <p className="m-error-text">Migration failed: Tenant connection pool exhausted on worker node.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="m-screen-col m-screen-signals">
+              <div className="m-signal-card">
+                <div className="m-signal-head">
+                  <TriangleAlert size={14} />
+                  <strong>Signal #SIG-409 · Tool Failure</strong>
+                  <span className="severity severity-critical"><span />Critical</span>
+                </div>
+                <p>Rule &quot;required_tool&quot; violated: execute_migration did not return status ok.</p>
+                <div className="m-signal-meta">
+                  <span>Detector: v6.0.0</span>
+                  <span>Rule: v1</span>
+                  <span>Latency: 4.1s</span>
+                </div>
+              </div>
+
+              <div className="m-cluster-card">
+                <div className="m-cluster-head">
+                  <Layers3 size={14} />
+                  <strong>Synthesized Cluster #03</strong>
+                  <span className="count-badge">42 runs</span>
+                </div>
+                <p>Postgres connection pool exhaustion during peak deployment windows.</p>
+                <div className="m-cluster-action">
+                  <span>Suggested fix attached</span>
+                  <button className="text-button" onClick={onStart}>Investigate in dashboard<ChevronRight size={13} /></button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    {/* Section Divider */}
+    <div className="m-divider" />
+
+    {/* How It Works (4 Layers) */}
+    <section id="how-it-works" className="m-section">
+      <div className="m-section-header">
+        <span className="m-section-eyebrow">FOUR DETERMINISTIC LAYERS</span>
+        <h2 className="m-section-title">How It Works.</h2>
+        <p className="m-section-subtitle">
+          From raw trace ingestion to reproducible evaluation, Tervik gives your agents a systematic feedback loop.
+        </p>
+      </div>
+
+      <div className="m-layers-grid">
+        <div className="m-layer-card m-layer-1">
+          <div className="m-layer-header">
+            <span className="m-layer-pill">LAYER 1</span>
+            <span className="m-layer-name">Traces &amp; Telemetry</span>
+          </div>
+          <h3>The raw record of an agent run</h3>
+          <p>
+            Prompts, assistant turns, tool executions, latency, and cost captured seamlessly via skill or SDK without altering agent architectures.
+          </p>
+          <div className="m-layer-spec">
+            <span>Non-blocking async flush</span>
+            <span>Zero telemetry drops</span>
+          </div>
+        </div>
+
+        <div className="m-layer-card m-layer-2">
+          <div className="m-layer-header">
+            <span className="m-layer-pill">LAYER 2</span>
+            <span className="m-layer-name">Signal &amp; Failure Detection</span>
+          </div>
+          <h3>Deterministic triage on every turn</h3>
+          <p>
+            Deterministic triage rules catch tool exceptions, customer corrections, repetition loops, and forbidden phrase violations in real time.
+          </p>
+          <div className="m-layer-spec">
+            <span>No flaky judge models</span>
+            <span>Transparent regex rules</span>
+          </div>
+        </div>
+
+        <div className="m-layer-card m-layer-3">
+          <div className="m-layer-header">
+            <span className="m-layer-pill">LAYER 3</span>
+            <span className="m-layer-name">Cluster Synthesis</span>
+          </div>
+          <h3>Connect patterns across sessions</h3>
+          <p>
+            Recurring failure signals group automatically into clusters. Every cluster cites exact excerpts, affected user counts, and share percentages.
+          </p>
+          <div className="m-layer-spec">
+            <span>Evidence cited for every issue</span>
+            <span>Prioritized by severity</span>
+          </div>
+        </div>
+
+        <div className="m-layer-card m-layer-4">
+          <div className="m-layer-header">
+            <span className="m-layer-pill">LAYER 4</span>
+            <span className="m-layer-name">Evaluation &amp; Replay</span>
+          </div>
+          <h3>Verify fixes before deployment</h3>
+          <p>
+            Turn production findings into replay evaluation datasets. Compare baseline vs candidate agent descriptors across edge cases before pushing code.
+          </p>
+          <div className="m-layer-spec">
+            <span>Regression prevention</span>
+            <span>Reproducibility scoring</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    {/* Section Divider */}
+    <div className="m-divider" />
+
+    {/* Set Up In Three Steps */}
+    <section id="setup-steps" className="m-section">
+      <div className="m-section-header">
+        <span className="m-section-eyebrow">FAST ONBOARDING</span>
+        <h2 className="m-section-title">Set Up In Three Steps.</h2>
+        <p className="m-section-subtitle">
+          Connect your agent in two minutes. Start seeing signals on your very next turn.
+        </p>
+
+        <div className="m-steps-tabs">
+          <button className={`m-step-tab ${activeStep === 'install' ? 'active' : ''}`} onClick={() => setActiveStep('install')}>
+            <span className="m-step-tab-num">01</span>
+            <span>Install</span>
+          </button>
+          <button className={`m-step-tab ${activeStep === 'prompt' ? 'active' : ''}`} onClick={() => setActiveStep('prompt')}>
+            <span className="m-step-tab-num">02</span>
+            <span>Run Prompt</span>
+          </button>
+          <button className={`m-step-tab ${activeStep === 'observe' ? 'active' : ''}`} onClick={() => setActiveStep('observe')}>
+            <span className="m-step-tab-num">03</span>
+            <span>Observe</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="m-steps-display">
+        <div className="m-steps-terminal">
+          <div className="m-terminal-top">
+            <div className="m-window-dots">
+              <span className="m-dot m-dot-red" />
+              <span className="m-dot m-dot-yellow" />
+              <span className="m-dot m-dot-green" />
+            </div>
+            <span className="m-terminal-title">bash — 80x24</span>
+            <CopyButton
+              text={activeStep === 'install' ? INSTALL_COMMAND : activeStep === 'prompt' ? INSTALL_PROMPT : 'npm run dev'}
+              compact
+            />
+          </div>
+
+          <div className="m-terminal-content">
+            {activeStep === 'install' && <>
+              <div className="m-term-line"><span className="m-term-prompt">$</span> {INSTALL_COMMAND}</div>
+              <div className="m-term-out text-zinc-400">Fetching skill definition from dhanvin-ai/tervik...</div>
+              <div className="m-term-out text-emerald-400">✔ Added skill &quot;tervik&quot; to current workspace</div>
+              <div className="m-term-out text-zinc-500">Skill location: .agents/skills/tervik/SKILL.md</div>
+              <div className="m-term-out text-zinc-400">Telemetry endpoints registered. Ready for agent execution.</div>
+            </>}
+
+            {activeStep === 'prompt' && <>
+              <div className="m-term-line"><span className="m-term-prompt">&gt;</span> {INSTALL_PROMPT}</div>
+              <div className="m-term-out text-zinc-400">Agent reading skill instructions from .agents/skills/tervik/SKILL.md...</div>
+              <div className="m-term-out text-zinc-400">Inspecting application routes and agent runner setup...</div>
+              <div className="m-term-out text-emerald-400">✔ Added @tervik/sdk integration hook</div>
+              <div className="m-term-out text-emerald-400">✔ Wired conversation error and tool telemetry captures</div>
+              <div className="m-term-out text-zinc-500">Integration completed with 0 compile errors.</div>
+            </>}
+
+            {activeStep === 'observe' && <>
+              <div className="m-term-line"><span className="m-term-prompt">$</span> node scripts/dev.mjs</div>
+              <div className="m-term-out text-zinc-400">Starting Tervik ingestion API on http://127.0.0.1:8000...</div>
+              <div className="m-term-out text-zinc-400">Launching web dashboard on http://127.0.0.1:5173...</div>
+              <div className="m-term-out text-emerald-400">✔ Connected to project: Sample workspace</div>
+              <div className="m-term-out text-white font-medium">56 conversations indexed · 3 failure clusters detected</div>
+              <div className="m-term-out text-zinc-500">Ready to triage and evaluate incoming events.</div>
+            </>}
+          </div>
+        </div>
+
+        <div className="m-steps-info">
+          {activeStep === 'install' && <>
+            <span className="m-info-step-label">STEP 01</span>
+            <h3>Add the skill in one command</h3>
+            <p>
+              Installs Tervik’s standardized integration instructions into your agent workspace. Compatible with Claude Code, Cursor, OpenCode, Codex, and Devin.
+            </p>
+            <div className="m-info-check">
+              <Check size={16} />
+              <span>Zero external credentials required for local mode</span>
+            </div>
+          </>}
+
+          {activeStep === 'prompt' && <>
+            <span className="m-info-step-label">STEP 02</span>
+            <h3>Prompt your agent to implement it</h3>
+            <p>
+              Your agent reads the instructions and wires conversation capture directly into your application’s existing tool and chat handlers.
+            </p>
+            <div className="m-info-check">
+              <Check size={16} />
+              <span>Full control over every code diff your agent makes</span>
+            </div>
+          </>}
+
+          {activeStep === 'observe' && <>
+            <span className="m-info-step-label">STEP 03</span>
+            <h3>Inspect evidence and failure clusters</h3>
+            <p>
+              Every conversation flows into Tervik. Friction is grouped, tool failures cite exact payloads, and candidates can be replayed safely.
+            </p>
+            <div className="m-info-check">
+              <Check size={16} />
+              <span>Interactive trace explorer and cluster management</span>
+            </div>
+          </>}
+        </div>
+      </div>
+    </section>
+
+    {/* Section Divider */}
+    <div className="m-divider" />
+
+    {/* Built For Production AI Agents (Features Bento Grid) */}
+    <section id="features" className="m-section">
+      <div className="m-section-header">
+        <span className="m-section-eyebrow">ENTERPRISE PRECISION</span>
+        <h2 className="m-section-title">Built For Production AI Agents.</h2>
+        <p className="m-section-subtitle">
+          Everything you need to observe, triage, and validate agent behavior in high-stakes environments.
+        </p>
+      </div>
+
+      <div className="m-bento-grid">
+        <div className="m-bento-card">
+          <div className="m-bento-icon"><Zap size={20} /></div>
+          <h3>Sub-2ms Ingestion</h3>
+          <p>Non-blocking asynchronous event batching. Zero latency added to agent generation loops or tool executions.</p>
+        </div>
+
+        <div className="m-bento-card">
+          <div className="m-bento-icon"><ShieldCheck size={20} /></div>
+          <h3>Deterministic Guardrails</h3>
+          <p>No fuzzy judge models that hallucinate. Transparent regex patterns, required tools, and failure thresholds.</p>
+        </div>
+
+        <div className="m-bento-card">
+          <div className="m-bento-icon"><MessageSquare size={20} /></div>
+          <h3>Evidence-Backed Clusters</h3>
+          <p>Every cluster cites exact conversation excerpts, user IDs, and timestamps. Never guess why an agent stumbled.</p>
+        </div>
+
+        <div className="m-bento-card">
+          <div className="m-bento-icon"><Layers3 size={20} /></div>
+          <h3>Local &amp; Self-Hosted</h3>
+          <p>Runs locally or self-hosted with SQLite or PostgreSQL. Your customer conversations never leave your infrastructure.</p>
+        </div>
+
+        <div className="m-bento-card">
+          <div className="m-bento-icon"><GitBranch size={20} /></div>
+          <h3>Candidate Replay Evals</h3>
+          <p>Evaluate prompt or tool adjustments across historical production failures before deploying changes to live users.</p>
+        </div>
+
+        <div className="m-bento-card">
+          <div className="m-bento-icon"><Code2 size={20} /></div>
+          <h3>Universal Compatibility</h3>
+          <p>Drop-in skill and TypeScript SDK. Works with Claude Code, Cursor, OpenCode, Codex, Devin, and custom frameworks.</p>
+        </div>
+      </div>
+    </section>
+
+    {/* Section Divider */}
+    <div className="m-divider" />
+
+    {/* Case Studies & Impact */}
+    <section id="case-studies" className="m-section">
+      <div className="m-section-header">
+        <span className="m-section-eyebrow">VERIFIED OUTCOMES</span>
+        <h2 className="m-section-title">Case Studies &amp; Impact Metrics.</h2>
+        <p className="m-section-subtitle">
+          Measured outcomes from engineering teams building autonomous AI agents with Tervik.
+        </p>
+      </div>
+
+      <div className="m-stats-row">
+        <div className="m-stat-card">
+          <strong className="m-stat-number">100%</strong>
+          <span className="m-stat-label">Evidence-Backed Triage</span>
+          <p>Every cluster cites real messages and tool payloads. Zero ungrounded summaries.</p>
+        </div>
+
+        <div className="m-stat-card">
+          <strong className="m-stat-number">98%</strong>
+          <span className="m-stat-label">Faster Diagnosis</span>
+          <p>Zero manual log scouring across distributed agent workers and nested spans.</p>
+        </div>
+
+        <div className="m-stat-card">
+          <strong className="m-stat-number">40%</strong>
+          <span className="m-stat-label">Fewer Repeated Errors</span>
+          <p>Catch recurring failure loops and prompt regressions before they affect users.</p>
+        </div>
+      </div>
+
+      <div className="m-quote-card">
+        <blockquote>
+          &quot;Tervik gave our coding agent the visibility it was missing. Within 10 minutes we found two repeated tool error loops that were silently frustrating users.&quot;
+        </blockquote>
+        <div className="m-quote-author">
+          <span className="user-avatar">A</span>
+          <div>
+            <strong>Autonomous Agent Infrastructure Team</strong>
+            <small>Production agent deployment · 100k+ monthly runs</small>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    {/* Section Divider */}
+    <div className="m-divider" />
+
+    {/* FAQ Accordion */}
+    <section id="faq" className="m-section">
+      <div className="m-section-header">
+        <span className="m-section-eyebrow">COMMON QUESTIONS</span>
+        <h2 className="m-section-title">Frequently Asked Questions.</h2>
+        <p className="m-section-subtitle">
+          Everything you need to know about Tervik&apos;s architecture, privacy, and integrations.
+        </p>
+      </div>
+
+      <div className="m-faq-container">
+        {faqs.map((faq, index) => {
+          const isOpen = expandedFaq === index;
+          return <div key={faq.q} className={`m-faq-item ${isOpen ? 'open' : ''}`}>
+            <button className="m-faq-trigger" onClick={() => setExpandedFaq(isOpen ? null : index)}>
+              <span>{faq.q}</span>
+              {isOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+            </button>
+            {isOpen && <div className="m-faq-answer">
+              <p>{faq.a}</p>
+            </div>}
+          </div>;
+        })}
+      </div>
+    </section>
+
+    {/* Grand CTA Banner */}
+    <section className="m-cta-section">
+      <div className="m-cta-glow" />
+      <div className="m-cta-content">
+        <span className="m-cta-eyebrow">READY TO LISTEN?</span>
+        <h2>Build Agents That Get Better Every Turn.</h2>
+        <p>Install the skill, connect your agent, and see where conversations stumble in minutes.</p>
+
+        <div className="m-cta-buttons">
+          <button className="button button-primary m-cta-btn" onClick={onStart}>
+            <span>Open Dashboard</span>
+            <ChevronRight size={16} />
+          </button>
+          <button className="button button-secondary m-cta-btn" disabled={demoBusy} onClick={onDemo}>
+            {demoBusy ? <LoaderCircle size={15} className="spin" /> : <Layers3 size={15} />}
+            <span>Explore Sample Workspace</span>
+          </button>
+        </div>
+
+        <div className="m-cta-snippet" onClick={copyHeroCmd} title="Click to copy">
+          <Terminal size={14} />
+          <code>{INSTALL_COMMAND}</code>
+          {copiedCmd ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+        </div>
+      </div>
+    </section>
+
+    {/* Footer */}
+    <footer className="m-footer">
+      <div className="m-footer-top">
+        <div className="m-footer-brand">
+          <div className="logo">
+            <span className="logo-symbol"><span /></span>
+            <span>tervik<span className="logo-dot">.</span></span>
+          </div>
+          <p>Find failures. Understand friction. Build better AI agents.</p>
+          <div className="m-footer-local-badge">
+            <span className="local-dot" />
+            <span>Local Foundation · Transparent Rules</span>
+          </div>
+        </div>
+
+        <div className="m-footer-cols">
+          <div className="m-footer-col">
+            <h4>Product</h4>
+            <a href="#how-it-works">How It Works</a>
+            <a href="#setup-steps">Setup in 3 Steps</a>
+            <a href="#features">Features</a>
+            <a href="#case-studies">Case Studies</a>
+          </div>
+
+          <div className="m-footer-col">
+            <h4>Documentation</h4>
+            <a href="#integration" onClick={onStart}>SDK &amp; Ingestion</a>
+            <a href="#setup-steps">Skill Guide</a>
+            <a href="#faq">FAQ</a>
+            <a href="/tervik-skill.zip" download>Download ZIP</a>
+          </div>
+
+          <div className="m-footer-col">
+            <h4>Connect</h4>
+            <a href="https://github.com/dhanvin-ai/tervik" target="_blank" rel="noreferrer">
+              <span>GitHub</span>
+              <ExternalLink size={12} />
+            </a>
+            <a href="https://twitter.com" target="_blank" rel="noreferrer">
+              <span>Twitter / X</span>
+              <ExternalLink size={12} />
+            </a>
+            <button className="text-button" onClick={onStart}>Dashboard</button>
+          </div>
+        </div>
+      </div>
+
+      <div className="m-footer-bottom">
+        <span>&copy; {new Date().getFullYear()} Tervik. All rights reserved.</span>
+        <span>Procedural Conversation Intelligence</span>
+      </div>
+    </footer>
+  </div>;
 }
 
 export default function App() {

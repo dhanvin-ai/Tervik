@@ -135,14 +135,14 @@ function TrendChart({ trend, range }: { trend: Overview['trend']; range: Range }
   const point = active !== null ? trend[active] : null;
   return <div className="chart-wrap" onMouseLeave={() => setActive(null)}>
     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Conversations and flagged conversations over the selected period" className="trend-chart">
-      <defs><linearGradient id="trend-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#5b8cff" stopOpacity=".21" /><stop offset="100%" stopColor="#5b8cff" stopOpacity=".01" /></linearGradient></defs>
-      {[0, 1, 2, 3, 4].map(tick => <g key={tick}><line x1={left} x2={width - right} y1={y(maximum * tick / 4)} y2={y(maximum * tick / 4)} stroke="#232328" strokeDasharray="4 5" /><text x={left - 14} y={y(maximum * tick / 4) + 4} textAnchor="end" fontSize="11" fill="#63636b">{maximum * tick / 4}</text></g>)}
-      {trend.length > 0 && <><path d={area} fill="url(#trend-fill)" /><path d={path('conversations')} fill="none" stroke="#5b8cff" strokeWidth="2.6" strokeLinejoin="round" strokeLinecap="round" /><path d={path('failures')} fill="none" stroke="#f26d6d" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+      <defs><linearGradient id="trend-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#4979e0" stopOpacity=".12" /><stop offset="100%" stopColor="#4979e0" stopOpacity=".0" /></linearGradient></defs>
+      {[0, 1, 2, 3, 4].map(tick => <g key={tick}><line x1={left} x2={width - right} y1={y(maximum * tick / 4)} y2={y(maximum * tick / 4)} stroke="rgba(255, 255, 255, 0.06)" strokeDasharray="4 5" /><text x={left - 14} y={y(maximum * tick / 4) + 4} textAnchor="end" fontSize="10" fill="#71717a">{maximum * tick / 4}</text></g>)}
+      {trend.length > 0 && <><path d={area} fill="url(#trend-fill)" /><path d={path('conversations')} fill="none" stroke="#4979e0" strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" /><path d={path('failures')} fill="none" stroke="#df6a4f" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
         {trend.map((item, index) => <g key={item.date}>
-          {index % Math.max(1, Math.ceil(trend.length / 7)) === 0 && <text x={x(index)} y={height - 9} textAnchor={index === 0 ? 'start' : 'middle'} fontSize="11" fill="#63636b">{dateLabel(item.date)}</text>}
+          {index % Math.max(1, Math.ceil(trend.length / 7)) === 0 && <text x={x(index)} y={height - 9} textAnchor={index === 0 ? 'start' : 'middle'} fontSize="10" fill="#71717a">{dateLabel(item.date)}</text>}
           <rect x={x(index) - (width - left - right) / Math.max(1, trend.length - 1) / 2} y={top} width={(width - left - right) / Math.max(1, trend.length - 1)} height={height - top - bottom} fill="transparent" onMouseEnter={() => setActive(index)} />
         </g>)}
-        {active !== null && <><line x1={x(active)} x2={x(active)} y1={top} y2={height - bottom} stroke="#2c3f6e" strokeDasharray="4 4" /><circle cx={x(active)} cy={y(trend[active].conversations)} r="4" fill="#5b8cff" stroke="#0a0a0b" strokeWidth="2" /></>}
+        {active !== null && <><line x1={x(active)} x2={x(active)} y1={top} y2={height - bottom} stroke="rgba(255, 255, 255, 0.16)" strokeDasharray="4 4" /><circle cx={x(active)} cy={y(trend[active].conversations)} r="3.5" fill="#4979e0" stroke="#0a0a0a" strokeWidth="2" /></>}
       </>}
     </svg>
     {point && active !== null && <div className="chart-tooltip" style={{ left: `${Math.max(12, Math.min(80, x(active) / width * 100))}%` }}><strong>{dateLabel(point.date, true)}</strong><span><i className="legend-dot purple" />{formatNumber(point.conversations)} conversations</span><span><i className="legend-dot peach" />{formatNumber(point.failures)} flagged</span></div>}

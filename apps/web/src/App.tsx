@@ -1009,7 +1009,7 @@ function AgentExecutionSimulator({ onStart }: { onStart: () => void }) {
             </p>
             <div style={{ background: '#090b10', border: '1px solid rgba(52, 211, 153, 0.2)', borderRadius: 6, padding: '10px 14px', fontSize: 11, fontFamily: 'Geist Mono, monospace', marginBottom: 12 }}>
               <div style={{ color: '#71717a', marginBottom: 4 }}>BASELINE: 0 / 42 passed (42 violations)</div>
-              <div style={{ color: '#34d399', fontWeight: 600 }}>CANDIDATE: 42 / 42 passed (0 violations) · 100% PASS</div>
+              <div style={{ color: '#34d399', fontWeight: 500 }}>CANDIDATE: 42 / 42 passed (0 violations) · 100% PASS</div>
             </div>
             <span style={{ fontSize: 11, color: '#34d399', display: 'flex', alignItems: 'center', gap: 6 }}>
               <Check size={14} />

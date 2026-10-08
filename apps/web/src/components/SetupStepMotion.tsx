@@ -168,7 +168,7 @@ export function SetupStepMotion({ onCopy, copied }: SetupStepMotionProps) {
               <g className="m-graph-node node-tervik" transform="translate(160, 90)">
                 <circle r="22" fill="#090a0f" stroke="#a855f7" strokeWidth="2" />
                 <circle r="32" fill="none" stroke="rgba(168, 85, 247, 0.3)" className="m-pulse-ring delay-1" />
-                <text textAnchor="middle" dy="-2" fill="#ffffff" fontSize="9" fontWeight="bold" fontFamily="var(--font-mono)">TERVIK</text>
+                <text textAnchor="middle" dy="-2" fill="#ffffff" fontSize="9" fontWeight="500" fontFamily="var(--font-mono)">TERVIK</text>
                 <text textAnchor="middle" dy="9" fill="#a855f7" fontSize="7" fontFamily="var(--font-mono)">2ms</text>
               </g>
 

@@ -1153,8 +1153,8 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
 
       <div className="m-hero-actions">
         <button className="m-hero-primary-btn" onClick={onStart}>
-          <span>Dashboard</span>
-          <ChevronRight size={14} />
+          <span>Go to Dashboard</span>
+          <ArrowRight size={14} />
         </button>
 
         <div className="m-hero-cmd-box" onClick={copyHeroCmd} title="Click to copy install command">

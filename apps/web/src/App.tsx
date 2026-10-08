@@ -8,6 +8,7 @@ import {
   Zap, type LucideIcon,
 } from 'lucide-react';
 import { query, request } from './api';
+import { AsciiMatrixBackground } from './components/AsciiMatrixBackground';
 import type { AlertRule, BehaviorRule, Cluster, ClusterDetail, Conversation, ConversationDetail, Delivery, Discovery, DiscoveryIntent, EvalDataset, EvalRun, Improvement, Overview, Page, Project, Range, SetupStatus } from './types';
 
 const INSTALL_COMMAND = 'npx skills add dhanvin-ai/tervik --skill tervik';
@@ -1046,6 +1047,9 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
   ];
 
   return <div className="m-page">
+    {/* Procedural ASCII Matrix Glow Background */}
+    <AsciiMatrixBackground />
+
     {/* Floating Frosted Navigation Bar */}
     <header className="m-nav-wrapper">
       <nav className="m-navbar">
@@ -1056,20 +1060,19 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
 
         <div className="m-nav-links">
           <a href="#how-it-works">How It Works</a>
-          <a href="#setup-steps">Setup</a>
           <a href="#features">Features</a>
           <a href="#case-studies">Case Studies</a>
           <a href="#faq">FAQ</a>
         </div>
 
         <div className="m-nav-actions">
-          <button className="button button-secondary m-nav-demo-btn" disabled={demoBusy} onClick={onDemo}>
-            {demoBusy ? <LoaderCircle size={14} className="spin" /> : <Layers3 size={14} />}
+          <button className="m-nav-ghost-btn" disabled={demoBusy} onClick={onDemo}>
+            {demoBusy ? <LoaderCircle size={13} className="spin" /> : <Layers3 size={13} />}
             <span>Sample Data</span>
           </button>
-          <button className="button button-primary m-nav-start-btn" onClick={onStart}>
+          <button className="m-nav-primary-btn" onClick={onStart}>
             <span>Dashboard</span>
-            <ChevronRight size={14} />
+            <ChevronRight size={13} />
           </button>
           <button className="icon-button m-nav-mobile-toggle" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} aria-label="Toggle navigation">
             {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
@@ -1098,11 +1101,11 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
 
     {/* Hero Section */}
     <section className="m-hero">
-      <div className="m-hero-badge">
-        <span className="pulse-dot" />
-        <span>AGENT CONVERSATION INTELLIGENCE</span>
-        <span className="m-badge-divider">·</span>
-        <span className="m-badge-dim">LOCAL-FIRST</span>
+      <div className="m-hero-eyebrow">
+        <span className="m-eyebrow-badge">AGENT SYSTEM</span>
+        <span className="m-eyebrow-text">CONVERSATION INTELLIGENCE</span>
+        <span className="m-eyebrow-sep">/</span>
+        <span className="m-eyebrow-sub">LOCAL-FIRST</span>
       </div>
 
       <h1 className="m-hero-title">
@@ -1115,12 +1118,12 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
       </p>
 
       <div className="m-hero-actions">
-        <button className="button button-primary m-hero-btn" onClick={onStart}>
+        <button className="m-hero-primary-btn" onClick={onStart}>
           <span>Dashboard</span>
-          <ArrowRight size={16} />
+          <ChevronRight size={14} />
         </button>
 
-        <div className="m-hero-cmd-box" onClick={copyHeroCmd} title="Click to copy">
+        <div className="m-hero-cmd-box" onClick={copyHeroCmd} title="Click to copy install command">
           <Terminal size={14} className="m-hero-cmd-icon" />
           <code>{INSTALL_COMMAND}</code>
           <button className="icon-button m-hero-copy-btn" aria-label="Copy install command">

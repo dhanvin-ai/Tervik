@@ -9,6 +9,13 @@ import {
 } from 'lucide-react';
 import { query, request } from './api';
 import { AsciiMatrixBackground } from './components/AsciiMatrixBackground';
+import { AnimatedBrandLogo } from './components/AnimatedBrandLogo';
+import { HeroHeadline } from './components/HeroHeadline';
+import { IsometricArchitecture } from './components/IsometricArchitecture';
+import { SetupStepMotion } from './components/SetupStepMotion';
+import { FeaturesMotionGrid } from './components/FeaturesMotionGrid';
+import { SocialProofMotion } from './components/SocialProofMotion';
+import { useScrollProgress, usePrefersReducedMotion } from './hooks/useMotion';
 import type { AlertRule, BehaviorRule, Cluster, ClusterDetail, Conversation, ConversationDetail, Delivery, Discovery, DiscoveryIntent, EvalDataset, EvalRun, Improvement, Overview, Page, Project, Range, SetupStatus } from './types';
 
 const INSTALL_COMMAND = 'npx skills add dhanvin-ai/tervik --skill tervik';
@@ -20,8 +27,11 @@ const titles: Record<Page, string> = {
   integration: 'Connect your agent', welcome: 'Welcome',
 };
 
+const welcomeAnchors = new Set(['welcome', 'how-it-works', 'setup-steps', 'features', 'case-studies', 'faq']);
+
 function currentPage(): Page {
   const value = window.location.hash.replace('#', '');
+  if (welcomeAnchors.has(value)) return 'welcome';
   if (Object.hasOwn(titles, value)) return value as Page;
   return window.location.pathname === '/welcome' ? 'welcome' : 'overview';
 }
@@ -783,6 +793,8 @@ function IntegrationPage({ project, refresh }: { project: Project; refresh: numb
 function AgentExecutionSimulator({ onStart }: { onStart: () => void }) {
   const [stage, setStage] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [isPlaying, setIsPlaying] = useState(false);
+  const { ref, progress } = useScrollProgress<HTMLDivElement>();
+  const prefersReduced = usePrefersReducedMotion();
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -792,7 +804,33 @@ function AgentExecutionSimulator({ onStart }: { onStart: () => void }) {
     return () => clearInterval(interval);
   }, [isPlaying]);
 
-  return <div className="m-sim-wrapper">
+  const tiltX = prefersReduced ? 0 : (0.5 - progress) * 6;
+  const tiltY = prefersReduced ? 0 : (0.5 - progress) * 4;
+  const scale = prefersReduced ? 1 : 0.97 + Math.min(progress, 0.5) * 0.06;
+  const parallaxX = prefersReduced ? 0 : (0.5 - progress) * 10;
+
+  const captions = [
+    'Layer 1: Non-blocking asynchronous ingestion buffers user prompt without generation delay',
+    'Layer 1: Tool execution spans recorded with exact arguments, returns, and execution latency',
+    'Layer 2: Deterministic regex guardrail intercepts timeout exception without flaky LLM judges',
+    'Layer 3: Cross-session cluster groups recurring failures and cites exact message evidence',
+    'Layer 4: Replay evaluation executes candidate prompt against historical failures with 100% pass',
+  ];
+
+  return <div
+    ref={ref}
+    className="m-sim-wrapper"
+    style={{
+      transform: `perspective(1200px) rotateX(${tiltX}deg) rotateY(${tiltY}deg) scale(${scale}) translateX(${parallaxX}px)`,
+      transition: prefersReduced ? 'none' : 'transform 0.15s ease-out',
+    }}
+  >
+    <div className="m-sim-caption-bar">
+      <span className="m-sim-caption-badge">LIVE DEMO · STAGE 0{stage}</span>
+      <span className="m-sim-caption-text" key={stage}>
+        {captions[stage - 1]}
+      </span>
+    </div>
     <div className="m-sim-card">
       <div className="m-sim-header">
         <div className="m-sim-header-left">
@@ -1008,7 +1046,6 @@ function AgentExecutionSimulator({ onStart }: { onStart: () => void }) {
 }
 
 function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: () => void; demoBusy: boolean }) {
-  const [activeStep, setActiveStep] = useState<'install' | 'prompt' | 'observe'>('install');
   const [expandedFaq, setExpandedFaq] = useState<number | null>(0);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -1054,12 +1091,12 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
     <header className="m-nav-wrapper">
       <nav className="m-navbar">
         <a href="#welcome" className="m-brand">
-          <span className="logo-symbol"><span /></span>
-          <span className="m-brand-text">tervik<span className="logo-dot">.</span></span>
+          <AnimatedBrandLogo />
         </a>
 
         <div className="m-nav-links">
           <a href="#how-it-works">How It Works</a>
+          <a href="#setup-steps">Setup</a>
           <a href="#features">Features</a>
           <a href="#case-studies">Case Studies</a>
           <a href="#faq">FAQ</a>
@@ -1108,10 +1145,7 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
         <span className="m-eyebrow-sub">LOCAL-FIRST</span>
       </div>
 
-      <h1 className="m-hero-title">
-        Procedural Intelligence &amp;<br />
-        Failure Detection For Agents.
-      </h1>
+      <HeroHeadline line1="Procedural Intelligence &" line2="Failure Detection For Agents." />
 
       <p className="m-hero-subtitle">
         Tervik records every turn, evaluates failure signals with transparent rules, and synthesizes clusters with evidence. Fewer turns, zero blind spots, and continuous improvement.
@@ -1152,7 +1186,7 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
     {/* Section Divider */}
     <div className="m-divider" />
 
-    {/* How It Works (4 Layers) */}
+    {/* How It Works (4 Layers Isometric Motion) */}
     <section id="how-it-works" className="m-section">
       <div className="m-section-header">
         <span className="m-section-eyebrow">FOUR DETERMINISTIC LAYERS</span>
@@ -1162,67 +1196,7 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
         </p>
       </div>
 
-      <div className="m-layers-grid">
-        <div className="m-layer-card m-layer-1">
-          <div className="m-layer-header">
-            <span className="m-layer-pill">LAYER 1</span>
-            <span className="m-layer-name">Traces &amp; Telemetry</span>
-          </div>
-          <h3>The raw record of an agent run</h3>
-          <p>
-            Prompts, assistant turns, tool executions, latency, and cost captured seamlessly via skill or SDK without altering agent architectures.
-          </p>
-          <div className="m-layer-spec">
-            <span>Non-blocking async flush</span>
-            <span>Zero telemetry drops</span>
-          </div>
-        </div>
-
-        <div className="m-layer-card m-layer-2">
-          <div className="m-layer-header">
-            <span className="m-layer-pill">LAYER 2</span>
-            <span className="m-layer-name">Signal &amp; Failure Detection</span>
-          </div>
-          <h3>Deterministic triage on every turn</h3>
-          <p>
-            Deterministic triage rules catch tool exceptions, customer corrections, repetition loops, and forbidden phrase violations in real time.
-          </p>
-          <div className="m-layer-spec">
-            <span>No flaky judge models</span>
-            <span>Transparent regex rules</span>
-          </div>
-        </div>
-
-        <div className="m-layer-card m-layer-3">
-          <div className="m-layer-header">
-            <span className="m-layer-pill">LAYER 3</span>
-            <span className="m-layer-name">Cluster Synthesis</span>
-          </div>
-          <h3>Connect patterns across sessions</h3>
-          <p>
-            Recurring failure signals group automatically into clusters. Every cluster cites exact excerpts, affected user counts, and share percentages.
-          </p>
-          <div className="m-layer-spec">
-            <span>Evidence cited for every issue</span>
-            <span>Prioritized by severity</span>
-          </div>
-        </div>
-
-        <div className="m-layer-card m-layer-4">
-          <div className="m-layer-header">
-            <span className="m-layer-pill">LAYER 4</span>
-            <span className="m-layer-name">Evaluation &amp; Replay</span>
-          </div>
-          <h3>Verify fixes before deployment</h3>
-          <p>
-            Turn production findings into replay evaluation datasets. Compare baseline vs candidate agent descriptors across edge cases before pushing code.
-          </p>
-          <div className="m-layer-spec">
-            <span>Regression prevention</span>
-            <span>Reproducibility scoring</span>
-          </div>
-        </div>
-      </div>
+      <IsometricArchitecture />
     </section>
 
     {/* Section Divider */}
@@ -1236,105 +1210,9 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
         <p className="m-section-subtitle">
           Connect your agent in two minutes. Start seeing signals on your very next turn.
         </p>
-
-        <div className="m-steps-tabs">
-          <button className={`m-step-tab ${activeStep === 'install' ? 'active' : ''}`} onClick={() => setActiveStep('install')}>
-            <span className="m-step-tab-num">01</span>
-            <span>Install</span>
-          </button>
-          <button className={`m-step-tab ${activeStep === 'prompt' ? 'active' : ''}`} onClick={() => setActiveStep('prompt')}>
-            <span className="m-step-tab-num">02</span>
-            <span>Run Prompt</span>
-          </button>
-          <button className={`m-step-tab ${activeStep === 'observe' ? 'active' : ''}`} onClick={() => setActiveStep('observe')}>
-            <span className="m-step-tab-num">03</span>
-            <span>Observe</span>
-          </button>
-        </div>
       </div>
 
-      <div className="m-steps-display">
-        <div className="m-steps-terminal">
-          <div className="m-terminal-top">
-            <div className="m-window-dots">
-              <span className="m-dot m-dot-red" />
-              <span className="m-dot m-dot-yellow" />
-              <span className="m-dot m-dot-green" />
-            </div>
-            <span className="m-terminal-title">bash — 80x24</span>
-            <CopyButton
-              text={activeStep === 'install' ? INSTALL_COMMAND : activeStep === 'prompt' ? INSTALL_PROMPT : 'npm run dev'}
-              compact
-            />
-          </div>
-
-          <div className="m-terminal-content">
-            {activeStep === 'install' && <>
-              <div className="m-term-line"><span className="m-term-prompt">$</span> {INSTALL_COMMAND}</div>
-              <div className="m-term-out text-zinc-400">Fetching skill definition from dhanvin-ai/tervik...</div>
-              <div className="m-term-out text-emerald-400">✔ Added skill &quot;tervik&quot; to current workspace</div>
-              <div className="m-term-out text-zinc-500">Skill location: .agents/skills/tervik/SKILL.md</div>
-              <div className="m-term-out text-zinc-400">Telemetry endpoints registered. Ready for agent execution.</div>
-            </>}
-
-            {activeStep === 'prompt' && <>
-              <div className="m-term-line"><span className="m-term-prompt">&gt;</span> {INSTALL_PROMPT}</div>
-              <div className="m-term-out text-zinc-400">Agent reading skill instructions from .agents/skills/tervik/SKILL.md...</div>
-              <div className="m-term-out text-zinc-400">Inspecting application routes and agent runner setup...</div>
-              <div className="m-term-out text-emerald-400">✔ Added @tervik/sdk integration hook</div>
-              <div className="m-term-out text-emerald-400">✔ Wired conversation error and tool telemetry captures</div>
-              <div className="m-term-out text-zinc-500">Integration completed with 0 compile errors.</div>
-            </>}
-
-            {activeStep === 'observe' && <>
-              <div className="m-term-line"><span className="m-term-prompt">$</span> node scripts/dev.mjs</div>
-              <div className="m-term-out text-zinc-400">Starting Tervik ingestion API on http://127.0.0.1:8000...</div>
-              <div className="m-term-out text-zinc-400">Launching web dashboard on http://127.0.0.1:5173...</div>
-              <div className="m-term-out text-emerald-400">✔ Connected to project: Sample workspace</div>
-              <div className="m-term-out text-white font-medium">56 conversations indexed · 3 failure clusters detected</div>
-              <div className="m-term-out text-zinc-500">Ready to triage and evaluate incoming events.</div>
-            </>}
-          </div>
-        </div>
-
-        <div className="m-steps-info">
-          {activeStep === 'install' && <>
-            <span className="m-info-step-label">STEP 01</span>
-            <h3>Add the skill in one command</h3>
-            <p>
-              Installs Tervik’s standardized integration instructions into your agent workspace. Compatible with Claude Code, Cursor, OpenCode, Codex, and Devin.
-            </p>
-            <div className="m-info-check">
-              <Check size={16} />
-              <span>Zero external credentials required for local mode</span>
-            </div>
-          </>}
-
-          {activeStep === 'prompt' && <>
-            <span className="m-info-step-label">STEP 02</span>
-            <h3>Prompt your agent to implement it</h3>
-            <p>
-              Your agent reads the instructions and wires conversation capture directly into your application’s existing tool and chat handlers.
-            </p>
-            <div className="m-info-check">
-              <Check size={16} />
-              <span>Full control over every code diff your agent makes</span>
-            </div>
-          </>}
-
-          {activeStep === 'observe' && <>
-            <span className="m-info-step-label">STEP 03</span>
-            <h3>Inspect evidence and failure clusters</h3>
-            <p>
-              Every conversation flows into Tervik. Friction is grouped, tool failures cite exact payloads, and candidates can be replayed safely.
-            </p>
-            <div className="m-info-check">
-              <Check size={16} />
-              <span>Interactive trace explorer and cluster management</span>
-            </div>
-          </>}
-        </div>
-      </div>
+      <SetupStepMotion onCopy={copyHeroCmd} copied={copiedCmd} />
     </section>
 
     {/* Section Divider */}
@@ -1350,43 +1228,7 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
         </p>
       </div>
 
-      <div className="m-bento-grid">
-        <div className="m-bento-card">
-          <div className="m-bento-icon"><Zap size={20} /></div>
-          <h3>Sub-2ms Ingestion</h3>
-          <p>Non-blocking asynchronous event batching. Zero latency added to agent generation loops or tool executions.</p>
-        </div>
-
-        <div className="m-bento-card">
-          <div className="m-bento-icon"><ShieldCheck size={20} /></div>
-          <h3>Deterministic Guardrails</h3>
-          <p>No fuzzy judge models that hallucinate. Transparent regex patterns, required tools, and failure thresholds.</p>
-        </div>
-
-        <div className="m-bento-card">
-          <div className="m-bento-icon"><MessageSquare size={20} /></div>
-          <h3>Evidence-Backed Clusters</h3>
-          <p>Every cluster cites exact conversation excerpts, user IDs, and timestamps. Never guess why an agent stumbled.</p>
-        </div>
-
-        <div className="m-bento-card">
-          <div className="m-bento-icon"><Layers3 size={20} /></div>
-          <h3>Local &amp; Self-Hosted</h3>
-          <p>Runs locally or self-hosted with SQLite or PostgreSQL. Your customer conversations never leave your infrastructure.</p>
-        </div>
-
-        <div className="m-bento-card">
-          <div className="m-bento-icon"><GitBranch size={20} /></div>
-          <h3>Candidate Replay Evals</h3>
-          <p>Evaluate prompt or tool adjustments across historical production failures before deploying changes to live users.</p>
-        </div>
-
-        <div className="m-bento-card">
-          <div className="m-bento-icon"><Code2 size={20} /></div>
-          <h3>Universal Compatibility</h3>
-          <p>Drop-in skill and TypeScript SDK. Works with Claude Code, Cursor, OpenCode, Codex, Devin, and custom frameworks.</p>
-        </div>
-      </div>
+      <FeaturesMotionGrid />
     </section>
 
     {/* Section Divider */}
@@ -1402,38 +1244,7 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
         </p>
       </div>
 
-      <div className="m-stats-row">
-        <div className="m-stat-card">
-          <strong className="m-stat-number">100%</strong>
-          <span className="m-stat-label">Evidence-Backed Triage</span>
-          <p>Every cluster cites real messages and tool payloads. Zero ungrounded summaries.</p>
-        </div>
-
-        <div className="m-stat-card">
-          <strong className="m-stat-number">98%</strong>
-          <span className="m-stat-label">Faster Diagnosis</span>
-          <p>Zero manual log scouring across distributed agent workers and nested spans.</p>
-        </div>
-
-        <div className="m-stat-card">
-          <strong className="m-stat-number">40%</strong>
-          <span className="m-stat-label">Fewer Repeated Errors</span>
-          <p>Catch recurring failure loops and prompt regressions before they affect users.</p>
-        </div>
-      </div>
-
-      <div className="m-quote-card">
-        <blockquote>
-          &quot;Tervik gave our coding agent the visibility it was missing. Within 10 minutes we found two repeated tool error loops that were silently frustrating users.&quot;
-        </blockquote>
-        <div className="m-quote-author">
-          <span className="user-avatar">A</span>
-          <div>
-            <strong>Autonomous Agent Infrastructure Team</strong>
-            <small>Production agent deployment · 100k+ monthly runs</small>
-          </div>
-        </div>
-      </div>
+      <SocialProofMotion />
     </section>
 
     {/* Section Divider */}

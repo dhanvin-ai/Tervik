@@ -1764,43 +1764,88 @@ body:has(.m-page) { min-width: 320px; }
 }
 .m-hero-followup {
   max-width: 1144px;
-  margin: 88px auto 0;
+  margin: 72px auto 0;
   padding: 0 32px;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 
-.m-hero-partners {
+/* Works-with logo marquee: official marks and wordmarks, full bleed with faded edges. */
+.m-works-with {
+  --logo-scale: 1;
+  padding: 80px 0 8px;
+  text-align: center;
+}
+.m-works-caption {
+  margin: 0 0 44px;
+  padding: 0 24px;
+  color: #8f8f8f;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: -0.005em;
+  text-wrap: balance;
+}
+.m-works-marquee {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+}
+.m-works-track {
+  display: flex;
+  width: max-content;
+  animation: worksMarquee 64s linear infinite;
+  will-change: transform;
+}
+.m-works-marquee:hover .m-works-track { animation-play-state: paused; }
+@keyframes worksMarquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.m-works-list {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 16px;
-  margin-top: 4px;
-  margin-bottom: 40px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  flex-wrap: wrap;
+  gap: 80px;
+  margin: 0;
+  padding: 0 80px 0 0;
+  list-style: none;
 }
-.m-partners-label {
-  color: #52525b;
-  letter-spacing: 0.12em;
-  font-size: 10px;
-  text-transform: uppercase;
-  font-weight: 450;
-}
-.m-partners-list {
+.m-works-logo {
   display: flex;
+  flex: none;
   align-items: center;
-  justify-content: center;
-  gap: 16px;
-  color: #71717a;
-  flex-wrap: wrap;
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  gap: 10px;
+  height: 40px;
+  color: rgba(255, 255, 255, 0.6);
+  transition: color .2s ease;
 }
-.m-partners-list span { transition: color .15s; }
-.m-partners-list span:hover { color: #ffffff; }
+.m-works-logo:hover { color: #fff; }
+.m-works-icon, .m-works-wordmark {
+  display: block;
+  flex: none;
+  width: auto;
+  height: calc(var(--h) * var(--logo-scale));
+}
+.m-works-name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (max-width: 780px) {
+  .m-works-with { --logo-scale: 0.82; padding-top: 64px; }
+  .m-works-caption { margin-bottom: 32px; font-size: 14px; }
+  .m-works-list { gap: 52px; padding-right: 52px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .m-works-marquee { -webkit-mask-image: none; mask-image: none; }
+  .m-works-track { width: auto; justify-content: center; animation: none !important; }
+  .m-works-list { flex-wrap: wrap; justify-content: center; row-gap: 24px; padding: 0 24px; }
+  .m-works-list[aria-hidden="true"], .m-works-logo.is-repeat { display: none; }
+}
 
 /* Hero Screen Card */
 .m-screen-container {

@@ -15,6 +15,7 @@ import { IsometricArchitecture } from './components/IsometricArchitecture';
 import { SetupStepMotion } from './components/SetupStepMotion';
 import { FeaturesMotionGrid } from './components/FeaturesMotionGrid';
 import { SocialProofMotion } from './components/SocialProofMotion';
+import { WorksWithMarquee } from './components/WorksWithMarquee';
 import { useScrollProgress, usePrefersReducedMotion } from './hooks/useMotion';
 import type { AlertRule, BehaviorRule, Cluster, ClusterDetail, Conversation, ConversationDetail, Delivery, Discovery, DiscoveryIntent, EvalDataset, EvalRun, Improvement, Overview, Page, Project, Range, SetupStatus } from './types';
 
@@ -1163,20 +1164,9 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
       </div>
     </section>
 
-    <section className="m-hero-followup" aria-label="Compatible agents and interactive preview">
-      <div className="m-hero-partners">
-        <span className="m-partners-label">WORKS WITH</span>
-        <div className="m-partners-list">
-          <span>Claude Code</span>
-          <span>Cursor</span>
-          <span>OpenCode</span>
-          <span>Codex</span>
-          <span>Devin</span>
-          <span>Antigravity</span>
-          <span>LangChain</span>
-        </div>
-      </div>
+    <WorksWithMarquee />
 
+    <section className="m-hero-followup" aria-label="Interactive preview">
       {/* Interactive preview below the first viewport */}
       <AgentExecutionSimulator onStart={onStart} />
     </section>

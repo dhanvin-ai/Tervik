@@ -23,7 +23,7 @@ const INSTALL_COMMAND = 'npx skills add dhanvin-ai/tervik --skill tervik';
 const INSTALL_PROMPT = 'Use the tervik skill to add Tervik analytics to this agent.';
 const rangeLabels: Record<Range, string> = { '24h': 'Last 24 hours', '7d': 'Last 7 days', '30d': 'Last 30 days' };
 const titles: Record<Page, string> = {
-  overview: 'Overview', failures: 'Failure clusters', discovery: 'Discovery',
+  overview: 'Overview', failures: 'Problems', discovery: 'Topics',
   conversations: 'Conversations',
   integration: 'Connect your agent', welcome: 'Welcome',
 };
@@ -44,6 +44,18 @@ function dateTime(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
+// Plain-language explanations for each problem kind, used instead of the API's technical descriptions.
+const PLAIN_PROBLEMS: Record<string, string> = {
+  tool_error: 'A tool your agent called returned an error.',
+  tool_timeout: 'A tool your agent called took too long and gave up.',
+  frustration: 'People wrote that they were frustrated or annoyed.',
+  correction: 'People told the agent it got something wrong.',
+  repetition: 'People had to ask the same thing more than once.',
+  unresolved: 'People said their issue still was not solved.',
+  unsupported_claim: 'The agent said it did something, but no tool actually did it.',
+  rule_violation: 'A reply broke one of the rules you set.',
+};
+function plainProblem(kind: string, fallback: string) { return PLAIN_PROBLEMS[kind] || fallback; }
 function friendlyKind(value: string) { return value.replaceAll('_', ' ').replace(/^./, c => c.toUpperCase()); }
 function shortId(value: string) { return value.length > 20 ? `${value.slice(0, 9)}…${value.slice(-5)}` : value; }
 
@@ -97,7 +109,7 @@ function EmptyState({ icon: Icon = MessageSquare, title, description, children }
   return <div className="empty-state"><span className="empty-icon"><Icon size={25} strokeWidth={1.5} /></span><h3>{title}</h3><p>{description}</p>{children && <div className="empty-actions">{children}</div>}</div>;
 }
 function Status({ status }: { status: string }) {
-  return <span className={`status status-${status}`}><span />{status === 'healthy' ? 'Healthy' : status === 'flagged' ? 'Flagged' : friendlyKind(status)}</span>;
+  return <span className={`status status-${status}`}><span />{status === 'healthy' ? 'Looks fine' : status === 'flagged' ? 'Needs review' : friendlyKind(status)}</span>;
 }
 function Severity({ severity }: { severity: string }) {
   return <span className={`severity severity-${severity}`}><span />{friendlyKind(severity)}</span>;
@@ -163,14 +175,14 @@ function TrendChart({ trend, range }: { trend: Overview['trend']; range: Range }
         <rect x={left + band * index} y={top} width={band} height={height - top - bottom} fill="transparent" />
       </g>)}
     </svg>
-    {point && active !== null && <div className="chart-tooltip" style={{ left: `${Math.max(12, Math.min(88, (x(active) + barWidth / 2) / width * 100))}%` }}><strong>{dateLabel(point.date, true)}</strong><span><i className="legend-dot purple" />{formatNumber(point.conversations)} conversations</span><span><i className="legend-dot peach" />{formatNumber(point.failures)} flagged</span></div>}
+    {point && active !== null && <div className="chart-tooltip" style={{ left: `${Math.max(12, Math.min(88, (x(active) + barWidth / 2) / width * 100))}%` }}><strong>{dateLabel(point.date, true)}</strong><span><i className="legend-dot purple" />{formatNumber(point.conversations)} conversations</span><span><i className="legend-dot peach" />{formatNumber(point.failures)} with a problem</span></div>}
   </div>;
 }
 
 function ClusterRow({ cluster, onClick, compact = false }: { cluster: Cluster; onClick: () => void; compact?: boolean }) {
   return <button className={`cluster-row ${compact ? 'cluster-row-compact' : ''}`} onClick={onClick}>
     <span className={`cluster-icon kind-${cluster.kind}`}><TriangleAlert size={17} /></span>
-    <span className="cluster-summary"><strong>{cluster.title}</strong><span>{compact ? `${formatNumber(cluster.affected_users)} affected users · ${friendlyKind(cluster.kind)}` : cluster.description}</span></span>
+    <span className="cluster-summary"><strong>{cluster.title}</strong><span>{compact ? `${formatNumber(cluster.affected_users)} people affected · ${friendlyKind(cluster.kind)}` : plainProblem(cluster.kind, cluster.description)}</span></span>
     <span className="cluster-severity"><Severity severity={cluster.severity} /></span>
     <span className="cluster-count"><strong>{formatNumber(cluster.count)}</strong><small>conversations</small></span>
     {!compact && <span className="cluster-share"><span className="dash-meter" style={{ '--fill': `${Math.min(100, cluster.share)}%` } as CSSProperties} /><em>{cluster.share.toFixed(1)}%</em></span>}
@@ -199,28 +211,101 @@ function ConversationRow({ conversation, onClick, compact = false }: { conversat
   </button>;
 }
 
+const GUIDE_HIDDEN_KEY = 'tervik_first_run_guide_hidden';
+
+/** Three plain steps for first-time visitors. Hidden for good once dismissed. */
+function FirstRunGuide({ isDemo, onGuide, onPage }: { isDemo: boolean; onGuide: () => void; onPage: (page: Page) => void }) {
+  const [hidden, setHidden] = useState(() => { try { return localStorage.getItem(GUIDE_HIDDEN_KEY) === '1'; } catch { return false; } });
+  if (hidden) return null;
+  const dismiss = () => { setHidden(true); try { localStorage.setItem(GUIDE_HIDDEN_KEY, '1'); } catch { /* Hiding still works for this visit. */ } };
+  const steps: { icon: PixelIconName; title: string; text: string; action?: ReactNode }[] = [
+    { icon: 'overview', title: 'Check the big number', text: 'It is the share of conversations where something went wrong in the time range you picked.' },
+    { icon: 'detect', title: 'See what went wrong', text: 'Problems groups similar issues together and shows the real messages behind each one.', action: <button className="text-button" onClick={() => onPage('failures')}>Open Problems<ArrowRight size={13} /></button> },
+    { icon: 'replay', title: 'Fix it, then check again', text: 'Change your agent and come back later. A lower number means the fix worked.' },
+  ];
+  return <section className="dash-guide" aria-label="How to read this dashboard">
+    <div className="dash-guide-head">
+      <span className="dash-eyebrow">New here? Read the dashboard in three steps</span>
+      <button className="text-button" onClick={dismiss} aria-label="Hide this guide">Got it, hide this<X size={13} /></button>
+    </div>
+    <ol className="dash-guide-steps">
+      {steps.map((step, index) => <li key={step.title}>
+        <span className="dash-guide-num">0{index + 1}</span>
+        <span className="dash-guide-icon"><PixelIcon name={step.icon} size={3} /></span>
+        <strong>{step.title}</strong>
+        <p>{step.text}</p>
+        {step.action}
+      </li>)}
+    </ol>
+    <div className="dash-guide-foot">
+      {isDemo ? <span>You are looking at sample data. <a href="#integration">Connect your agent</a> to see your own conversations.</span> : <span>Numbers update as your agent has new conversations.</span>}
+      <button className="text-button" onClick={onGuide}>What do these words mean?<ArrowRight size={13} /></button>
+    </div>
+  </section>;
+}
+
+const GLOSSARY: [string, string][] = [
+  ['Conversation', 'One chat between a person and your agent, from the first message to the last.'],
+  ['Problem', 'Something that went wrong in a conversation: a tool error, a user correcting the agent, a repeated question, or the agent claiming it did something it did not.'],
+  ['Problem type', 'Similar problems grouped together, so you can fix the cause once instead of chasing single chats.'],
+  ['Needs review / Looks fine', 'A conversation needs review when at least one problem was found in it. Otherwise it looks fine.'],
+  ['How serious', 'High problems usually stop the user from getting what they wanted. Medium ones slow them down.'],
+  ['Real examples', 'The exact messages that showed a problem, so you can judge it yourself before changing anything.'],
+  ['Topic', 'A group of conversations about the same thing, found automatically from what people write.'],
+  ['Response time', 'How long your agent took to reply, averaged across conversations.'],
+  ['Sample data', 'Example conversations for exploring. Connect your agent to replace them with your own.'],
+];
+
+function GuideModal({ onClose, onPage }: { onClose: () => void; onPage: (page: Page) => void }) {
+  return <Modal title="Quick guide" onClose={onClose} wide>
+    <div className="modal-body dash-glossary">
+      <h2>How Tervik works, in plain words.<span>Your agent sends each conversation here. Tervik checks it with simple rules, marks what went wrong, and groups similar problems so you know what to fix first.</span></h2>
+      <dl>{GLOSSARY.map(([term, meaning]) => <div key={term}><dt>{term}</dt><dd>{meaning}</dd></div>)}</dl>
+      <div className="modal-actions"><button className="button button-secondary" onClick={() => { onClose(); onPage('integration'); }}>Connect your agent</button><button className="button button-primary" onClick={() => { onClose(); onPage('failures'); }}>See the problems<ArrowRight size={14} /></button></div>
+    </div>
+  </Modal>;
+}
+
+/** Optional tools, collapsed so the main view stays simple. */
+function AdvancedTools({ tools }: { tools: { id: string; title: string; text: string; render: () => ReactNode }[] }) {
+  const [open, setOpen] = useState<string | null>(null);
+  return <section className="dash-advanced">
+    <div className="dash-advanced-head"><h2>Advanced tools<span>Optional. Use these once you are comfortable with the basics.</span></h2></div>
+    {tools.map(tool => {
+      const isOpen = open === tool.id;
+      return <div key={tool.id} className={`dash-advanced-item ${isOpen ? 'is-open' : ''}`}>
+        <button className="dash-advanced-toggle" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : tool.id)}>
+          <span><strong>{tool.title}</strong><small>{tool.text}</small></span>
+          <ChevronDown size={16} />
+        </button>
+        {isOpen && <div className="dash-advanced-body">{tool.render()}</div>}
+      </div>;
+    })}
+  </section>;
+}
+
 function OverviewHero({ data, range, onPage }: { data: Overview; range: Range; onPage: (page: Page) => void }) {
   const metrics = data.metrics;
   const flagged = Math.round(metrics.conversations * metrics.failure_rate / 100);
   const recentLatency = [...data.recent_conversations].reverse().map(conversation => conversation.latency_ms);
   const stats: { icon: PixelIconName; label: string; value: string; detail: string; caption: string; page: Page; graph: ReactNode }[] = [
-    { icon: 'ingest', label: 'Conversations', value: formatNumber(metrics.conversations), detail: `${formatNumber(metrics.messages)} messages received`, caption: 'per day', page: 'conversations',
+    { icon: 'ingest', label: 'Conversations', value: formatNumber(metrics.conversations), detail: 'chats with your agent', caption: 'per day', page: 'conversations',
       graph: <SparkBars values={data.trend.map(day => day.conversations)} label="Conversations per day" /> },
-    { icon: 'trace', label: 'Average latency', value: latency(metrics.avg_latency_ms), detail: `${money(metrics.cost_usd)} reported cost`, caption: `last ${recentLatency.length} conversations`, page: 'conversations',
+    { icon: 'trace', label: 'Response time', value: latency(metrics.avg_latency_ms), detail: 'average time to reply', caption: `last ${recentLatency.length} conversations`, page: 'conversations',
       graph: <SparkLine values={recentLatency} label="Latency of recent conversations" /> },
-    { icon: 'detect', label: 'Affected users', value: formatNumber(metrics.affected_users), detail: 'with a flagged conversation', caption: 'flagged per day', page: 'failures',
+    { icon: 'detect', label: 'People affected', value: formatNumber(metrics.affected_users), detail: 'had at least one problem', caption: 'problems per day', page: 'failures',
       graph: <SparkBars values={data.trend.map(day => day.failures)} tone="red" label="Flagged conversations per day" /> },
-    { icon: 'cluster', label: 'Failure clusters', value: formatNumber(data.top_clusters.length), detail: 'grouped by cause', caption: 'share by cluster', page: 'failures',
+    { icon: 'cluster', label: 'Problem types', value: formatNumber(data.top_clusters.length), detail: 'different causes found', caption: 'share of each type', page: 'failures',
       graph: <ShareStrip parts={data.top_clusters.map(cluster => ({ key: cluster.id, value: cluster.count, tone: cluster.severity as 'high' }))} label="Conversations by failure cluster" /> },
   ];
   return <>
     <section className="dash-hero">
       <DitherCanvas vignette={0.4} intensity={0.9} seed={11} />
       <div className="dash-hero-copy">
-        <span className="dash-eyebrow">Flagged conversations · {rangeLabels[range].toLowerCase()}</span>
+        <span className="dash-eyebrow">Conversations with a problem · {rangeLabels[range].toLowerCase()}</span>
         <h2 className="dash-hero-number"><DitherText text={`${metrics.failure_rate.toFixed(1)}%`} maxSize={148} align="left" /></h2>
-        <p>{formatNumber(flagged)} of {formatNumber(metrics.conversations)} conversations carried at least one failure signal.</p>
-        <button className="lp-btn" onClick={() => onPage('failures')}>Review failure clusters<ArrowRight size={15} /></button>
+        <p>{formatNumber(flagged)} of {formatNumber(metrics.conversations)} conversations had something go wrong, such as a tool error, a confused user, or a repeated question.</p>
+        <button className="lp-btn" onClick={() => onPage('failures')}>See what went wrong<ArrowRight size={15} /></button>
       </div>
       <RateChart trend={data.trend} />
     </section>
@@ -236,10 +321,10 @@ function OverviewHero({ data, range, onPage }: { data: Overview; range: Range; o
   </>;
 }
 
-function OverviewPage({ data, loading, error, retry, range, onPage, onCluster, onConversation, onDemo, demoBusy }: {
+function OverviewPage({ data, loading, error, retry, range, onPage, onCluster, onConversation, onDemo, demoBusy, onGuide }: {
   data: Overview | null; loading: boolean; error: string; retry: () => void; range: Range;
   onPage: (page: Page) => void; onCluster: (id: string) => void; onConversation: (id: string) => void;
-  onDemo: () => void; demoBusy: boolean;
+  onDemo: () => void; demoBusy: boolean; onGuide: () => void;
 }) {
   if (loading) return <div className="overview-skeleton"><div className="skeleton-grid">{[0, 1, 2, 3].map(i => <div key={i} className="skeleton skeleton-card" />)}</div><div className="skeleton skeleton-chart" /><div className="skeleton skeleton-chart" /></div>;
   if (error) return <ErrorState message={error} onRetry={retry} />;
@@ -250,13 +335,14 @@ function OverviewPage({ data, loading, error, retry, range, onPage, onCluster, o
     <button className="button button-secondary" disabled={demoBusy} onClick={onDemo}>{demoBusy ? <LoaderCircle size={15} className="spin" /> : <Layers3 size={16} />}Explore sample workspace</button>
   </EmptyState></div><div className="getting-started-cards"><GuideCard icon={MessageSquare} title="Follow every conversation" text="See the messages, tool calls, latency, and cost in one place." /><GuideCard icon={TriangleAlert} title="Find the friction" text="Group corrections, repeated requests, frustration, and tool errors." /><GuideCard icon={GitBranch} title="Review the next step" text="Investigate the evidence and turn it into a fix you can validate." /></div></div>;
   return <>
+    <FirstRunGuide isDemo={data.project.is_demo} onGuide={onGuide} onPage={onPage} />
     <OverviewHero data={data} range={range} onPage={onPage} />
-    <section className="panel activity-panel"><div className="panel-heading"><div><h2>Conversation activity</h2><p>Each column is one period. Red dots are flagged conversations.</p></div><div className="chart-legend"><span><i className="legend-dot purple" />Conversations</span><span><i className="legend-dot peach" />Flagged</span></div></div><TrendChart trend={data.trend} range={range} />
+    <section className="panel activity-panel"><div className="panel-heading"><div><h2>Conversations over time</h2><p>Gray dots are all conversations. Red dots are the ones with a problem.</p></div><div className="chart-legend"><span><i className="legend-dot purple" />Conversations</span><span><i className="legend-dot peach" />With a problem</span></div></div><TrendChart trend={data.trend} range={range} />
       <div className="chart-footer"><span><span className="pulse-dot" />{rangeLabels[range]}</span><span>Based on received events</span></div>
     </section>
-    <div className="overview-lower"><section className="panel cluster-panel"><div className="panel-heading"><div className="heading-with-count"><h2>What needs attention</h2><span className="count-badge">{data.top_clusters.length}</span></div><button className="text-button" onClick={() => onPage('failures')}>View all<ArrowRight size={14} /></button></div>
+    <div className="overview-lower"><section className="panel cluster-panel"><div className="panel-heading"><div className="heading-with-count"><h2>Start here: biggest problems</h2><span className="count-badge">{data.top_clusters.length}</span></div><button className="text-button" onClick={() => onPage('failures')}>View all<ArrowRight size={14} /></button></div>
       {data.top_clusters.length ? <div>{data.top_clusters.slice(0, 5).map(cluster => <ClusterRow key={cluster.id} cluster={cluster} compact onClick={() => onCluster(cluster.id)} />)}</div> : <EmptyState icon={CheckCheck} title="No signals in this period" description="Received conversations haven’t matched the current triage rules." />}
-      <div className="panel-note"><CircleHelp size={14} />Clusters use rule-based signals. Review the evidence before acting.</div>
+      <div className="panel-note"><CircleHelp size={14} />Problems are found by simple rules. Check the examples before changing your agent.</div>
     </section><section className="panel recent-panel"><div className="panel-heading"><h2>Recent conversations</h2><button className="text-button" onClick={() => onPage('conversations')}>View all<ArrowRight size={14} /></button></div>
       {data.recent_conversations.length ? data.recent_conversations.slice(0, 5).map(conversation => <ConversationRow key={conversation.id} conversation={conversation} compact onClick={() => onConversation(conversation.id)} />) : <EmptyState title="No recent conversations" description="New conversations will appear here." />}
     </section></div>
@@ -315,11 +401,11 @@ function AlertsPanel({ projectId, refresh }: { projectId: string; refresh: numbe
     setBusy(true); setError('');
     try { await work(); rules.retry(); deliveries.retry(); } catch (cause) { setError((cause as Error).message); } finally { setBusy(false); }
   };
-  return <section className="panel"><div className="panel-heading"><div><h2>Alerts</h2><p>Threshold, trend, and daily-summary rules. A qualifying finding sends once per cooldown window.</p></div><button className="button button-secondary" disabled={busy} onClick={() => act(() => request(`/api/projects/${encodeURIComponent(projectId)}/alerts/evaluate`, { method: 'POST' }))}>Evaluate now</button></div>
+  return <section className="panel"><div className="panel-heading"><div><h2>Alerts</h2><p>Threshold, trend, and daily-summary rules. A qualifying finding sends once per cooldown window.</p></div><button className="button button-secondary" disabled={busy} onClick={() => act(() => request(`/api/projects/${encodeURIComponent(projectId)}/alerts/evaluate`, { method: 'POST' }))}>Check alerts now</button></div>
     {error && <p className="inline-error">{error}</p>}
     {rules.loading ? <Loading label="Loading alerts" /> : rules.error ? <ErrorState message={rules.error} onRetry={rules.retry} /> :
-      <div>{rules.data?.length ? rules.data.map(rule => <div key={rule.id} className="related-conversation"><TriangleAlert size={15} /><span><strong>{rule.name}</strong><small>{rule.kind}{rule.signal_kind ? ` · ${rule.signal_kind}` : ''} · threshold {rule.threshold} · {rule.window_hours}h window · {rule.state}{rule.enabled ? '' : ' · disabled'}</small></span><button className="text-button" onClick={() => act(() => request(`/api/alerts/${encodeURIComponent(rule.id)}`, { method: 'PATCH', body: JSON.stringify({ enabled: !rule.enabled }) }))}>{rule.enabled ? 'Disable' : 'Enable'}</button><button className="text-button" onClick={() => act(() => request(`/api/alerts/${encodeURIComponent(rule.id)}`, { method: 'DELETE' }))}>Delete</button></div>) : <p className="muted">No alert rules yet. Add one to get notified when failures spike.</p>}</div>}
-    <form className="modal-body" onSubmit={event => { event.preventDefault(); if (!name.trim() || !target.trim()) return; act(() => request(`/api/projects/${encodeURIComponent(projectId)}/alerts`, { method: 'POST', body: JSON.stringify({ name: name.trim(), kind, signal_kind: signalKind.trim() || null, threshold: Number(threshold) || 1, channels: [{ type: channelType, target: target.trim() }] }) })).then(() => { setName(''); setSignalKind(''); setTarget(''); }); }}><label className="field-label" htmlFor="alert-name">Rule name</label><input id="alert-name" className="text-field" value={name} onChange={event => setName(event.target.value)} required maxLength={120} placeholder="e.g. Frustration spike" /><div className="modal-actions" style={{ justifyContent: 'flex-start', gap: 8 }}><select aria-label="Alert kind" className="text-field" value={kind} onChange={event => setKind(event.target.value as typeof kind)}><option value="threshold">Threshold</option><option value="trend">Trend</option><option value="summary">Daily summary</option></select><input aria-label="Signal kind (optional)" className="text-field" value={signalKind} onChange={event => setSignalKind(event.target.value)} placeholder="signal kind, e.g. frustration" /><input aria-label="Threshold" className="text-field" value={threshold} onChange={event => setThreshold(event.target.value)} inputMode="decimal" placeholder="5" /></div><label className="field-label" htmlFor="alert-target">{channelType === 'webhook' ? 'Slack-compatible webhook URL' : 'Email address'}</label><div className="modal-actions" style={{ justifyContent: 'flex-start', gap: 8 }}><select aria-label="Channel type" className="text-field" value={channelType} onChange={event => setChannelType(event.target.value as typeof channelType)}><option value="webhook">Webhook</option><option value="email">Email</option></select><input id="alert-target" className="text-field" value={target} onChange={event => setTarget(event.target.value)} required maxLength={500} placeholder={channelType === 'webhook' ? 'https://hooks.slack.com/...' : 'team@example.com'} /></div><div className="modal-actions"><button type="submit" className="button button-primary" disabled={busy}><Plus size={16} />Add alert</button></div></form>
+      <div>{rules.data?.length ? rules.data.map(rule => <div key={rule.id} className="related-conversation"><TriangleAlert size={15} /><span><strong>{rule.name}</strong><small>{rule.kind}{rule.signal_kind ? ` · ${rule.signal_kind}` : ''} · threshold {rule.threshold} · {rule.window_hours}h window · {rule.state}{rule.enabled ? '' : ' · disabled'}</small></span><button className="text-button" onClick={() => act(() => request(`/api/alerts/${encodeURIComponent(rule.id)}`, { method: 'PATCH', body: JSON.stringify({ enabled: !rule.enabled }) }))}>{rule.enabled ? 'Disable' : 'Enable'}</button><button className="text-button" onClick={() => act(() => request(`/api/alerts/${encodeURIComponent(rule.id)}`, { method: 'DELETE' }))}>Delete</button></div>) : <p className="muted">No alerts yet. Add one to get a message when problems spike.</p>}</div>}
+    <form className="modal-body" onSubmit={event => { event.preventDefault(); if (!name.trim() || !target.trim()) return; act(() => request(`/api/projects/${encodeURIComponent(projectId)}/alerts`, { method: 'POST', body: JSON.stringify({ name: name.trim(), kind, signal_kind: signalKind.trim() || null, threshold: Number(threshold) || 1, channels: [{ type: channelType, target: target.trim() }] }) })).then(() => { setName(''); setSignalKind(''); setTarget(''); }); }}><label className="field-label" htmlFor="alert-name">Rule name</label><input id="alert-name" className="text-field" value={name} onChange={event => setName(event.target.value)} required maxLength={120} placeholder="e.g. Frustration spike" /><div className="modal-actions" style={{ justifyContent: 'flex-start', gap: 8 }}><select aria-label="Alert kind" className="text-field" value={kind} onChange={event => setKind(event.target.value as typeof kind)}><option value="threshold">Threshold</option><option value="trend">Trend</option><option value="summary">Daily summary</option></select><input aria-label="Signal kind (optional)" className="text-field" value={signalKind} onChange={event => setSignalKind(event.target.value)} placeholder="problem type (optional), e.g. frustration" /><input aria-label="Threshold" className="text-field" value={threshold} onChange={event => setThreshold(event.target.value)} inputMode="decimal" placeholder="5" /></div><label className="field-label" htmlFor="alert-target">{channelType === 'webhook' ? 'Slack-compatible webhook URL' : 'Email address'}</label><div className="modal-actions" style={{ justifyContent: 'flex-start', gap: 8 }}><select aria-label="Channel type" className="text-field" value={channelType} onChange={event => setChannelType(event.target.value as typeof channelType)}><option value="webhook">Webhook</option><option value="email">Email</option></select><input id="alert-target" className="text-field" value={target} onChange={event => setTarget(event.target.value)} required maxLength={500} placeholder={channelType === 'webhook' ? 'https://hooks.slack.com/...' : 'team@example.com'} /></div><div className="modal-actions"><button type="submit" className="button button-primary" disabled={busy}><Plus size={16} />Add alert</button></div></form>
     <div className="detail-section"><div className="section-label"><Zap size={15} />Recent deliveries<span>{deliveries.data?.length || 0}</span></div>
       {deliveries.data?.map(delivery => <div key={delivery.id} className="related-conversation"><span className={`span-kind ${delivery.state === 'sent' ? '' : 'span-error'}`}>{delivery.state === 'sent' ? <Check size={15} /> : <TriangleAlert size={15} />}</span><span><strong>{delivery.title}</strong><small>{delivery.channel_type} · {delivery.attempts} attempts{delivery.error_code ? ` · ${delivery.error_code}` : ''} · {dateTime(delivery.created_at)}</small></span>{delivery.state !== 'sent' && <button className="text-button" onClick={() => act(() => request(`/api/deliveries/${encodeURIComponent(delivery.id)}/replay`, { method: 'POST' }))}>Retry</button>}</div>)}
     </div>
@@ -430,16 +516,18 @@ function FailuresPage({ projectId, range, refresh, onSelect }: { projectId: stri
   useEffect(() => { const timer = window.setTimeout(() => setDebounced(search), 250); return () => window.clearTimeout(timer); }, [search]);
   const resource = useResource<Cluster[]>(`/api/clusters${query({ project_id: projectId, range, search: debounced, status })}`, refresh);
   return <>
-    <div className="context-banner"><DitherCanvas className="banner-dither" vignette={0} intensity={0.6} seed={6} /><span className="context-icon"><PixelIcon name="detect" size={3} /></span><div><strong>Find the patterns behind the friction.</strong><span>Similar failure signals are grouped together, with the conversations that explain them.</span></div><span className="subtle-pill">Rule-based triage</span></div>
-    <section className="panel"><div className="list-toolbar"><div className="tab-switch" aria-label="Cluster status">{[['', 'All clusters'], ['open', 'Open'], ['resolved', 'Resolved']].map(([value, label]) => <button key={value} className={status === value ? 'active' : ''} onClick={() => setStatus(value)}>{label}</button>)}</div><label className="search-input"><Search size={16} /><input aria-label="Search failure clusters" placeholder="Search clusters..." value={search} onChange={event => setSearch(event.target.value)} />{search && <button aria-label="Clear search" onClick={() => setSearch('')}><X size={14} /></button>}</label></div>
-      <div className="cluster-table-head"><span>Failure pattern</span><span>Severity</span><span>Conversations</span><span>Share</span><span>Status</span><span /></div>
-      {resource.loading ? <Loading label="Finding patterns" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : resource.data?.length ? resource.data.map(cluster => <ClusterRow key={cluster.id} cluster={cluster} onClick={() => onSelect(cluster.id)} />) : <EmptyState icon={search ? Search : CheckCheck} title={search ? 'No matching clusters' : status === 'resolved' ? 'No resolved clusters yet' : 'No failure signals in this period'} description={search ? 'Try a different search or clear your filters.' : status === 'resolved' ? 'Clusters you mark as resolved will appear here.' : 'Choose another date range or send conversations from your agent.'} />}
-      <div className="list-footer"><span>{formatNumber(resource.data?.length || 0)} {resource.data?.length === 1 ? 'cluster' : 'clusters'}</span><span><ShieldCheck size={13} />Resolving a cluster records your review. It doesn’t change your agent.</span></div>
+    <div className="context-banner"><DitherCanvas className="banner-dither" vignette={0} intensity={0.6} seed={6} /><span className="context-icon"><PixelIcon name="detect" size={3} /></span><div><strong>Each row is one kind of problem.</strong><span>Open a row to see the real messages behind it and a suggested next step.</span></div><span className="subtle-pill">Found by rules</span></div>
+    <section className="panel"><div className="list-toolbar"><div className="tab-switch" aria-label="Cluster status">{[['', 'All'], ['open', 'Open'], ['resolved', 'Resolved']].map(([value, label]) => <button key={value} className={status === value ? 'active' : ''} onClick={() => setStatus(value)}>{label}</button>)}</div><label className="search-input"><Search size={16} /><input aria-label="Search problems" placeholder="Search problems..." value={search} onChange={event => setSearch(event.target.value)} />{search && <button aria-label="Clear search" onClick={() => setSearch('')}><X size={14} /></button>}</label></div>
+      <div className="cluster-table-head"><span>Problem</span><span>How serious</span><span>Conversations</span><span>Share</span><span>Status</span><span /></div>
+      {resource.loading ? <Loading label="Finding problems" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : resource.data?.length ? resource.data.map(cluster => <ClusterRow key={cluster.id} cluster={cluster} onClick={() => onSelect(cluster.id)} />) : <EmptyState icon={search ? Search : CheckCheck} title={search ? 'No matching problems' : status === 'resolved' ? 'Nothing resolved yet' : 'No problems found in this period'} description={search ? 'Try a different search or clear your filters.' : status === 'resolved' ? 'Problems you mark as resolved will appear here.' : 'Choose another date range or send conversations from your agent.'} />}
+      <div className="list-footer"><span>{formatNumber(resource.data?.length || 0)} {resource.data?.length === 1 ? 'problem type' : 'problem types'}</span><span><ShieldCheck size={13} />Marking a problem resolved only updates this list. Your agent isn’t changed.</span></div>
     </section>
-    <AlertsPanel projectId={projectId} refresh={refresh} />
-    <ImprovementsPanel projectId={projectId} refresh={refresh} />
-    <EvaluationsPanel projectId={projectId} refresh={refresh} />
-    <RulesManager projectId={projectId} refresh={refresh} />
+    <AdvancedTools tools={[
+      { id: 'alerts', title: 'Get alerts', text: 'Send a Slack or email message when problems spike.', render: () => <AlertsPanel projectId={projectId} refresh={refresh} /> },
+      { id: 'fixes', title: 'Fix a problem', text: 'Draft a prompt change from a problem, then approve it step by step.', render: () => <ImprovementsPanel projectId={projectId} refresh={refresh} /> },
+      { id: 'tests', title: 'Test a fix before shipping', text: 'Replay real problem conversations against a new version of your agent.', render: () => <EvaluationsPanel projectId={projectId} refresh={refresh} /> },
+      { id: 'rules', title: 'Add your own rules', text: 'Flag replies that use words you never want, or that skip a tool they must use.', render: () => <RulesManager projectId={projectId} refresh={refresh} /> },
+    ]} />
   </>;
 }
 
@@ -462,22 +550,24 @@ function DiscoveryPage({ projectId, range, refresh, onConversation }: { projectI
   };
   const toggle = (id: string) => setChecked(items => items.includes(id) ? items.filter(item => item !== id) : [...items, id]);
   return <>
-    <div className="context-banner"><DitherCanvas className="banner-dither" vignette={0} intensity={0.6} seed={8} /><span className="context-icon"><PixelIcon name="cluster" size={3} /></span><div><strong>What are users trying to accomplish?</strong><span>Recurring topics group here with the conversations that explain them. Messages, conversations, and users are different counts.</span></div><span className="subtle-pill">Discovery {data?.clusters[0]?.detector_version || '6.0.0'}</span></div>
-    {resource.loading ? <Loading label="Discovering topics" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : data && <>
+    <div className="context-banner"><DitherCanvas className="banner-dither" vignette={0} intensity={0.6} seed={8} /><span className="context-icon"><PixelIcon name="cluster" size={3} /></span><div><strong>What are people asking about?</strong><span>Conversations about the same thing are grouped into topics automatically, from what users actually write.</span></div><span className="subtle-pill">Automatic</span></div>
+    {resource.loading ? <Loading label="Finding topics" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : data && <>
       <div className="metric-grid">
-        <Metric label="Grouped conversations" value={`${formatNumber(data.coverage.clustered)} / ${formatNumber(data.coverage.conversations_analyzed)}`} icon={Layers3} detail={`${formatNumber(data.coverage.messages_total)} messages · ${formatNumber(data.coverage.users_total)} users`} />
-        <Metric label="Topics" value={formatNumber(data.clusters.length)} icon={MessageSquare} detail={`${formatNumber(data.coverage.unassigned)} unassigned conversations`} />
-        <Metric label="Intents matched" value={formatNumber(data.intents.reduce((sum, item) => sum + item.conversations, 0))} icon={Users} detail={`${data.intents.length} configured intents`} />
+        <Metric label="Conversations grouped" value={`${formatNumber(data.coverage.clustered)} / ${formatNumber(data.coverage.conversations_analyzed)}`} icon={Layers3} detail={`${formatNumber(data.coverage.messages_total)} messages from ${formatNumber(data.coverage.users_total)} people`} />
+        <Metric label="Topics found" value={formatNumber(data.clusters.length)} icon={MessageSquare} detail={`${formatNumber(data.coverage.unassigned)} conversations didn’t fit a topic`} />
+        <Metric label="Matched your topics" value={formatNumber(data.intents.reduce((sum, item) => sum + item.conversations, 0))} icon={Users} detail={`${data.intents.length} topics you defined`} />
       </div>
-      <section className="panel"><div className="panel-heading"><div><h2>Recurring topics</h2><p>Select topics to merge, or open one to rename, split, or dismiss. Edits never touch the underlying conversations.</p></div>{checked.length >= 2 && <div><input className="text-field" aria-label="Merged topic label" placeholder="Merged topic label..." value={label} onChange={event => setLabel(event.target.value)} /><button className="button button-primary" disabled={busy || !label.trim()} onClick={() => act(() => request(`/api/projects/${encodeURIComponent(projectId)}/discovery/merge`, { method: 'POST', body: JSON.stringify({ source_ids: checked, label: label.trim() }) }))}>Merge {checked.length}</button></div>}</div>
+      <section className="panel"><div className="panel-heading"><div><h2>Most common topics</h2><p>Open a topic to see examples, rename it, or split it. Select two or more to merge them. Your conversations are never changed.</p></div>{checked.length >= 2 && <div><input className="text-field" aria-label="Merged topic label" placeholder="Merged topic label..." value={label} onChange={event => setLabel(event.target.value)} /><button className="button button-primary" disabled={busy || !label.trim()} onClick={() => act(() => request(`/api/projects/${encodeURIComponent(projectId)}/discovery/merge`, { method: 'POST', body: JSON.stringify({ source_ids: checked, label: label.trim() }) }))}>Merge {checked.length}</button></div>}</div>
         {error && <p className="inline-error">{error}</p>}
-        {data.clusters.length ? data.clusters.map(item => <div key={item.id} className="related-conversation"><input type="checkbox" aria-label={`Select ${item.label}`} checked={checked.includes(item.id)} onChange={() => toggle(item.id)} /><MessageSquare size={15} /><span><strong>{item.label}</strong><small>{formatNumber(item.count)} conversations · {formatNumber(item.affected_users)} users · {item.status}</small></span><span className="dash-meter topic-meter" style={{ '--fill': `${(item.count / Math.max(1, ...data.clusters.map(other => other.count))) * 100}%` } as CSSProperties} /><button className="text-button" onClick={() => setSelected(item.id)}>Open<ChevronRight size={15} /></button></div>) : <EmptyState icon={Sparkles} title="No recurring topics yet" description="Send more conversations and related phrasings will group here." />}
-        <div className="list-footer"><span>Coverage: {formatNumber(data.coverage.clustered)} of {formatNumber(data.coverage.conversations_analyzed)} analyzed conversations grouped</span><span><ShieldCheck size={13} />Dismissing hides a topic. Conversations stay intact.</span></div>
+        {data.clusters.length ? data.clusters.map(item => <div key={item.id} className="related-conversation"><input type="checkbox" aria-label={`Select ${item.label}`} checked={checked.includes(item.id)} onChange={() => toggle(item.id)} /><MessageSquare size={15} /><span><strong>{item.label}</strong><small>{formatNumber(item.count)} conversations · {formatNumber(item.affected_users)} people</small></span><span className="dash-meter topic-meter" style={{ '--fill': `${(item.count / Math.max(1, ...data.clusters.map(other => other.count))) * 100}%` } as CSSProperties} /><button className="text-button" onClick={() => setSelected(item.id)}>Open<ChevronRight size={15} /></button></div>) : <EmptyState icon={Sparkles} title="No recurring topics yet" description="Send more conversations and related phrasings will group here." />}
+        <div className="list-footer"><span>{formatNumber(data.coverage.clustered)} of {formatNumber(data.coverage.conversations_analyzed)} conversations grouped</span><span><ShieldCheck size={13} />Hiding a topic keeps its conversations.</span></div>
       </section>
+      <AdvancedTools tools={[{ id: 'intents', title: 'Define your own topics', text: 'Give a few example questions, and matching conversations are counted under your topic.', render: () => <>
       <section className="panel"><div className="panel-heading"><div><h2>Configured intents</h2><p>Intents match before traffic accumulates. Examples define each intent.</p></div></div>
         {intents.data?.map(intent => <div key={intent.id} className="related-conversation"><MessageSquare size={15} /><span><strong>{intent.name}</strong><small>{intent.examples.length} examples · {(data.intents.find(i => i.intent_id === intent.id)?.conversations || 0)} conversations · {intent.enabled ? 'enabled' : 'disabled'}</small></span><button className="text-button" onClick={() => act(() => request(`/api/intents/${encodeURIComponent(intent.id)}`, { method: 'PATCH', body: JSON.stringify({ enabled: !intent.enabled }) }))}>{intent.enabled ? 'Disable' : 'Enable'}</button><button className="text-button" onClick={() => act(() => request(`/api/intents/${encodeURIComponent(intent.id)}`, { method: 'DELETE' }))}>Delete</button></div>)}
         <form className="modal-body" onSubmit={event => { event.preventDefault(); if (!intentName.trim() || !intentExamples.trim()) return; act(() => request(`/api/projects/${encodeURIComponent(projectId)}/intents`, { method: 'POST', body: JSON.stringify({ name: intentName.trim(), examples: intentExamples.split('\n').map(s => s.trim()).filter(Boolean) }) })).then(() => { setIntentName(''); setIntentExamples(''); }); }}><label className="field-label" htmlFor="intent-name">Intent name</label><input id="intent-name" className="text-field" value={intentName} onChange={event => setIntentName(event.target.value)} required maxLength={120} placeholder="e.g. Refund request" /><label className="field-label" htmlFor="intent-examples">Examples (one per line)</label><textarea id="intent-examples" className="text-field" value={intentExamples} onChange={event => setIntentExamples(event.target.value)} rows={3} placeholder={"get a refund\nrefund my order"} /><div className="modal-actions"><button type="submit" className="button button-primary" disabled={busy}><Plus size={16} />Add intent</button></div></form>
       </section>
+      </> }]} />
     </>}
     {cluster && <DiscoveryDrawer cluster={cluster} projectId={projectId} onClose={() => setSelected(null)} onConversation={onConversation} onChanged={() => { resource.retry(); }} />}
   </>;
@@ -492,22 +582,22 @@ function DiscoveryDrawer({ cluster, projectId, onClose, onConversation, onChange
     setBusy(true); setError('');
     try { await work(); onChanged(); } catch (cause) { setError((cause as Error).message); } finally { setBusy(false); }
   };
-  return <Modal title="Topic investigation" onClose={onClose} sheet>
+  return <Modal title="Topic details" onClose={onClose} sheet>
     <div className="drawer-content">
       <div className="drawer-eyebrow"><Status status="open" /><span>{formatNumber(cluster.count)} conversations</span></div>
       <h2 className="drawer-title">{cluster.label}</h2>
       <div className="detail-section"><div className="section-label"><MessageSquare size={15} />Evidence<span>{cluster.evidence.length}</span></div>
         {cluster.evidence.map((item, index) => <div className="evidence-card" key={`${item.conversation_id}-${index}`}><span className="evidence-marker">{String(index + 1).padStart(2, '0')}</span><blockquote>“{item.excerpt}”</blockquote><p><TriangleAlert size={13} />{item.reason}</p><button className="text-button" onClick={() => onConversation(item.conversation_id)}>Open conversation<ArrowUpRight size={14} /></button></div>)}
       </div>
-      <div className="detail-section"><div className="section-label"><Layers3 size={15} />Members<span>{cluster.members.length}</span></div>
+      <div className="detail-section"><div className="section-label"><Layers3 size={15} />Conversations in this topic<span>{cluster.members.length}</span></div>
         {cluster.members.map(id => <div key={id} className="related-conversation"><input type="checkbox" aria-label={`Split ${shortId(id)}`} checked={split.includes(id)} onChange={() => setSplit(items => items.includes(id) ? items.filter(item => item !== id) : [...items, id])} /><MessageSquare size={15} /><span><strong>{shortId(id)}</strong></span><button className="text-button" onClick={() => onConversation(id)}>Open<ChevronRight size={15} /></button></div>)}
       </div>
       {error && <p className="inline-error">{error}</p>}
-      <div className="detail-section"><div className="section-label"><Settings2 size={15} />Manage</div>
-        <label className="field-label" htmlFor="discovery-rename">Rename (evidence untouched)</label>
+      <div className="detail-section"><div className="section-label"><Settings2 size={15} />Edit this topic</div>
+        <label className="field-label" htmlFor="discovery-rename">Rename</label>
         <div className="key-box"><input id="discovery-rename" className="text-field" value={rename} onChange={event => setRename(event.target.value)} maxLength={200} /><button className="button button-secondary" disabled={busy || !rename.trim()} onClick={() => act(() => request(`/api/discovery/${encodeURIComponent(cluster.id)}/rename`, { method: 'POST', body: JSON.stringify({ label: rename.trim() }) }))}>Save</button></div>
-        <div className="drawer-bottom"><button className="button button-secondary" disabled={busy} onClick={() => act(() => request(`/api/discovery/${encodeURIComponent(cluster.id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'dismissed' }) }).then(onClose))}>Dismiss topic</button>
-        <button className="button button-primary" disabled={busy || split.length === 0 || split.length >= cluster.members.length} onClick={() => act(() => request(`/api/projects/${encodeURIComponent(projectId)}/discovery/split`, { method: 'POST', body: JSON.stringify({ label: `${cluster.label} (split)`, member_conversation_ids: split }) }).then(onClose))}>Split selection</button></div>
+        <div className="drawer-bottom"><button className="button button-secondary" disabled={busy} onClick={() => act(() => request(`/api/discovery/${encodeURIComponent(cluster.id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'dismissed' }) }).then(onClose))}>Hide topic</button>
+        <button className="button button-primary" disabled={busy || split.length === 0 || split.length >= cluster.members.length} onClick={() => act(() => request(`/api/projects/${encodeURIComponent(projectId)}/discovery/split`, { method: 'POST', body: JSON.stringify({ label: `${cluster.label} (split)`, member_conversation_ids: split }) }).then(onClose))}>Move selected to a new topic</button></div>
       </div>
     </div>
   </Modal>;
@@ -519,10 +609,10 @@ function ConversationsPage({ projectId, range, refresh, onSelect }: { projectId:
   const [debounced, setDebounced] = useState('');
   useEffect(() => { const timer = window.setTimeout(() => setDebounced(search), 250); return () => window.clearTimeout(timer); }, [search]);
   const resource = useResource<Conversation[]>(`/api/conversations${query({ project_id: projectId, range, search: debounced, flagged: flagged ? 'true' : undefined })}`, refresh);
-  return <section className="panel"><div className="list-toolbar"><label className="search-input wide-search"><Search size={16} /><input aria-label="Search conversations" placeholder="Search messages, users, or conversation IDs..." value={search} onChange={event => setSearch(event.target.value)} />{search && <button aria-label="Clear search" onClick={() => setSearch('')}><X size={14} /></button>}</label><button className={`filter-button ${flagged ? 'selected' : ''}`} onClick={() => setFlagged(!flagged)} aria-pressed={flagged}><Filter size={15} />Flagged only{flagged && <Check size={13} />}</button></div>
+  return <section className="panel"><div className="list-toolbar"><label className="search-input wide-search"><Search size={16} /><input aria-label="Search conversations" placeholder="Search messages, people, or IDs..." value={search} onChange={event => setSearch(event.target.value)} />{search && <button aria-label="Clear search" onClick={() => setSearch('')}><X size={14} /></button>}</label><button className={`filter-button ${flagged ? 'selected' : ''}`} onClick={() => setFlagged(!flagged)} aria-pressed={flagged}><Filter size={15} />Problems only{flagged && <Check size={13} />}</button></div>
     <div className="conversation-table-head"><span>Conversation</span><span>Model</span><span>Messages</span><span>Status</span><span>Last activity</span><span /></div>
     {resource.loading ? <Loading label="Loading conversations" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : resource.data?.length ? resource.data.map(conversation => <ConversationRow key={conversation.id} conversation={conversation} onClick={() => onSelect(conversation.id)} />) : <EmptyState icon={search ? Search : MessageSquare} title={search || flagged ? 'No matching conversations' : 'Your conversations will appear here'} description={search || flagged ? 'Try clearing your search or the flagged filter.' : 'Install the Tervik skill and send your first events to start exploring.'} />}
-    <div className="list-footer"><span>{formatNumber(resource.data?.length || 0)} conversations</span><span>Click a conversation to explore its messages and trace.</span></div>
+    <div className="list-footer"><span>{formatNumber(resource.data?.length || 0)} conversations</span><span>Open a conversation to read its messages and see each step.</span></div>
   </section>;
 }
 
@@ -534,18 +624,22 @@ function ClusterDrawer({ id, range, onClose, onConversation, onChanged }: { id: 
   const [evalSuccess, setEvalSuccess] = useState('');
   const [evalError, setEvalError] = useState('');
   const cluster = resource.data;
-  return <Modal title="Cluster investigation" onClose={onClose} sheet>
+  return <Modal title="Problem details" onClose={onClose} sheet>
     {resource.loading ? <Loading label="Loading evidence" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : cluster && <div className="drawer-content">
-      <div className="drawer-eyebrow"><Severity severity={cluster.severity} /><Status status={cluster.status} /><span>{friendlyKind(cluster.kind)}</span></div><h2 className="drawer-title">{cluster.title}</h2><p className="drawer-description">{cluster.description}</p>
-      <div className="drawer-stats"><div><strong>{formatNumber(cluster.count)}</strong><span>Conversations</span></div><div><strong>{formatNumber(cluster.affected_users)}</strong><span>Affected users</span></div><div><strong>{cluster.share.toFixed(1)}%</strong><span>Conversation share</span></div></div>
+      <div className="drawer-eyebrow"><Severity severity={cluster.severity} /><Status status={cluster.status} /><span>{friendlyKind(cluster.kind)}</span></div><h2 className="drawer-title">{cluster.title}</h2><p className="drawer-description">{plainProblem(cluster.kind, cluster.description)}</p>
+      <div className="drawer-stats"><div><strong>{formatNumber(cluster.count)}</strong><span>Conversations</span></div><div><strong>{formatNumber(cluster.affected_users)}</strong><span>People affected</span></div><div><strong>{cluster.share.toFixed(1)}%</strong><span>Of all conversations</span></div></div>
       
-      {/* Closed-loop Replay Suite Generator */}
+      <div className="detail-section"><div className="section-label"><MessageSquare size={15} />Real examples<span>{cluster.evidence.length}</span></div><p className="section-intro">The exact messages that showed this problem in the {rangeLabels[range].toLowerCase()}.</p>
+        {cluster.evidence.length ? cluster.evidence.map((evidence, index) => <div className="evidence-card" key={`${evidence.event_id}-${index}`}><span className="evidence-marker">{String(index + 1).padStart(2, '0')}</span><blockquote>“{evidence.content}”</blockquote><p><TriangleAlert size={13} />{evidence.reason}</p><button className="text-button" onClick={() => onConversation(evidence.conversation_id)}>Open conversation<ArrowUpRight size={14} /></button></div>) : <p className="muted">No evidence within this date range. Try a longer range.</p>}
+      </div>
+      <div className="suggestion-card"><div className="section-label"><Sparkles size={16} />Suggested next step</div><p>{cluster.suggested_fix || 'Review the flagged conversation and reproduce the issue before making a change.'}</p><span>Detector {cluster.detector_version} · rule {cluster.rule_version} · Review and validate before applying.</span></div>
+      <div className="detail-section"><div className="section-label"><Layers3 size={15} />Conversations with this problem</div>{cluster.conversations.map(conversation => <button key={conversation.id} className="related-conversation" onClick={() => onConversation(conversation.id)}><MessageSquare size={15} /><span><strong>{shortId(conversation.id)}</strong><small>{conversation.preview}</small></span><ChevronRight size={15} /></button>)}</div>
+      <details className="dash-details"><summary>Advanced: turn these examples into a test</summary>
       <div className="cluster-eval-builder">
         <div className="cluster-eval-builder-head">
-          <h4>Turn into Evaluation Suite</h4>
-          <span className="subtle-pill"><Sparkles size={12} style={{ marginRight: 4 }} />Replay Lab</span>
+          <h4>Build a test from these examples</h4>
         </div>
-        <p>Convert this production failure pattern into an automated regression dataset to verify fixes before shipping.</p>
+        <p>Save these conversations as a test set, so you can check a fix against them before you ship it.</p>
         <button className="button button-primary" disabled={buildingEval} onClick={async () => {
           setBuildingEval(true); setEvalError(''); setEvalSuccess('');
           try {
@@ -558,7 +652,7 @@ function ClusterDrawer({ id, range, onClose, onConversation, onChanged }: { id: 
                 limit: 15,
               }),
             });
-            setEvalSuccess(`Created dataset "${res.name}". Open Evaluations to replay baseline vs candidate.`);
+            setEvalSuccess(`Created test set "${res.name}". Find it under Problems → Advanced tools → Test a fix before shipping.`);
           } catch (e) {
             setEvalError((e as Error).message);
           } finally {
@@ -566,17 +660,13 @@ function ClusterDrawer({ id, range, onClose, onConversation, onChanged }: { id: 
           }
         }}>
           {buildingEval ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}
-          <span>Generate Replay Dataset</span>
+          <span>Create test set</span>
         </button>
         {evalSuccess && <p style={{ color: '#34d399', fontSize: 11, marginTop: 8 }}>{evalSuccess}</p>}
         {evalError && <p className="inline-error" style={{ marginTop: 8 }}>{evalError}</p>}
       </div>
 
-      <div className="detail-section"><div className="section-label"><MessageSquare size={15} />Evidence<span>{cluster.evidence.length}</span></div><p className="section-intro">What triggered this signal in {rangeLabels[range].toLowerCase()}.</p>
-        {cluster.evidence.length ? cluster.evidence.map((evidence, index) => <div className="evidence-card" key={`${evidence.event_id}-${index}`}><span className="evidence-marker">{String(index + 1).padStart(2, '0')}</span><blockquote>“{evidence.content}”</blockquote><p><TriangleAlert size={13} />{evidence.reason}</p><button className="text-button" onClick={() => onConversation(evidence.conversation_id)}>Open conversation<ArrowUpRight size={14} /></button></div>) : <p className="muted">No evidence within this date range. Try a longer range.</p>}
-      </div>
-      <div className="suggestion-card"><div className="section-label"><Sparkles size={16} />Suggested next step</div><p>{cluster.suggested_fix || 'Review the flagged conversation and reproduce the issue before making a change.'}</p><span>Detector {cluster.detector_version} · rule {cluster.rule_version} · Review and validate before applying.</span></div>
-      <div className="detail-section"><div className="section-label"><Layers3 size={15} />Related conversations</div>{cluster.conversations.map(conversation => <button key={conversation.id} className="related-conversation" onClick={() => onConversation(conversation.id)}><MessageSquare size={15} /><span><strong>{shortId(conversation.id)}</strong><small>{conversation.preview}</small></span><ChevronRight size={15} /></button>)}</div>
+      </details>
       <div className="drawer-bottom"><span>Last seen {dateTime(cluster.last_seen)}</span>{saveError && <p className="inline-error">{saveError}</p>}<button className={`button ${cluster.status === 'open' ? 'button-primary' : 'button-secondary'}`} disabled={saving} onClick={async () => {
         setSaving(true); setSaveError('');
         try { await request(`/api/clusters/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status: cluster.status === 'open' ? 'resolved' : 'open' }) }); resource.retry(); onChanged(); }
@@ -594,28 +684,27 @@ function ConversationDrawer({ id, onClose }: { id: string; onClose: () => void }
   const selectedSpan = conversation?.spans.find(span => span.id === spanId);
   const maxSpanDuration = Math.max(1, ...(conversation?.spans.map(s => s.duration_ms || 0) || [100]));
 
-  return <Modal title="Agent Execution Inspector" onClose={onClose} sheet>
+  return <Modal title="Conversation details" onClose={onClose} sheet>
     {resource.loading ? <Loading label="Loading trajectory" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : conversation && <div className="drawer-content conversation-drawer">
       <div className="drawer-eyebrow"><Status status={conversation.status} /><span>{dateTime(conversation.started_at)}</span></div><div className="conversation-id"><h2>{shortId(conversation.id)}</h2><CopyButton text={conversation.id} compact label="Copy conversation ID" /></div>
       <div className="conversation-metadata"><span><Users size={14} />{conversation.user_id || 'Anonymous user'}</span><span><Bot size={14} />{conversation.model || 'Model not reported'}</span><span><Clock3 size={14} />{latency(conversation.latency_ms)}</span><span>{money(conversation.cost_usd)}</span></div>
-      {conversation.signals.length > 0 && <div className="signal-summary"><TriangleAlert size={17} /><div><strong>{conversation.signals.length} {conversation.signals.length === 1 ? 'signal' : 'signals'} intercepted</strong><span>{Array.from(new Set(conversation.signals.map(signal => friendlyKind(signal.kind)))).join(' · ')}</span></div></div>}
+      {conversation.signals.length > 0 && <div className="signal-summary"><TriangleAlert size={17} /><div><strong>{conversation.signals.length} {conversation.signals.length === 1 ? 'problem' : 'problems'} found</strong><span>{Array.from(new Set(conversation.signals.map(signal => friendlyKind(signal.kind)))).join(' · ')}</span></div></div>}
       
       <div className="drawer-tabs">
-        <button className={tab === 'story' ? 'active' : ''} onClick={() => setTab('story')}><Activity size={15} />Execution Story</button>
-        <button className={tab === 'messages' ? 'active' : ''} onClick={() => setTab('messages')}><MessageSquare size={15} />Transcript<span>{conversation.messages.length}</span></button>
-        <button className={tab === 'waterfall' ? 'active' : ''} onClick={() => setTab('waterfall')}><GitBranch size={15} />Waterfall<span>{conversation.spans.length}</span></button>
+        <button className={tab === 'story' ? 'active' : ''} onClick={() => setTab('story')}><Activity size={15} />Summary</button>
+        <button className={tab === 'messages' ? 'active' : ''} onClick={() => setTab('messages')}><MessageSquare size={15} />Messages<span>{conversation.messages.length}</span></button>
+        <button className={tab === 'waterfall' ? 'active' : ''} onClick={() => setTab('waterfall')}><GitBranch size={15} />Timing<span>{conversation.spans.length}</span></button>
       </div>
 
       {tab === 'story' && <div className="exec-flow-graph">
         {/* User Prompt Node */}
         <div className="exec-flow-node node-prompt">
           <div className="exec-flow-head">
-            <span className="exec-flow-tag"><Users size={12} />User Prompt Ingestion</span>
+            <span className="exec-flow-tag"><Users size={12} />What the user asked</span>
             <span>{dateTime(conversation.started_at)}</span>
           </div>
           <div className="exec-flow-content">{conversation.preview || conversation.messages.find(m => m.role === 'user')?.content || 'No prompt content'}</div>
           <div className="exec-flow-meta">
-            <span>Intent: Analyzed</span>
             <span>User: {conversation.user_id || 'Anonymous'}</span>
           </div>
         </div>
@@ -628,16 +717,16 @@ function ConversationDrawer({ id, onClose }: { id: string; onClose: () => void }
             <div className="exec-flow-head">
               <span className="exec-flow-tag" style={{ color: isError ? '#f43f5e' : '#eab308' }}>
                 <Terminal size={12} />
-                Tool Execution: {span.name}
+                Tool used: {span.name}
               </span>
-              <span style={{ color: isError ? '#f43f5e' : '#34d399' }}>{isError ? 'STATUS ERROR' : 'STATUS 200 OK'}</span>
+              <span style={{ color: isError ? '#f43f5e' : '#34d399' }}>{isError ? 'Failed' : 'Worked'}</span>
             </div>
             <div className="exec-flow-content">
               {typeof span.output === 'string' ? span.output : JSON.stringify(span.output) || 'Tool executed'}
             </div>
             <div className="exec-flow-meta">
-              <span>Latency: {latency(span.duration_ms)}</span>
-              <span>Span ID: {shortId(span.id)}</span>
+              <span>Took {latency(span.duration_ms)}</span>
+              <span>ID {shortId(span.id)}</span>
             </div>
           </div>;
         })}
@@ -648,7 +737,7 @@ function ConversationDrawer({ id, onClose }: { id: string; onClose: () => void }
           <div className="exec-flow-head">
             <span className="exec-flow-tag" style={{ color: '#f43f5e' }}>
               <TriangleAlert size={12} />
-              Guardrail Intercepted: {friendlyKind(signal.kind)}
+              Problem found: {friendlyKind(signal.kind)}
             </span>
             <span className={`severity severity-${signal.severity}`}><span />{signal.severity}</span>
           </div>
@@ -663,14 +752,14 @@ function ConversationDrawer({ id, onClose }: { id: string; onClose: () => void }
         {/* Agent Turn Outcome */}
         <div className="exec-flow-node node-agent">
           <div className="exec-flow-head">
-            <span className="exec-flow-tag" style={{ color: '#818cf8' }}><Bot size={12} />Agent Response Outcome</span>
+            <span className="exec-flow-tag" style={{ color: '#818cf8' }}><Bot size={12} />Agent’s reply</span>
             <span>{dateTime(conversation.last_at)}</span>
           </div>
           <div className="exec-flow-content">
             {conversation.messages.filter(m => m.role === 'assistant').slice(-1)[0]?.content || 'Agent completed execution'}
           </div>
           <div className="exec-flow-meta">
-            <span>Total Latency: {latency(conversation.latency_ms)}</span>
+            <span>Total time: {latency(conversation.latency_ms)}</span>
             <span>Cost: {money(conversation.cost_usd)}</span>
             <span>Model: {conversation.model || 'Default'}</span>
           </div>
@@ -683,12 +772,12 @@ function ConversationDrawer({ id, onClose }: { id: string; onClose: () => void }
       })}</div>}
 
       {tab === 'waterfall' && <div className="waterfall-container">
-        <p className="section-intro">Inspect the execution timing of every span in this agent run.</p>
+        <p className="section-intro">How long each step of this conversation took. Select a step to see what went in and what came out.</p>
         {conversation.spans.length ? <><div className="waterfall-table">
           <div className="waterfall-head">
-            <span>Span / Kind</span>
-            <span>Duration Timeline</span>
-            <span style={{ textAlign: 'right' }}>Latency</span>
+            <span>Step</span>
+            <span>Time taken</span>
+            <span style={{ textAlign: 'right' }}>Duration</span>
           </div>
           {conversation.spans.map(span => {
             const isError = span.status === 'error';
@@ -711,9 +800,9 @@ function ConversationDrawer({ id, onClose }: { id: string; onClose: () => void }
         {selectedSpan && <div className="span-detail" style={{ marginTop: 14 }}>
           <div className="section-label">{selectedSpan.name}<CopyButton text={selectedSpan.id} label="Copy span ID" compact /></div>
           <span className="span-id">{selectedSpan.id}</span>
-          <h4>Input Payload</h4>
+          <h4>What went in</h4>
           <pre>{typeof selectedSpan.input === 'string' ? selectedSpan.input : JSON.stringify(selectedSpan.input, null, 2) || 'Not reported'}</pre>
-          <h4>Output Payload</h4>
+          <h4>What came out</h4>
           <pre>{typeof selectedSpan.output === 'string' ? selectedSpan.output : JSON.stringify(selectedSpan.output, null, 2) || 'Not reported'}</pre>
         </div>}</> : <EmptyState icon={GitBranch} title="No spans reported" description="Send trace and span IDs with your events to inspect agent execution here." />}
       </div>}
@@ -881,6 +970,7 @@ export default function App() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [projectName, setProjectName] = useState('');
   const [createBusy, setCreateBusy] = useState(false);
@@ -917,18 +1007,18 @@ export default function App() {
   };
   const modalClose = () => { setCreateOpen(false); setProjectName(''); setCreateError(''); };
   const noProject = <div className="panel no-project-panel"><EmptyState icon={Layers3} title="A clearer view of your agents starts here." description="Create your first project to connect an agent, or explore a sample workspace to see how Tervik works."><button className="button button-primary" onClick={() => setCreateOpen(true)}><Plus size={16} />Create your first project</button><button className="button button-secondary" disabled={demoBusy} onClick={seedDemo}>{demoBusy ? <LoaderCircle size={15} className="spin" /> : <Layers3 size={16} />}Explore sample workspace</button></EmptyState></div>;
-  const navItems: { page: Page; icon: PixelIconName; label: string }[] = [{ page: 'overview', icon: 'overview', label: 'Overview' }, { page: 'failures', icon: 'detect', label: 'Failure clusters' }, { page: 'discovery', icon: 'cluster', label: 'Discovery' }, { page: 'conversations', icon: 'chat', label: 'Conversations' }];
+  const navItems: { page: Page; icon: PixelIconName; label: string }[] = [{ page: 'overview', icon: 'overview', label: 'Overview' }, { page: 'failures', icon: 'detect', label: 'Problems' }, { page: 'discovery', icon: 'cluster', label: 'Topics' }, { page: 'conversations', icon: 'chat', label: 'Conversations' }];
   return <>
     {page === 'welcome' ? <><Welcome onStart={() => navigate('overview')} onDemo={seedDemo} demoBusy={demoBusy} />{actionError && <div className="welcome-error"><ErrorState message={actionError} onRetry={seedDemo} /></div>}</> : <div className="app-shell">
       {mobileOpen && <button className="sidebar-scrim" onClick={() => setMobileOpen(false)} aria-label="Close navigation" />}
       <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}><Logo /><div className="workspace-label">WORKSPACE</div><div className="project-picker"><span className="project-avatar">{project?.name.slice(0, 1).toUpperCase() || 'T'}</span><select aria-label="Select project" value={project?.id || ''} onChange={event => setProjectId(event.target.value)}>{projects.data?.length ? projects.data.map(item => <option key={item.id} value={item.id}>{item.name}{item.is_demo ? ' (sample)' : ''}</option>) : <option value="">No projects yet</option>}</select><ChevronDown size={13} /><button onClick={() => setCreateOpen(true)} aria-label="Create project" title="Create project"><Plus size={15} /></button></div>
-        <nav className="main-nav" aria-label="Main navigation">{navItems.map(({ page: navPage, icon, label }, index) => <a href={`#${navPage}`} key={navPage} className={page === navPage ? 'active' : ''} aria-current={page === navPage ? 'page' : undefined}>{page === navPage && <DitherCanvas className="nav-dither" vignette={0} intensity={0.75} seed={index} />}<span className="nav-icon"><PixelIcon name={icon} size={2} /></span><span>{label}</span>{navPage === 'failures' && !!overview.data?.top_clusters.length && <span className="nav-count">{overview.data.top_clusters.length}</span>}</a>)}</nav><div className="nav-divider" /><nav className="secondary-nav"><a href="#integration" className={page === 'integration' ? 'active' : ''}>{page === 'integration' && <DitherCanvas className="nav-dither" vignette={0} intensity={0.75} seed={5} />}<span className="nav-icon"><PixelIcon name="code" size={2} /></span><span>Integration</span>{page !== 'integration' && <span className="new-badge">SETUP</span>}</a><a href="#welcome"><span className="nav-icon"><PixelIcon name="guide" size={2} /></span><span>Getting started</span><ArrowUpRight size={14} /></a></nav>
-        <div className="sidebar-bottom"><div className="sidebar-tip"><DitherCanvas className="tip-dither" vignette={0} intensity={0.7} seed={3} /><span><PixelIcon name="replay" size={2} /></span><strong>A better next turn.</strong><p>Your users are showing you what to improve. Follow the signals.</p><button onClick={() => navigate('integration')}>Connect an agent<ArrowRight size={14} /></button></div><button className="settings-button" onClick={() => { setAdminToken(sessionStorage.getItem('tervik_admin_token') || ''); setSessionToken(sessionStorage.getItem('tervik_session') || ''); setSettingsOpen(true); }}><Settings2 size={17} /><span>Connection settings</span></button><div className="workspace-footer"><span className="user-avatar">T</span><span><strong>Local workspace</strong><small>Development foundation</small></span><span className="local-dot" /></div></div>
+        <nav className="main-nav" aria-label="Main navigation">{navItems.map(({ page: navPage, icon, label }, index) => <a href={`#${navPage}`} key={navPage} className={page === navPage ? 'active' : ''} aria-current={page === navPage ? 'page' : undefined}>{page === navPage && <DitherCanvas className="nav-dither" vignette={0} intensity={0.75} seed={index} />}<span className="nav-icon"><PixelIcon name={icon} size={2} /></span><span>{label}</span>{navPage === 'failures' && !!overview.data?.top_clusters.length && <span className="nav-count">{overview.data.top_clusters.length}</span>}</a>)}</nav><div className="nav-divider" /><nav className="secondary-nav"><a href="#integration" className={page === 'integration' ? 'active' : ''}>{page === 'integration' && <DitherCanvas className="nav-dither" vignette={0} intensity={0.75} seed={5} />}<span className="nav-icon"><PixelIcon name="code" size={2} /></span><span>Connect agent</span>{page !== 'integration' && <span className="new-badge">SETUP</span>}</a><a href="#welcome"><span className="nav-icon"><PixelIcon name="guide" size={2} /></span><span>Product tour</span><ArrowUpRight size={14} /></a></nav>
+        <div className="sidebar-bottom"><div className="sidebar-tip"><DitherCanvas className="tip-dither" vignette={0} intensity={0.7} seed={3} /><span><PixelIcon name="replay" size={2} /></span><strong>New here?</strong><p>A two-minute guide to what every number and word on this dashboard means.</p><button onClick={() => setGuideOpen(true)}>Open the guide<ArrowRight size={14} /></button></div><button className="settings-button" onClick={() => { setAdminToken(sessionStorage.getItem('tervik_admin_token') || ''); setSessionToken(sessionStorage.getItem('tervik_session') || ''); setSettingsOpen(true); }}><Settings2 size={17} /><span>Connection settings</span></button><div className="workspace-footer"><span className="user-avatar">T</span><span><strong>Local workspace</strong><small>Development foundation</small></span><span className="local-dot" /></div></div>
       </aside>
-      <div className="main-shell"><header className="topbar"><div className="breadcrumb"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Open navigation"><Menu size={20} /></button><span>Workspace</span><ChevronRight size={12} /><strong>{project?.name || 'Getting started'}</strong>{project?.is_demo && <span className="demo-badge">SAMPLE DATA</span>}</div><div className="topbar-right"><span className={`api-health ${health.data ? 'connected' : ''}`}><span />{health.data ? 'API connected' : health.loading ? 'Connecting' : 'API offline'}</span><button className="topbar-icon" onClick={() => navigate('integration')} aria-label="Open integration guide" title="Integration guide"><FileCode2 size={18} /></button></div></header>
-        <main className="main-content"><div className="page-heading"><div><div className="page-eyebrow">agent intelligence · {project?.name || 'no project'}</div><h1>{titles[page]}<span>{page === 'overview' ? 'Know what’s working. See what needs a closer look.' : page === 'failures' ? 'The moments that deserve your attention, connected to the evidence.' : page === 'discovery' ? 'What users are trying to accomplish, grouped with evidence.' : page === 'conversations' ? 'A closer look at what your users and agents are saying.' : 'A few small steps between your agent and its next insight.'}</span></h1></div>{page !== 'integration' && <div className="heading-actions"><label className="date-range"><Clock3 size={15} /><select aria-label="Date range" value={range} onChange={event => setRange(event.target.value as Range)}>{Object.entries(rangeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><ChevronDown size={13} /></label><button className="button button-primary heading-connect" onClick={() => project ? navigate('integration') : setCreateOpen(true)}><Plus size={15} />{project ? 'Connect agent' : 'New project'}</button></div>}</div>
+      <div className="main-shell"><header className="topbar"><div className="breadcrumb"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Open navigation"><Menu size={20} /></button><span>Workspace</span><ChevronRight size={12} /><strong>{project?.name || 'Getting started'}</strong>{project?.is_demo && <span className="demo-badge">SAMPLE DATA</span>}</div><div className="topbar-right"><button className="topbar-guide" onClick={() => setGuideOpen(true)}><CircleHelp size={15} />Guide</button><span className={`api-health ${health.data ? 'connected' : ''}`}><span />{health.data ? 'API connected' : health.loading ? 'Connecting' : 'API offline'}</span><button className="topbar-icon" onClick={() => navigate('integration')} aria-label="Open integration guide" title="Integration guide"><FileCode2 size={18} /></button></div></header>
+        <main className="main-content"><div className="page-heading"><div><div className="page-eyebrow">agent intelligence · {project?.name || 'no project'}</div><h1>{titles[page]}<span>{page === 'overview' ? 'How your agent is doing, and what to look at first.' : page === 'failures' ? 'Where users ran into trouble, grouped by cause.' : page === 'discovery' ? 'What people ask your agent about most.' : page === 'conversations' ? 'Every chat between your users and your agent.' : 'Three short steps to send your agent’s chats here.'}</span></h1></div>{page !== 'integration' && <div className="heading-actions"><label className="date-range"><Clock3 size={15} /><select aria-label="Date range" value={range} onChange={event => setRange(event.target.value as Range)}>{Object.entries(rangeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><ChevronDown size={13} /></label><button className="button button-primary heading-connect" onClick={() => project ? navigate('integration') : setCreateOpen(true)}><Plus size={15} />{project ? 'Connect agent' : 'New project'}</button></div>}</div>
           {actionError && <div className="action-error"><TriangleAlert size={16} /><span>{actionError}</span><button className="icon-button" onClick={() => setActionError('')} aria-label="Dismiss error"><X size={15} /></button></div>}
-          {projects.loading ? <Loading /> : projects.error ? <ErrorState message={projects.error} onRetry={projects.retry} /> : !project ? noProject : page === 'overview' ? <OverviewPage {...overview} range={range} onPage={navigate} onCluster={setClusterId} onConversation={selectConversation} onDemo={seedDemo} demoBusy={demoBusy} /> : page === 'failures' ? <FailuresPage projectId={project.id} range={range} refresh={refresh} onSelect={setClusterId} /> : page === 'discovery' ? <DiscoveryPage projectId={project.id} range={range} refresh={refresh} onConversation={selectConversation} /> : page === 'conversations' ? <ConversationsPage projectId={project.id} range={range} refresh={refresh} onSelect={selectConversation} /> : <IntegrationPage key={project.id} project={project} refresh={refresh} />}
+          {projects.loading ? <Loading /> : projects.error ? <ErrorState message={projects.error} onRetry={projects.retry} /> : !project ? noProject : page === 'overview' ? <OverviewPage {...overview} range={range} onPage={navigate} onCluster={setClusterId} onConversation={selectConversation} onDemo={seedDemo} demoBusy={demoBusy} onGuide={() => setGuideOpen(true)} /> : page === 'failures' ? <FailuresPage projectId={project.id} range={range} refresh={refresh} onSelect={setClusterId} /> : page === 'discovery' ? <DiscoveryPage projectId={project.id} range={range} refresh={refresh} onConversation={selectConversation} /> : page === 'conversations' ? <ConversationsPage projectId={project.id} range={range} refresh={refresh} onSelect={selectConversation} /> : <IntegrationPage key={project.id} project={project} refresh={refresh} />}
           <footer className="dashboard-footer"><span>Tervik<span className="footer-separator">/</span>Find failures. Build better agents.</span><span><span className="pulse-dot" />Rule-based analysis</span></footer>
         </main>
       </div>
@@ -941,6 +1031,7 @@ export default function App() {
       try { const result = await request<Project>('/api/projects', { method: 'POST', body: JSON.stringify({ name: projectName.trim() }) }); pendingProject.current = result.id; setProjectId(result.id); setRefresh(value => value + 1); modalClose(); navigate('integration'); }
       catch (cause) { setCreateError((cause as Error).message); } finally { setCreateBusy(false); }
     }}><span className="modal-feature-icon"><FolderPlus size={26} /></span><h2>A home for your agent.</h2><p>Keep its conversations, failure signals, and integration key together in a project.</p><label className="field-label" htmlFor="project-name">Project name</label><input id="project-name" className="text-field" placeholder="e.g. Customer support agent" value={projectName} onChange={event => setProjectName(event.target.value)} required maxLength={80} autoComplete="off" />{createError && <p className="inline-error">{createError}</p>}<div className="modal-actions"><button type="button" className="button button-secondary" onClick={modalClose}>Cancel</button><button type="submit" className="button button-primary" disabled={createBusy || !projectName.trim()}>{createBusy ? <LoaderCircle size={16} className="spin" /> : <Plus size={16} />}Create project</button></div></form></Modal>}
+    {guideOpen && <GuideModal onClose={() => setGuideOpen(false)} onPage={navigate} />}
     {settingsOpen && <Modal title="Connection settings" onClose={() => setSettingsOpen(false)}><form className="modal-body" onSubmit={event => { event.preventDefault(); if (sessionToken.trim()) sessionStorage.setItem('tervik_session', sessionToken.trim()); else sessionStorage.removeItem('tervik_session'); if (adminToken.trim()) sessionStorage.setItem('tervik_admin_token', adminToken.trim()); else sessionStorage.removeItem('tervik_admin_token'); setRefresh(value => value + 1); setSettingsOpen(false); }}><span className="modal-feature-icon"><Settings2 size={25} /></span><h2>Your local connection.</h2><p>The dashboard connects through its API proxy. Sign in with an account session, or add the administrator token if the service requires it.</p><label className="field-label" htmlFor="session-token">Account session</label><input id="session-token" className="text-field" type="password" placeholder="Sign in via the API to get a session" value={sessionToken} onChange={event => setSessionToken(event.target.value)} autoComplete="off" /><label className="field-label" htmlFor="admin-token">Administrator token</label><input id="admin-token" className="text-field" type="password" placeholder="Optional in local developer mode" value={adminToken} onChange={event => setAdminToken(event.target.value)} autoComplete="off" /><p className="field-hint">Stored for this browser session only. This is separate from a project’s ingestion key.</p><div className="connection-details"><span>API status<strong>{health.data ? 'Connected' : 'Unavailable'}</strong></span><span>Storage<strong>{health.data?.storage || '—'}</strong></span><span>Analysis<strong>{health.data?.analysis_mode || 'Rule-based'}</strong></span></div><div className="modal-actions"><button type="button" className="button button-secondary" onClick={() => { setAdminToken(''); setSessionToken(''); }}>Clear tokens</button><button type="submit" className="button button-primary"><Check size={16} />Save connection</button></div></form></Modal>}
   </>;
 }

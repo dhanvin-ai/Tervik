@@ -24,8 +24,8 @@ export function RateChart({ trend }: { trend: Day[] }) {
   const last = known[known.length - 1];
   return (
     <figure className="dash-rate">
-      <figcaption className="dash-rate-bar"><span className="lp-window-dots" aria-hidden="true"><i /><i /><i /></span>flagged rate · per day</figcaption>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={known.length ? `Daily flagged rate, averaging ${average.toFixed(1)} percent` : 'No daily data yet'}>
+      <figcaption className="dash-rate-bar"><span className="lp-window-dots" aria-hidden="true"><i /><i /><i /></span>problem rate · per day</figcaption>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={known.length ? `Daily problem rate, averaging ${average.toFixed(1)} percent` : 'No daily data yet'}>
         <defs>
           <DotPattern id={`${id}-area`} color="rgba(255, 255, 255, 0.28)" size={2} gap={4} />
           <DotPattern id={`${id}-track`} color="rgba(255, 255, 255, 0.06)" size={1.5} gap={4} />

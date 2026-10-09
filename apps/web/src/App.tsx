@@ -1,13 +1,16 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   Activity, ArrowDownLeft, ArrowRight, ArrowUpRight, Bot, Check,
   CheckCheck, ChevronDown, ChevronRight, CircleHelp, Clock3, Code2, Copy,
   Download, Eye, EyeOff, FileCode2, Filter, FolderPlus, GitBranch,
-  Layers3, LayoutDashboard, LoaderCircle, Menu, MessageSquare, Play, Plus,
+  Layers3, LoaderCircle, Menu, MessageSquare, Play, Plus,
   Search, Settings2, ShieldCheck, Sparkles, Terminal, TriangleAlert, Users, X,
   Zap, type LucideIcon,
 } from 'lucide-react';
 import { query, request } from './api';
+import { DitherCanvas } from './components/DitherCanvas';
+import { DitherText } from './components/DitherText';
+import { PixelIcon, type PixelIconName } from './components/PixelIcon';
 import { AsciiMatrixBackground } from './components/AsciiMatrixBackground';
 import { AnimatedBrandLogo } from './components/AnimatedBrandLogo';
 import { HeroHeadline } from './components/HeroHeadline';
@@ -130,30 +133,36 @@ function Modal({ title, children, onClose, wide = false, sheet = false }: { titl
 
 function TrendChart({ trend, range }: { trend: Overview['trend']; range: Range }) {
   const [active, setActive] = useState<number | null>(null);
-  const width = 1000, height = 220, left = 42, right = 18, top = 15, bottom = 34;
+  const width = 1000, height = 220, left = 36, right = 8, top = 12, bottom = 30;
   const maximum = Math.max(4, Math.ceil(Math.max(...trend.map(point => point.conversations), 0) / 4) * 4);
-  const x = (index: number) => left + (index / Math.max(1, trend.length - 1)) * (width - left - right);
+  const band = (width - left - right) / Math.max(1, trend.length);
+  const barWidth = Math.min(72, band * 0.62);
+  const x = (index: number) => left + band * index + (band - barWidth) / 2;
   const y = (value: number) => height - bottom - (value / maximum) * (height - top - bottom);
-  const path = (key: 'conversations' | 'failures') => trend.map((point, index) => `${index === 0 ? 'M' : 'L'}${x(index)},${y(point[key])}`).join(' ');
-  const area = trend.length ? `${path('conversations')} L${x(trend.length - 1)},${height - bottom} L${left},${height - bottom} Z` : '';
   const dateLabel = (value: string, verbose = false) => {
     const date = new Date(value);
     return range === '24h' ? date.toLocaleTimeString(undefined, { hour: 'numeric', ...(verbose ? { minute: '2-digit' } : {}) }) : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   };
   const point = active !== null ? trend[active] : null;
+  // Dotted fills echo the landing page's dithered art: track, conversations, and the flagged share.
   return <div className="chart-wrap" onMouseLeave={() => setActive(null)}>
     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Conversations and flagged conversations over the selected period" className="trend-chart">
-      <defs><linearGradient id="trend-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#4979e0" stopOpacity=".12" /><stop offset="100%" stopColor="#4979e0" stopOpacity=".0" /></linearGradient></defs>
-      {[0, 1, 2, 3, 4].map(tick => <g key={tick}><line x1={left} x2={width - right} y1={y(maximum * tick / 4)} y2={y(maximum * tick / 4)} stroke="rgba(255, 255, 255, 0.06)" strokeDasharray="4 5" /><text x={left - 14} y={y(maximum * tick / 4) + 4} textAnchor="end" fontSize="10" fill="#71717a">{maximum * tick / 4}</text></g>)}
-      {trend.length > 0 && <><path d={area} fill="url(#trend-fill)" /><path d={path('conversations')} fill="none" stroke="#4979e0" strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" /><path d={path('failures')} fill="none" stroke="#df6a4f" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
-        {trend.map((item, index) => <g key={item.date}>
-          {index % Math.max(1, Math.ceil(trend.length / 7)) === 0 && <text x={x(index)} y={height - 9} textAnchor={index === 0 ? 'start' : 'middle'} fontSize="10" fill="#71717a">{dateLabel(item.date)}</text>}
-          <rect x={x(index) - (width - left - right) / Math.max(1, trend.length - 1) / 2} y={top} width={(width - left - right) / Math.max(1, trend.length - 1)} height={height - top - bottom} fill="transparent" onMouseEnter={() => setActive(index)} />
-        </g>)}
-        {active !== null && <><line x1={x(active)} x2={x(active)} y1={top} y2={height - bottom} stroke="rgba(255, 255, 255, 0.16)" strokeDasharray="4 4" /><circle cx={x(active)} cy={y(trend[active].conversations)} r="3.5" fill="#4979e0" stroke="#0a0a0a" strokeWidth="2" /></>}
-      </>}
+      <defs>
+        <pattern id="dots-track" width="5" height="5" patternUnits="userSpaceOnUse"><rect width="2" height="2" fill="rgba(255, 255, 255, 0.07)" /></pattern>
+        <pattern id="dots-total" width="5" height="5" patternUnits="userSpaceOnUse"><rect width="3" height="3" fill="#b8b8b8" /></pattern>
+        <pattern id="dots-total-hot" width="5" height="5" patternUnits="userSpaceOnUse"><rect width="3.4" height="3.4" fill="#ffffff" /></pattern>
+        <pattern id="dots-flagged" width="5" height="5" patternUnits="userSpaceOnUse"><rect width="3.4" height="3.4" fill="#f87171" /></pattern>
+      </defs>
+      {[0, 1, 2, 3, 4].map(tick => <g key={tick}><line x1={left} x2={width - right} y1={y(maximum * tick / 4)} y2={y(maximum * tick / 4)} stroke="rgba(255, 255, 255, 0.06)" strokeDasharray="2 6" /><text x={left - 12} y={y(maximum * tick / 4) + 4} textAnchor="end" fontSize="10" fill="#6b6b6b">{maximum * tick / 4}</text></g>)}
+      {trend.map((item, index) => <g key={item.date} onMouseEnter={() => setActive(index)}>
+        <rect x={x(index)} y={top} width={barWidth} height={height - top - bottom} fill="url(#dots-track)" />
+        <rect x={x(index)} y={y(item.conversations)} width={barWidth} height={height - bottom - y(item.conversations)} fill={active === index ? 'url(#dots-total-hot)' : 'url(#dots-total)'} />
+        <rect x={x(index)} y={y(item.failures)} width={barWidth} height={height - bottom - y(item.failures)} fill="url(#dots-flagged)" />
+        {index % Math.max(1, Math.ceil(trend.length / 8)) === 0 && <text x={x(index) + barWidth / 2} y={height - 9} textAnchor="middle" fontSize="10" fill="#6b6b6b">{dateLabel(item.date)}</text>}
+        <rect x={left + band * index} y={top} width={band} height={height - top - bottom} fill="transparent" />
+      </g>)}
     </svg>
-    {point && active !== null && <div className="chart-tooltip" style={{ left: `${Math.max(12, Math.min(80, x(active) / width * 100))}%` }}><strong>{dateLabel(point.date, true)}</strong><span><i className="legend-dot purple" />{formatNumber(point.conversations)} conversations</span><span><i className="legend-dot peach" />{formatNumber(point.failures)} flagged</span></div>}
+    {point && active !== null && <div className="chart-tooltip" style={{ left: `${Math.max(12, Math.min(88, (x(active) + barWidth / 2) / width * 100))}%` }}><strong>{dateLabel(point.date, true)}</strong><span><i className="legend-dot purple" />{formatNumber(point.conversations)} conversations</span><span><i className="legend-dot peach" />{formatNumber(point.failures)} flagged</span></div>}
   </div>;
 }
 
@@ -163,7 +172,7 @@ function ClusterRow({ cluster, onClick, compact = false }: { cluster: Cluster; o
     <span className="cluster-summary"><strong>{cluster.title}</strong><span>{compact ? `${formatNumber(cluster.affected_users)} affected users · ${friendlyKind(cluster.kind)}` : cluster.description}</span></span>
     <span className="cluster-severity"><Severity severity={cluster.severity} /></span>
     <span className="cluster-count"><strong>{formatNumber(cluster.count)}</strong><small>conversations</small></span>
-    {!compact && <span className="cluster-share">{cluster.share.toFixed(1)}%</span>}
+    {!compact && <span className="cluster-share"><span className="dash-meter" style={{ '--fill': `${Math.min(100, cluster.share)}%` } as CSSProperties} /><em>{cluster.share.toFixed(1)}%</em></span>}
     {!compact && <span className="cluster-state"><Status status={cluster.status} /></span>}
     <ChevronRight className="row-chevron" size={16} />
   </button>;
@@ -189,66 +198,33 @@ function ConversationRow({ conversation, onClick, compact = false }: { conversat
   </button>;
 }
 
-function AgentPipelineStoryMap({ data, onPage }: { data: Overview; onPage: (page: Page) => void }) {
-  const signalCount = data.top_clusters.reduce((sum, c) => sum + c.count, 0);
-  return <div className="exec-pipeline">
-    <div className="exec-pipeline-header">
-      <span className="exec-pipeline-title">
-        <Activity size={14} />
-        <span>Agent Execution Pipeline · Live Telemetry Flow</span>
-      </span>
-      <span className="exec-pipeline-mode">
-        <span className="pulse-dot" style={{ display: 'inline-block', marginRight: 6 }} />
-        {data.analysis_mode === 'rule_based' ? 'Deterministic Engine Active' : data.analysis_mode}
-      </span>
+function OverviewHero({ data, range, onPage }: { data: Overview; range: Range; onPage: (page: Page) => void }) {
+  const metrics = data.metrics;
+  const flagged = Math.round(metrics.conversations * metrics.failure_rate / 100);
+  const stages: { icon: PixelIconName; label: string; value: string; detail: string; page: Page }[] = [
+    { icon: 'ingest', label: 'Conversations', value: formatNumber(metrics.conversations), detail: `${formatNumber(metrics.messages)} messages received`, page: 'conversations' },
+    { icon: 'trace', label: 'Average latency', value: latency(metrics.avg_latency_ms), detail: `${money(metrics.cost_usd)} reported cost`, page: 'conversations' },
+    { icon: 'detect', label: 'Affected users', value: formatNumber(metrics.affected_users), detail: 'with a flagged conversation', page: 'failures' },
+    { icon: 'cluster', label: 'Failure clusters', value: formatNumber(data.top_clusters.length), detail: 'grouped by cause', page: 'failures' },
+  ];
+  return <section className="dash-hero">
+    <div className="dash-hero-feature">
+      <DitherCanvas vignette={0.4} intensity={0.9} seed={11} />
+      <div className="dash-hero-copy">
+        <span className="dash-eyebrow">Flagged conversations · {rangeLabels[range].toLowerCase()}</span>
+        <h2 className="dash-hero-number"><DitherText text={`${metrics.failure_rate.toFixed(1)}%`} maxSize={148} align="left" /></h2>
+        <p>{formatNumber(flagged)} of {formatNumber(metrics.conversations)} conversations carried at least one failure signal.</p>
+        <button className="lp-btn" onClick={() => onPage('failures')}>Review failure clusters<ArrowRight size={15} /></button>
+      </div>
     </div>
-    <div className="exec-pipeline-grid">
-      <button className="exec-pipeline-step" onClick={() => onPage('conversations')}>
-        <div className="exec-pipeline-step-top">
-          <span>01 · INGEST</span>
-          <MessageSquare size={13} />
-        </div>
-        <strong className="exec-pipeline-count">{formatNumber(data.metrics.conversations)}</strong>
-        <span className="exec-pipeline-desc">{formatNumber(data.metrics.messages)} turns buffered</span>
-      </button>
-
-      <button className="exec-pipeline-step" onClick={() => onPage('conversations')}>
-        <div className="exec-pipeline-step-top">
-          <span>02 · SPANS</span>
-          <GitBranch size={13} />
-        </div>
-        <strong className="exec-pipeline-count">{latency(data.metrics.avg_latency_ms)}</strong>
-        <span className="exec-pipeline-desc">Avg execution latency</span>
-      </button>
-
-      <button className="exec-pipeline-step step-signals" onClick={() => onPage('failures')}>
-        <div className="exec-pipeline-step-top">
-          <span>03 · SIGNALS</span>
-          <TriangleAlert size={13} />
-        </div>
-        <strong className="exec-pipeline-count">{formatNumber(signalCount)}</strong>
-        <span className="exec-pipeline-desc">{data.metrics.failure_rate.toFixed(1)}% flagged turns</span>
-      </button>
-
-      <button className="exec-pipeline-step step-clusters" onClick={() => onPage('failures')}>
-        <div className="exec-pipeline-step-top">
-          <span>04 · CLUSTERS</span>
-          <Layers3 size={13} />
-        </div>
-        <strong className="exec-pipeline-count">{data.top_clusters.length}</strong>
-        <span className="exec-pipeline-desc">{formatNumber(data.metrics.affected_users)} affected users</span>
-      </button>
-
-      <button className="exec-pipeline-step step-evals" onClick={() => onPage('failures')}>
-        <div className="exec-pipeline-step-top">
-          <span>05 · REPLAY LAB</span>
-          <ShieldCheck size={13} />
-        </div>
-        <strong className="exec-pipeline-count">Verified</strong>
-        <span className="exec-pipeline-desc">Continuous test suites</span>
-      </button>
+    <div className="dash-hero-stages">
+      {stages.map(stage => <button key={stage.label} className="dash-stage" onClick={() => onPage(stage.page)}>
+        <span className="dash-stage-icon"><PixelIcon name={stage.icon} size={3} /></span>
+        <span className="dash-stage-text"><small>{stage.label}</small><strong>{stage.value}</strong><span>{stage.detail}</span></span>
+        <ChevronRight size={15} />
+      </button>)}
     </div>
-  </div>;
+  </section>;
 }
 
 function OverviewPage({ data, loading, error, retry, range, onPage, onCluster, onConversation, onDemo, demoBusy }: {
@@ -265,15 +241,8 @@ function OverviewPage({ data, loading, error, retry, range, onPage, onCluster, o
     <button className="button button-secondary" disabled={demoBusy} onClick={onDemo}>{demoBusy ? <LoaderCircle size={15} className="spin" /> : <Layers3 size={16} />}Explore sample workspace</button>
   </EmptyState></div><div className="getting-started-cards"><GuideCard icon={MessageSquare} title="Follow every conversation" text="See the messages, tool calls, latency, and cost in one place." /><GuideCard icon={TriangleAlert} title="Find the friction" text="Group corrections, repeated requests, frustration, and tool errors." /><GuideCard icon={GitBranch} title="Review the next step" text="Investigate the evidence and turn it into a fix you can validate." /></div></div>;
   return <>
-    <AgentPipelineStoryMap data={data} onPage={onPage} />
-
-    <div className="metric-grid">
-      <Metric label="Conversations" value={formatNumber(metrics.conversations)} icon={MessageSquare} detail={`${formatNumber(metrics.messages)} messages received`} />
-      <Metric label="Flagged conversations" value={`${metrics.failure_rate.toFixed(1)}%`} icon={TriangleAlert} detail="Signals to investigate" accent />
-      <Metric label="Affected users" value={formatNumber(metrics.affected_users)} icon={Users} detail="Users with flagged conversations" />
-      <Metric label="Average latency" value={latency(metrics.avg_latency_ms)} icon={Clock3} detail={`${money(metrics.cost_usd)} reported total cost`} />
-    </div>
-    <section className="panel activity-panel"><div className="panel-heading"><div><h2>Conversation activity</h2><p>Every interaction. A clearer picture.</p></div><div className="chart-legend"><span><i className="legend-dot purple" />Conversations</span><span><i className="legend-dot peach" />Flagged</span></div></div><TrendChart trend={data.trend} range={range} />
+    <OverviewHero data={data} range={range} onPage={onPage} />
+    <section className="panel activity-panel"><div className="panel-heading"><div><h2>Conversation activity</h2><p>Each column is one period. Red dots are flagged conversations.</p></div><div className="chart-legend"><span><i className="legend-dot purple" />Conversations</span><span><i className="legend-dot peach" />Flagged</span></div></div><TrendChart trend={data.trend} range={range} />
       <div className="chart-footer"><span><span className="pulse-dot" />{rangeLabels[range]}</span><span>Based on received events</span></div>
     </section>
     <div className="overview-lower"><section className="panel cluster-panel"><div className="panel-heading"><div className="heading-with-count"><h2>What needs attention</h2><span className="count-badge">{data.top_clusters.length}</span></div><button className="text-button" onClick={() => onPage('failures')}>View all<ArrowRight size={14} /></button></div>
@@ -282,7 +251,7 @@ function OverviewPage({ data, loading, error, retry, range, onPage, onCluster, o
     </section><section className="panel recent-panel"><div className="panel-heading"><h2>Recent conversations</h2><button className="text-button" onClick={() => onPage('conversations')}>View all<ArrowRight size={14} /></button></div>
       {data.recent_conversations.length ? data.recent_conversations.slice(0, 5).map(conversation => <ConversationRow key={conversation.id} conversation={conversation} compact onClick={() => onConversation(conversation.id)} />) : <EmptyState title="No recent conversations" description="New conversations will appear here." />}
     </section></div>
-    <div className="connect-strip"><span className="strip-icon"><Terminal size={20} /></span><div><strong>Better agents start with visibility.</strong><p>Add Tervik to your next agent with one skill.</p></div><button className="button button-secondary" onClick={() => onPage('integration')}>View integration<ArrowUpRight size={15} /></button></div>
+    <div className="connect-strip"><DitherCanvas className="strip-dither" vignette={0} intensity={0.6} seed={4} /><span className="strip-icon"><PixelIcon name="prompt" size={3} /></span><div><strong>Better agents start with visibility.</strong><p>Add Tervik to your next agent with one skill.</p></div><button className="button button-secondary" onClick={() => onPage('integration')}>View integration<ArrowUpRight size={15} /></button></div>
   </>;
 }
 
@@ -452,7 +421,7 @@ function FailuresPage({ projectId, range, refresh, onSelect }: { projectId: stri
   useEffect(() => { const timer = window.setTimeout(() => setDebounced(search), 250); return () => window.clearTimeout(timer); }, [search]);
   const resource = useResource<Cluster[]>(`/api/clusters${query({ project_id: projectId, range, search: debounced, status })}`, refresh);
   return <>
-    <div className="context-banner"><span className="context-icon"><Sparkles size={18} /></span><div><strong>Find the patterns behind the friction.</strong><span>Similar failure signals are grouped together, with the conversations that explain them.</span></div><span className="subtle-pill">Rule-based triage</span></div>
+    <div className="context-banner"><DitherCanvas className="banner-dither" vignette={0} intensity={0.6} seed={6} /><span className="context-icon"><PixelIcon name="detect" size={3} /></span><div><strong>Find the patterns behind the friction.</strong><span>Similar failure signals are grouped together, with the conversations that explain them.</span></div><span className="subtle-pill">Rule-based triage</span></div>
     <section className="panel"><div className="list-toolbar"><div className="tab-switch" aria-label="Cluster status">{[['', 'All clusters'], ['open', 'Open'], ['resolved', 'Resolved']].map(([value, label]) => <button key={value} className={status === value ? 'active' : ''} onClick={() => setStatus(value)}>{label}</button>)}</div><label className="search-input"><Search size={16} /><input aria-label="Search failure clusters" placeholder="Search clusters..." value={search} onChange={event => setSearch(event.target.value)} />{search && <button aria-label="Clear search" onClick={() => setSearch('')}><X size={14} /></button>}</label></div>
       <div className="cluster-table-head"><span>Failure pattern</span><span>Severity</span><span>Conversations</span><span>Share</span><span>Status</span><span /></div>
       {resource.loading ? <Loading label="Finding patterns" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : resource.data?.length ? resource.data.map(cluster => <ClusterRow key={cluster.id} cluster={cluster} onClick={() => onSelect(cluster.id)} />) : <EmptyState icon={search ? Search : CheckCheck} title={search ? 'No matching clusters' : status === 'resolved' ? 'No resolved clusters yet' : 'No failure signals in this period'} description={search ? 'Try a different search or clear your filters.' : status === 'resolved' ? 'Clusters you mark as resolved will appear here.' : 'Choose another date range or send conversations from your agent.'} />}
@@ -484,7 +453,7 @@ function DiscoveryPage({ projectId, range, refresh, onConversation }: { projectI
   };
   const toggle = (id: string) => setChecked(items => items.includes(id) ? items.filter(item => item !== id) : [...items, id]);
   return <>
-    <div className="context-banner"><span className="context-icon"><Sparkles size={18} /></span><div><strong>What are users trying to accomplish?</strong><span>Recurring topics group here with the conversations that explain them. Messages, conversations, and users are different counts.</span></div><span className="subtle-pill">Discovery {data?.clusters[0]?.detector_version || '6.0.0'}</span></div>
+    <div className="context-banner"><DitherCanvas className="banner-dither" vignette={0} intensity={0.6} seed={8} /><span className="context-icon"><PixelIcon name="cluster" size={3} /></span><div><strong>What are users trying to accomplish?</strong><span>Recurring topics group here with the conversations that explain them. Messages, conversations, and users are different counts.</span></div><span className="subtle-pill">Discovery {data?.clusters[0]?.detector_version || '6.0.0'}</span></div>
     {resource.loading ? <Loading label="Discovering topics" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : data && <>
       <div className="metric-grid">
         <Metric label="Grouped conversations" value={`${formatNumber(data.coverage.clustered)} / ${formatNumber(data.coverage.conversations_analyzed)}`} icon={Layers3} detail={`${formatNumber(data.coverage.messages_total)} messages · ${formatNumber(data.coverage.users_total)} users`} />
@@ -493,7 +462,7 @@ function DiscoveryPage({ projectId, range, refresh, onConversation }: { projectI
       </div>
       <section className="panel"><div className="panel-heading"><div><h2>Recurring topics</h2><p>Select topics to merge, or open one to rename, split, or dismiss. Edits never touch the underlying conversations.</p></div>{checked.length >= 2 && <div><input className="text-field" aria-label="Merged topic label" placeholder="Merged topic label..." value={label} onChange={event => setLabel(event.target.value)} /><button className="button button-primary" disabled={busy || !label.trim()} onClick={() => act(() => request(`/api/projects/${encodeURIComponent(projectId)}/discovery/merge`, { method: 'POST', body: JSON.stringify({ source_ids: checked, label: label.trim() }) }))}>Merge {checked.length}</button></div>}</div>
         {error && <p className="inline-error">{error}</p>}
-        {data.clusters.length ? data.clusters.map(item => <div key={item.id} className="related-conversation"><input type="checkbox" aria-label={`Select ${item.label}`} checked={checked.includes(item.id)} onChange={() => toggle(item.id)} /><MessageSquare size={15} /><span><strong>{item.label}</strong><small>{formatNumber(item.count)} conversations · {formatNumber(item.affected_users)} users · {item.status}</small></span><button className="text-button" onClick={() => setSelected(item.id)}>Open<ChevronRight size={15} /></button></div>) : <EmptyState icon={Sparkles} title="No recurring topics yet" description="Send more conversations and related phrasings will group here." />}
+        {data.clusters.length ? data.clusters.map(item => <div key={item.id} className="related-conversation"><input type="checkbox" aria-label={`Select ${item.label}`} checked={checked.includes(item.id)} onChange={() => toggle(item.id)} /><MessageSquare size={15} /><span><strong>{item.label}</strong><small>{formatNumber(item.count)} conversations · {formatNumber(item.affected_users)} users · {item.status}</small></span><span className="dash-meter topic-meter" style={{ '--fill': `${(item.count / Math.max(1, ...data.clusters.map(other => other.count))) * 100}%` } as CSSProperties} /><button className="text-button" onClick={() => setSelected(item.id)}>Open<ChevronRight size={15} /></button></div>) : <EmptyState icon={Sparkles} title="No recurring topics yet" description="Send more conversations and related phrasings will group here." />}
         <div className="list-footer"><span>Coverage: {formatNumber(data.coverage.clustered)} of {formatNumber(data.coverage.conversations_analyzed)} analyzed conversations grouped</span><span><ShieldCheck size={13} />Dismissing hides a topic. Conversations stay intact.</span></div>
       </section>
       <section className="panel"><div className="panel-heading"><div><h2>Configured intents</h2><p>Intents match before traffic accumulates. Examples define each intent.</p></div></div>
@@ -939,16 +908,16 @@ export default function App() {
   };
   const modalClose = () => { setCreateOpen(false); setProjectName(''); setCreateError(''); };
   const noProject = <div className="panel no-project-panel"><EmptyState icon={Layers3} title="A clearer view of your agents starts here." description="Create your first project to connect an agent, or explore a sample workspace to see how Tervik works."><button className="button button-primary" onClick={() => setCreateOpen(true)}><Plus size={16} />Create your first project</button><button className="button button-secondary" disabled={demoBusy} onClick={seedDemo}>{demoBusy ? <LoaderCircle size={15} className="spin" /> : <Layers3 size={16} />}Explore sample workspace</button></EmptyState></div>;
-  const navItems: { page: Page; icon: LucideIcon; label: string }[] = [{ page: 'overview', icon: LayoutDashboard, label: 'Overview' }, { page: 'failures', icon: Layers3, label: 'Failure clusters' }, { page: 'discovery', icon: Sparkles, label: 'Discovery' }, { page: 'conversations', icon: MessageSquare, label: 'Conversations' }];
+  const navItems: { page: Page; icon: PixelIconName; label: string }[] = [{ page: 'overview', icon: 'overview', label: 'Overview' }, { page: 'failures', icon: 'detect', label: 'Failure clusters' }, { page: 'discovery', icon: 'cluster', label: 'Discovery' }, { page: 'conversations', icon: 'chat', label: 'Conversations' }];
   return <>
     {page === 'welcome' ? <><Welcome onStart={() => navigate('overview')} onDemo={seedDemo} demoBusy={demoBusy} />{actionError && <div className="welcome-error"><ErrorState message={actionError} onRetry={seedDemo} /></div>}</> : <div className="app-shell">
       {mobileOpen && <button className="sidebar-scrim" onClick={() => setMobileOpen(false)} aria-label="Close navigation" />}
       <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}><Logo /><div className="workspace-label">WORKSPACE</div><div className="project-picker"><span className="project-avatar">{project?.name.slice(0, 1).toUpperCase() || 'T'}</span><select aria-label="Select project" value={project?.id || ''} onChange={event => setProjectId(event.target.value)}>{projects.data?.length ? projects.data.map(item => <option key={item.id} value={item.id}>{item.name}{item.is_demo ? ' (sample)' : ''}</option>) : <option value="">No projects yet</option>}</select><ChevronDown size={13} /><button onClick={() => setCreateOpen(true)} aria-label="Create project" title="Create project"><Plus size={15} /></button></div>
-        <nav className="main-nav" aria-label="Main navigation">{navItems.map(({ page: navPage, icon: Icon, label }) => <a href={`#${navPage}`} key={navPage} className={page === navPage ? 'active' : ''} aria-current={page === navPage ? 'page' : undefined}><Icon size={18} /><span>{label}</span>{navPage === 'failures' && !!overview.data?.top_clusters.length && <span className="nav-count">{overview.data.top_clusters.length}</span>}</a>)}</nav><div className="nav-divider" /><nav className="secondary-nav"><a href="#integration" className={page === 'integration' ? 'active' : ''}><Code2 size={18} /><span>Integration</span>{page !== 'integration' && <span className="new-badge">SETUP</span>}</a><a href="#welcome"><CircleHelp size={18} /><span>Getting started</span><ArrowUpRight size={14} /></a></nav>
-        <div className="sidebar-bottom"><div className="sidebar-tip"><span><Sparkles size={17} /></span><strong>A better next turn.</strong><p>Your users are showing you what to improve. Follow the signals.</p><button onClick={() => navigate('integration')}>Connect an agent<ArrowRight size={14} /></button></div><button className="settings-button" onClick={() => { setAdminToken(sessionStorage.getItem('tervik_admin_token') || ''); setSessionToken(sessionStorage.getItem('tervik_session') || ''); setSettingsOpen(true); }}><Settings2 size={17} /><span>Connection settings</span></button><div className="workspace-footer"><span className="user-avatar">T</span><span><strong>Local workspace</strong><small>Development foundation</small></span><span className="local-dot" /></div></div>
+        <nav className="main-nav" aria-label="Main navigation">{navItems.map(({ page: navPage, icon, label }, index) => <a href={`#${navPage}`} key={navPage} className={page === navPage ? 'active' : ''} aria-current={page === navPage ? 'page' : undefined}>{page === navPage && <DitherCanvas className="nav-dither" vignette={0} intensity={0.75} seed={index} />}<span className="nav-icon"><PixelIcon name={icon} size={2} /></span><span>{label}</span>{navPage === 'failures' && !!overview.data?.top_clusters.length && <span className="nav-count">{overview.data.top_clusters.length}</span>}</a>)}</nav><div className="nav-divider" /><nav className="secondary-nav"><a href="#integration" className={page === 'integration' ? 'active' : ''}>{page === 'integration' && <DitherCanvas className="nav-dither" vignette={0} intensity={0.75} seed={5} />}<span className="nav-icon"><PixelIcon name="code" size={2} /></span><span>Integration</span>{page !== 'integration' && <span className="new-badge">SETUP</span>}</a><a href="#welcome"><span className="nav-icon"><PixelIcon name="guide" size={2} /></span><span>Getting started</span><ArrowUpRight size={14} /></a></nav>
+        <div className="sidebar-bottom"><div className="sidebar-tip"><DitherCanvas className="tip-dither" vignette={0} intensity={0.7} seed={3} /><span><PixelIcon name="replay" size={2} /></span><strong>A better next turn.</strong><p>Your users are showing you what to improve. Follow the signals.</p><button onClick={() => navigate('integration')}>Connect an agent<ArrowRight size={14} /></button></div><button className="settings-button" onClick={() => { setAdminToken(sessionStorage.getItem('tervik_admin_token') || ''); setSessionToken(sessionStorage.getItem('tervik_session') || ''); setSettingsOpen(true); }}><Settings2 size={17} /><span>Connection settings</span></button><div className="workspace-footer"><span className="user-avatar">T</span><span><strong>Local workspace</strong><small>Development foundation</small></span><span className="local-dot" /></div></div>
       </aside>
       <div className="main-shell"><header className="topbar"><div className="breadcrumb"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Open navigation"><Menu size={20} /></button><span>Workspace</span><ChevronRight size={12} /><strong>{project?.name || 'Getting started'}</strong>{project?.is_demo && <span className="demo-badge">SAMPLE DATA</span>}</div><div className="topbar-right"><span className={`api-health ${health.data ? 'connected' : ''}`}><span />{health.data ? 'API connected' : health.loading ? 'Connecting' : 'API offline'}</span><button className="topbar-icon" onClick={() => navigate('integration')} aria-label="Open integration guide" title="Integration guide"><FileCode2 size={18} /></button></div></header>
-        <main className="main-content"><div className="page-heading"><div><div className="page-eyebrow">AGENT INTELLIGENCE</div><h1>{titles[page]}</h1><p>{page === 'overview' ? 'Know what’s working. See what needs a closer look.' : page === 'failures' ? 'The moments that deserve your attention, connected to the evidence.' : page === 'discovery' ? 'What users are trying to accomplish, grouped with evidence.' : page === 'conversations' ? 'A closer look at what your users and agents are saying.' : 'A few small steps between your agent and its next insight.'}</p></div>{page !== 'integration' && <div className="heading-actions"><label className="date-range"><Clock3 size={15} /><select aria-label="Date range" value={range} onChange={event => setRange(event.target.value as Range)}>{Object.entries(rangeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><ChevronDown size={13} /></label><button className="button button-primary heading-connect" onClick={() => project ? navigate('integration') : setCreateOpen(true)}><Plus size={15} />{project ? 'Connect agent' : 'New project'}</button></div>}</div>
+        <main className="main-content"><div className="page-heading"><div><div className="page-eyebrow">agent intelligence · {project?.name || 'no project'}</div><h1>{titles[page]}<span>{page === 'overview' ? 'Know what’s working. See what needs a closer look.' : page === 'failures' ? 'The moments that deserve your attention, connected to the evidence.' : page === 'discovery' ? 'What users are trying to accomplish, grouped with evidence.' : page === 'conversations' ? 'A closer look at what your users and agents are saying.' : 'A few small steps between your agent and its next insight.'}</span></h1></div>{page !== 'integration' && <div className="heading-actions"><label className="date-range"><Clock3 size={15} /><select aria-label="Date range" value={range} onChange={event => setRange(event.target.value as Range)}>{Object.entries(rangeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><ChevronDown size={13} /></label><button className="button button-primary heading-connect" onClick={() => project ? navigate('integration') : setCreateOpen(true)}><Plus size={15} />{project ? 'Connect agent' : 'New project'}</button></div>}</div>
           {actionError && <div className="action-error"><TriangleAlert size={16} /><span>{actionError}</span><button className="icon-button" onClick={() => setActionError('')} aria-label="Dismiss error"><X size={15} /></button></div>}
           {projects.loading ? <Loading /> : projects.error ? <ErrorState message={projects.error} onRetry={projects.retry} /> : !project ? noProject : page === 'overview' ? <OverviewPage {...overview} range={range} onPage={navigate} onCluster={setClusterId} onConversation={selectConversation} onDemo={seedDemo} demoBusy={demoBusy} /> : page === 'failures' ? <FailuresPage projectId={project.id} range={range} refresh={refresh} onSelect={setClusterId} /> : page === 'discovery' ? <DiscoveryPage projectId={project.id} range={range} refresh={refresh} onConversation={selectConversation} /> : page === 'conversations' ? <ConversationsPage projectId={project.id} range={range} refresh={refresh} onSelect={selectConversation} /> : <IntegrationPage key={project.id} project={project} refresh={refresh} />}
           <footer className="dashboard-footer"><span>Tervik<span className="footer-separator">/</span>Find failures. Build better agents.</span><span><span className="pulse-dot" />Rule-based analysis</span></footer>

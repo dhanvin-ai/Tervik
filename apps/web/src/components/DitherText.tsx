@@ -24,7 +24,7 @@ function balancedSplit(text: string, measure: CanvasRenderingContext2D) {
 }
 
 /** Headline drawn as animated dithered pixels, sized to fill its container. */
-export function DitherText({ text, maxSize = 132, className = '' }: { text: string; maxSize?: number; className?: string }) {
+export function DitherText({ text, maxSize = 132, align = 'center', className = '' }: { text: string; maxSize?: number; align?: 'center' | 'left'; className?: string }) {
   const boxRef = useRef<HTMLSpanElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [layout, setLayout] = useState<Layout>({ size: 0, lines: [text] });
@@ -60,7 +60,7 @@ export function DitherText({ text, maxSize = 132, className = '' }: { text: stri
   useDitherLoop(canvasRef, CELL, (ctx, width, height, t) => {
     const { size, lines } = layout;
     if (!size) return;
-    const key = `${width}x${height}:${size}:${lines.join('|')}`;
+    const key = `${width}x${height}:${size}:${align}:${lines.join('|')}`;
     if (cache.current?.key !== key) {
       const offscreen = document.createElement('canvas');
       offscreen.width = width;
@@ -69,16 +69,17 @@ export function DitherText({ text, maxSize = 132, className = '' }: { text: stri
       if (!draw) return;
       const lineHeight = (size * LINE_HEIGHT) / CELL;
       draw.font = `${WEIGHT} ${size / CELL}px ${FONT_FAMILY}`;
-      draw.textAlign = 'center';
+      draw.textAlign = align;
       draw.textBaseline = 'middle';
       draw.fillStyle = '#fff';
       const top = height / 2 - (lineHeight * (lines.length - 1)) / 2;
-      lines.forEach((line, index) => draw.fillText(line, width / 2, top + index * lineHeight + size / CELL * 0.04));
+      const x = align === 'left' ? 1 : width / 2;
+      lines.forEach((line, index) => draw.fillText(line, x, top + index * lineHeight + size / CELL * 0.04));
       cache.current = { key, mask: draw.getImageData(0, 0, width, height).data, image: ctx.createImageData(width, height) };
     }
     paintDither(cache.current.image, t, settings, cache.current.mask);
     ctx.putImageData(cache.current.image, 0, 0);
-  }, [layout]);
+  }, [layout, align]);
 
   const height = layout.size ? Math.ceil(layout.size * (LINE_HEIGHT * layout.lines.length + 0.1)) : undefined;
   return (

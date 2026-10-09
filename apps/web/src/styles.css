@@ -2708,13 +2708,15 @@ body:has(.m-page) { min-width: 320px; }
 .dash-hero-copy p { max-width: 440px; margin: 0 0 22px; color: #a3a3a3; font-size: 15px; line-height: 1.6; }
 
 /* Flagged-rate chart window */
-.dash-rate { position: relative; z-index: 2; flex: 0 1 460px; margin: 28px 28px 28px 0; overflow: hidden; border: 1px solid rgba(255, 255, 255, .1); border-radius: 8px; background: rgba(12, 12, 14, .92); box-shadow: 0 24px 60px rgba(0, 0, 0, .6); }
-.dash-rate-bar { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 12px; border-bottom: 1px solid rgba(255, 255, 255, .07); color: #8a8a8a; font: 11px var(--font-mono); }
-.dash-rate svg { display: block; width: 100%; height: auto; padding: 8px 6px 0; }
-.dash-rate svg text { fill: #6b6b6b; font: 10px var(--font-mono); }
-.dash-rate svg .dash-rate-last text { fill: #fca5a5; font-size: 10.5px; }
-.dash-rate-foot { margin: 0; padding: 8px 14px 12px; color: #6b6b6b; font: 11px var(--font-mono); }
-.dash-rate-foot b { color: #e5e5e5; font-weight: 400; }
+.dash-rate { position: relative; z-index: 2; flex: 0 1 540px; margin: 28px 28px 28px 0; padding: 20px 20px 14px; border: 1px solid rgba(255, 255, 255, .08); border-radius: 4px; background: #171717; box-shadow: 0 24px 60px rgba(0, 0, 0, .55); }
+.dash-rate-title { margin-bottom: 14px; color: #f5f5f5; font: 400 15px var(--font-sans); letter-spacing: -0.01em; }
+.dash-rate svg { display: block; width: 100%; height: auto; overflow: visible; }
+.dash-rate-grid { stroke: rgba(255, 255, 255, .08); stroke-width: 1; }
+.dash-rate-axis { fill: #9a9a9a; font: 13px var(--font-sans); }
+.dash-rate-line { fill: none; stroke: #d9d9d9; stroke-width: 1.4; stroke-linejoin: round; }
+.dash-rate-point { fill: #171717; stroke: #e5e5e5; stroke-width: 1.4; transition: r .12s ease; }
+.dash-rate-tip rect { fill: #000; stroke: rgba(255, 255, 255, .2); }
+.dash-rate-tip text { fill: #fff; font: 11.5px var(--font-mono); }
 
 /* Stat strip */
 .dash-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 20px; overflow: hidden; border: 1px solid rgba(255, 255, 255, .1); border-radius: 4px; background: #000; }

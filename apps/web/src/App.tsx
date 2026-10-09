@@ -302,7 +302,7 @@ function OverviewHero({ data, range, onPage }: { data: Overview; range: Range; o
         <p>{formatNumber(flagged)} of {formatNumber(metrics.conversations)} conversations had something go wrong, such as a tool error, a confused user, or a repeated question.</p>
         <button className="lp-btn" onClick={() => onPage('failures')}>See what went wrong<ArrowRight size={15} /></button>
       </div>
-      <RateChart trend={data.trend} />
+      <RateChart trend={data.trend} summary={`${formatNumber(flagged)} with a problem · ${formatNumber(metrics.conversations)} conversations · ${rangeLabels[range]}`} />
     </section>
     <div className="dash-stats">
       {stats.map(stat => <button key={stat.label} className="dash-stat" onClick={() => onPage(stat.page)}>

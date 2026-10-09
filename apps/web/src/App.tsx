@@ -2,13 +2,12 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import {
   Activity, ArrowDownLeft, ArrowRight, ArrowUpRight, Bot, Check,
   CheckCheck, ChevronDown, ChevronRight, CircleHelp, Clock3, Code2, Copy,
-  Download, Eye, EyeOff, FileCode2, Filter, FolderPlus, GitBranch,
+  Download, Eye, EyeOff, Filter, FolderPlus, GitBranch,
   Layers3, LoaderCircle, Menu, MessageSquare, Play, Plus,
-  Search, Settings2, ShieldCheck, Sparkles, Terminal, TriangleAlert, Users, X,
+  RotateCcw, Search, Settings2, ShieldCheck, Sparkles, Terminal, TriangleAlert, Users, X,
   Zap, type LucideIcon,
 } from 'lucide-react';
 import { query, request } from './api';
-import { DitherCanvas } from './components/DitherCanvas';
 import { DitherText } from './components/DitherText';
 import { PixelIcon, type PixelIconName } from './components/PixelIcon';
 import { RateChart } from './components/DashCharts';
@@ -26,6 +25,14 @@ const titles: Record<Page, string> = {
   overview: 'Overview', failures: 'Problems', discovery: 'Topics',
   conversations: 'Conversations',
   integration: 'Connect your agent', welcome: 'Welcome',
+};
+
+const PAGE_INTRO: Record<Exclude<Page, 'welcome'>, [string, string]> = {
+  overview: ['See where your agent can improve.', 'Every conversation is checked for problems, so you know what to fix first.'],
+  failures: ['Find what is going wrong.', 'Each row is one kind of problem. Open it to see the real messages behind it.'],
+  discovery: ['Discover what people ask about.', 'Conversations about the same thing are grouped into topics automatically.'],
+  conversations: ['Read every conversation.', 'Follow real chats between your users and your agent, step by step.'],
+  integration: ['Connect your agent.', 'Three short steps to send your agent’s conversations here.'],
 };
 
 const welcomeAnchors = new Set(['welcome', 'features', 'how-it-works', 'walkthrough', 'setup-steps', 'preview', 'case-studies', 'faq']);
@@ -287,15 +294,14 @@ function AdvancedTools({ tools }: { tools: { id: string; title: string; text: st
 function OverviewHero({ data, range, onPage }: { data: Overview; range: Range; onPage: (page: Page) => void }) {
   const metrics = data.metrics;
   const flagged = Math.round(metrics.conversations * metrics.failure_rate / 100);
-  const stats: { icon: PixelIconName; label: string; value: string; detail: string; page: Page }[] = [
-    { icon: 'ingest', label: 'Conversations', value: formatNumber(metrics.conversations), detail: 'chats with your agent', page: 'conversations' },
-    { icon: 'trace', label: 'Response time', value: latency(metrics.avg_latency_ms), detail: 'average time to reply', page: 'conversations' },
-    { icon: 'detect', label: 'People affected', value: formatNumber(metrics.affected_users), detail: 'had at least one problem', page: 'failures' },
-    { icon: 'cluster', label: 'Problem types', value: formatNumber(data.top_clusters.length), detail: 'different causes found', page: 'failures' },
+  const stats: { label: string; value: string; detail: string; page: Page }[] = [
+    { label: 'Conversations', value: formatNumber(metrics.conversations), detail: 'chats with your agent', page: 'conversations' },
+    { label: 'Response time', value: latency(metrics.avg_latency_ms), detail: 'average time to reply', page: 'conversations' },
+    { label: 'People affected', value: formatNumber(metrics.affected_users), detail: 'had at least one problem', page: 'failures' },
+    { label: 'Problem types', value: formatNumber(data.top_clusters.length), detail: 'different causes found', page: 'failures' },
   ];
   return <>
     <section className="dash-hero">
-      <DitherCanvas vignette={0.4} intensity={0.9} seed={11} />
       <div className="dash-hero-copy">
         <span className="dash-eyebrow">Conversations with a problem · {rangeLabels[range].toLowerCase()}</span>
         <h2 className="dash-hero-number"><DitherText text={`${metrics.failure_rate.toFixed(1)}%`} maxSize={148} align="left" /></h2>
@@ -306,9 +312,10 @@ function OverviewHero({ data, range, onPage }: { data: Overview; range: Range; o
     </section>
     <div className="dash-stats">
       {stats.map(stat => <button key={stat.label} className="dash-stat" onClick={() => onPage(stat.page)}>
-        <span className="dash-stat-head"><PixelIcon name={stat.icon} size={2} /><small>{stat.label}</small><ChevronRight size={14} /></span>
         <strong>{stat.value}</strong>
+        <span className="dash-stat-label">{stat.label}</span>
         <span className="dash-stat-detail">{stat.detail}</span>
+        <ChevronRight className="dash-stat-arrow" size={15} />
       </button>)}
     </div>
   </>;
@@ -339,7 +346,7 @@ function OverviewPage({ data, loading, error, retry, range, onPage, onCluster, o
     </section><section className="panel recent-panel"><div className="panel-heading"><h2>Recent conversations</h2><button className="text-button" onClick={() => onPage('conversations')}>View all<ArrowRight size={14} /></button></div>
       {data.recent_conversations.length ? data.recent_conversations.slice(0, 5).map(conversation => <ConversationRow key={conversation.id} conversation={conversation} compact onClick={() => onConversation(conversation.id)} />) : <EmptyState title="No recent conversations" description="New conversations will appear here." />}
     </section></div>
-    <div className="connect-strip"><DitherCanvas className="strip-dither" vignette={0} intensity={0.6} seed={4} /><span className="strip-icon"><PixelIcon name="prompt" size={3} /></span><div><strong>Better agents start with visibility.</strong><p>Add Tervik to your next agent with one skill.</p></div><button className="button button-secondary" onClick={() => onPage('integration')}>View integration<ArrowUpRight size={15} /></button></div>
+    <div className="connect-strip"><span className="strip-icon"><PixelIcon name="prompt" size={3} /></span><div><strong>Better agents start with visibility.</strong><p>Add Tervik to your next agent with one skill.</p></div><button className="button button-secondary" onClick={() => onPage('integration')}>View integration<ArrowUpRight size={15} /></button></div>
   </>;
 }
 
@@ -509,7 +516,6 @@ function FailuresPage({ projectId, range, refresh, onSelect }: { projectId: stri
   useEffect(() => { const timer = window.setTimeout(() => setDebounced(search), 250); return () => window.clearTimeout(timer); }, [search]);
   const resource = useResource<Cluster[]>(`/api/clusters${query({ project_id: projectId, range, search: debounced, status })}`, refresh);
   return <>
-    <div className="context-banner"><DitherCanvas className="banner-dither" vignette={0} intensity={0.6} seed={6} /><span className="context-icon"><PixelIcon name="detect" size={3} /></span><div><strong>Each row is one kind of problem.</strong><span>Open a row to see the real messages behind it and a suggested next step.</span></div><span className="subtle-pill">Found by rules</span></div>
     <section className="panel"><div className="list-toolbar"><div className="tab-switch" aria-label="Cluster status">{[['', 'All'], ['open', 'Open'], ['resolved', 'Resolved']].map(([value, label]) => <button key={value} className={status === value ? 'active' : ''} onClick={() => setStatus(value)}>{label}</button>)}</div><label className="search-input"><Search size={16} /><input aria-label="Search problems" placeholder="Search problems..." value={search} onChange={event => setSearch(event.target.value)} />{search && <button aria-label="Clear search" onClick={() => setSearch('')}><X size={14} /></button>}</label></div>
       <div className="cluster-table-head"><span>Problem</span><span>How serious</span><span>Conversations</span><span>Share</span><span>Status</span><span /></div>
       {resource.loading ? <Loading label="Finding problems" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : resource.data?.length ? resource.data.map(cluster => <ClusterRow key={cluster.id} cluster={cluster} onClick={() => onSelect(cluster.id)} />) : <EmptyState icon={search ? Search : CheckCheck} title={search ? 'No matching problems' : status === 'resolved' ? 'Nothing resolved yet' : 'No problems found in this period'} description={search ? 'Try a different search or clear your filters.' : status === 'resolved' ? 'Problems you mark as resolved will appear here.' : 'Choose another date range or send conversations from your agent.'} />}
@@ -543,7 +549,6 @@ function DiscoveryPage({ projectId, range, refresh, onConversation }: { projectI
   };
   const toggle = (id: string) => setChecked(items => items.includes(id) ? items.filter(item => item !== id) : [...items, id]);
   return <>
-    <div className="context-banner"><DitherCanvas className="banner-dither" vignette={0} intensity={0.6} seed={8} /><span className="context-icon"><PixelIcon name="cluster" size={3} /></span><div><strong>What are people asking about?</strong><span>Conversations about the same thing are grouped into topics automatically, from what users actually write.</span></div><span className="subtle-pill">Automatic</span></div>
     {resource.loading ? <Loading label="Finding topics" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : data && <>
       <div className="metric-grid">
         <Metric label="Conversations grouped" value={`${formatNumber(data.coverage.clustered)} / ${formatNumber(data.coverage.conversations_analyzed)}`} icon={Layers3} detail={`${formatNumber(data.coverage.messages_total)} messages from ${formatNumber(data.coverage.users_total)} people`} />
@@ -829,8 +834,7 @@ function IntegrationPage({ project, refresh }: { project: Project; refresh: numb
   useEffect(() => { setKey(''); setShowKey(false); setKeyError(''); }, [project.id, refresh]);
   const shownKey = key && showKey ? key : 'tvk_••••••••••••••••••••••••';
   const code = language === 'typescript' ? `import { Tervik } from '@tervik/sdk';\n\nconst tervik = new Tervik({\n  apiKey: process.env.TERVIK_API_KEY!,\n  endpoint: ${JSON.stringify(endpointBase)},\n});\n\ntervik.capture({\n  conversation_id: 'conversation-123',\n  user_id: 'user-456',\n  role: 'user',\n  content: 'Can you help me with my order?',\n});\n\nawait tervik.flush();` : `curl -X POST "${endpointBase}/v1/events" \\\n  -H "Authorization: Bearer $TERVIK_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"events": [{\n    "conversation_id": "conversation-123",\n    "user_id": "user-456",\n    "role": "user",\n    "content": "Can you help me with my order?"\n  }]}'`;
-  return <div className="integration-layout"><div className="integration-main"><div className="integration-intro"><span className="eyebrow"><Zap size={14} />A SMALL SKILL. A CLEARER PICTURE.</span><h2>Connect in minutes.<br /><span>Learn from every conversation.</span></h2><p>Let your coding agent add Tervik to your project, then follow the conversations that reveal what needs attention.</p></div>
-    <section className="setup-step panel"><div className="step-heading"><span className="step-number">01</span><div><h3>Download the skill</h3><p>Add Tervik’s integration instructions to your coding agent.</p></div></div><div className="command-box"><code>{INSTALL_COMMAND}</code><CopyButton text={INSTALL_COMMAND} /></div><div className="step-footer"><span>Works with agents that support skills</span><a href="/tervik-skill.zip" download className="text-button"><Download size={14} />Download ZIP</a></div></section>
+  return <div className="integration-layout"><div className="integration-main">    <section className="setup-step panel"><div className="step-heading"><span className="step-number">01</span><div><h3>Download the skill</h3><p>Add Tervik’s integration instructions to your coding agent.</p></div></div><div className="command-box"><code>{INSTALL_COMMAND}</code><CopyButton text={INSTALL_COMMAND} /></div><div className="step-footer"><span>Works with agents that support skills</span><a href="/tervik-skill.zip" download className="text-button"><Download size={14} />Download ZIP</a></div></section>
     <section className="setup-step panel"><div className="step-heading"><span className="step-number">02</span><div><h3>Run this prompt</h3><p>Your agent will read the skill and implement the integration.</p></div></div><div className="command-box prompt-box"><code>{INSTALL_PROMPT}</code><CopyButton text={INSTALL_PROMPT} /></div><div className="step-footer"><span>Review your agent’s code changes before running them.</span></div></section>
     <section className="setup-step panel"><div className="step-heading"><span className="step-number">03</span><div><h3>Set your project key</h3><p>Store this key in your application’s server environment.</p></div></div><label className="field-label">TERVIK_API_KEY</label><div className="key-box"><code>{shownKey}</code><button className="icon-button" title={showKey ? 'Hide API key' : 'Reveal API key'} aria-label={showKey ? 'Hide API key' : 'Reveal API key'} disabled={keyBusy} onClick={async () => {
       if (showKey) { setShowKey(false); return; }
@@ -1005,11 +1009,12 @@ export default function App() {
     {page === 'welcome' ? <><Welcome onStart={() => navigate('overview')} onDemo={seedDemo} demoBusy={demoBusy} />{actionError && <div className="welcome-error"><ErrorState message={actionError} onRetry={seedDemo} /></div>}</> : <div className="app-shell">
       {mobileOpen && <button className="sidebar-scrim" onClick={() => setMobileOpen(false)} aria-label="Close navigation" />}
       <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}><Logo /><div className="workspace-label">WORKSPACE</div><div className="project-picker"><span className="project-avatar">{project?.name.slice(0, 1).toUpperCase() || 'T'}</span><select aria-label="Select project" value={project?.id || ''} onChange={event => setProjectId(event.target.value)}>{projects.data?.length ? projects.data.map(item => <option key={item.id} value={item.id}>{item.name}{item.is_demo ? ' (sample)' : ''}</option>) : <option value="">No projects yet</option>}</select><ChevronDown size={13} /><button onClick={() => setCreateOpen(true)} aria-label="Create project" title="Create project"><Plus size={15} /></button></div>
-        <nav className="main-nav" aria-label="Main navigation">{navItems.map(({ page: navPage, icon, label }, index) => <a href={`#${navPage}`} key={navPage} className={page === navPage ? 'active' : ''} aria-current={page === navPage ? 'page' : undefined}>{page === navPage && <DitherCanvas className="nav-dither" vignette={0} intensity={0.75} seed={index} />}<span className="nav-icon"><PixelIcon name={icon} size={2} /></span><span>{label}</span>{navPage === 'failures' && !!overview.data?.top_clusters.length && <span className="nav-count">{overview.data.top_clusters.length}</span>}</a>)}</nav><div className="nav-divider" /><nav className="secondary-nav"><a href="#integration" className={page === 'integration' ? 'active' : ''}>{page === 'integration' && <DitherCanvas className="nav-dither" vignette={0} intensity={0.75} seed={5} />}<span className="nav-icon"><PixelIcon name="code" size={2} /></span><span>Connect agent</span>{page !== 'integration' && <span className="new-badge">SETUP</span>}</a><a href="#welcome"><span className="nav-icon"><PixelIcon name="guide" size={2} /></span><span>Product tour</span><ArrowUpRight size={14} /></a></nav>
-        <div className="sidebar-bottom"><div className="sidebar-tip"><DitherCanvas className="tip-dither" vignette={0} intensity={0.7} seed={3} /><span><PixelIcon name="replay" size={2} /></span><strong>New here?</strong><p>A two-minute guide to what every number and word on this dashboard means.</p><button onClick={() => setGuideOpen(true)}>Open the guide<ArrowRight size={14} /></button></div><button className="settings-button" onClick={() => { setAdminToken(sessionStorage.getItem('tervik_admin_token') || ''); setSessionToken(sessionStorage.getItem('tervik_session') || ''); setSettingsOpen(true); }}><Settings2 size={17} /><span>Connection settings</span></button><div className="workspace-footer"><span className="user-avatar">T</span><span><strong>Local workspace</strong><small>Development foundation</small></span><span className="local-dot" /></div></div>
+        <nav className="main-nav" aria-label="Main navigation">{navItems.map(({ page: navPage, icon, label }) => <a href={`#${navPage}`} key={navPage} className={page === navPage ? 'active' : ''} aria-current={page === navPage ? 'page' : undefined}><span className="nav-icon"><PixelIcon name={icon} size={2} /></span><span>{label}</span>{navPage === 'failures' && !!overview.data?.top_clusters.length && <span className="nav-count">{overview.data.top_clusters.length}</span>}</a>)}</nav><div className="nav-divider" /><nav className="secondary-nav"><a href="#integration" className={page === 'integration' ? 'active' : ''}><span className="nav-icon"><PixelIcon name="code" size={2} /></span><span>Connect agent</span></a><a href="#welcome"><span className="nav-icon"><PixelIcon name="guide" size={2} /></span><span>Product tour</span><ArrowUpRight size={14} /></a></nav>
+        <div className="sidebar-bottom"><button className="sidebar-link" onClick={() => setGuideOpen(true)}><span className="nav-icon"><PixelIcon name="guide" size={2} /></span><span>Quick guide</span></button><button className="settings-button" onClick={() => { setAdminToken(sessionStorage.getItem('tervik_admin_token') || ''); setSessionToken(sessionStorage.getItem('tervik_session') || ''); setSettingsOpen(true); }}><Settings2 size={17} /><span>Connection settings</span></button><div className="workspace-footer"><span className="user-avatar">T</span><span><strong>Local workspace</strong><small>Development foundation</small></span><span className="local-dot" /></div></div>
       </aside>
-      <div className="main-shell"><header className="topbar"><div className="breadcrumb"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Open navigation"><Menu size={20} /></button><span>Workspace</span><ChevronRight size={12} /><strong>{project?.name || 'Getting started'}</strong>{project?.is_demo && <span className="demo-badge">SAMPLE DATA</span>}</div><div className="topbar-right"><button className="topbar-guide" onClick={() => setGuideOpen(true)}><CircleHelp size={15} />Guide</button><span className={`api-health ${health.data ? 'connected' : ''}`}><span />{health.data ? 'API connected' : health.loading ? 'Connecting' : 'API offline'}</span><button className="topbar-icon" onClick={() => navigate('integration')} aria-label="Open integration guide" title="Integration guide"><FileCode2 size={18} /></button></div></header>
-        <main className="main-content"><div className="page-heading"><div><div className="page-eyebrow">agent intelligence · {project?.name || 'no project'}</div><h1>{titles[page]}<span>{page === 'overview' ? 'How your agent is doing, and what to look at first.' : page === 'failures' ? 'Where users ran into trouble, grouped by cause.' : page === 'discovery' ? 'What people ask your agent about most.' : page === 'conversations' ? 'Every chat between your users and your agent.' : 'Three short steps to send your agent’s chats here.'}</span></h1></div>{page !== 'integration' && <div className="heading-actions"><label className="date-range"><Clock3 size={15} /><select aria-label="Date range" value={range} onChange={event => setRange(event.target.value as Range)}>{Object.entries(rangeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><ChevronDown size={13} /></label><button className="button button-primary heading-connect" onClick={() => project ? navigate('integration') : setCreateOpen(true)}><Plus size={15} />{project ? 'Connect agent' : 'New project'}</button></div>}</div>
+      <div className="main-shell"><header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Open navigation"><Menu size={20} /></button><h1 className="topbar-title">{titles[page]}</h1>{project?.is_demo && <span className="demo-badge">SAMPLE DATA</span>}{page !== 'integration' && project && <label className="date-range"><Clock3 size={14} /><select aria-label="Date range" value={range} onChange={event => setRange(event.target.value as Range)}>{Object.entries(rangeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><ChevronDown size={13} /></label>}<button className="icon-button topbar-refresh" onClick={() => setRefresh(value => value + 1)} aria-label="Refresh data" title="Refresh data"><RotateCcw size={15} /></button></div><div className="topbar-right"><button className="topbar-guide" onClick={() => setGuideOpen(true)}><CircleHelp size={15} />Guide</button><span className={`api-health ${health.data ? 'connected' : ''}`}><span />{health.data ? 'API connected' : health.loading ? 'Connecting' : 'API offline'}</span></div></header>
+        <div className="page-intro"><div><strong>{PAGE_INTRO[page][0]}</strong><span>{PAGE_INTRO[page][1]}</span></div>{page !== 'integration' && <button className="intro-cta" onClick={() => project ? navigate('integration') : setCreateOpen(true)}>{project ? 'Connect your agent' : 'Create a project'}<ArrowRight size={15} /></button>}</div>
+        <main className="main-content">
           {actionError && <div className="action-error"><TriangleAlert size={16} /><span>{actionError}</span><button className="icon-button" onClick={() => setActionError('')} aria-label="Dismiss error"><X size={15} /></button></div>}
           {projects.loading ? <Loading /> : projects.error ? <ErrorState message={projects.error} onRetry={projects.retry} /> : !project ? noProject : page === 'overview' ? <OverviewPage {...overview} range={range} onPage={navigate} onCluster={setClusterId} onConversation={selectConversation} onDemo={seedDemo} demoBusy={demoBusy} onGuide={() => setGuideOpen(true)} /> : page === 'failures' ? <FailuresPage projectId={project.id} range={range} refresh={refresh} onSelect={setClusterId} /> : page === 'discovery' ? <DiscoveryPage projectId={project.id} range={range} refresh={refresh} onConversation={selectConversation} /> : page === 'conversations' ? <ConversationsPage projectId={project.id} range={range} refresh={refresh} onSelect={selectConversation} /> : <IntegrationPage key={project.id} project={project} refresh={refresh} />}
           <footer className="dashboard-footer"><span>Tervik<span className="footer-separator">/</span>Find failures. Build better agents.</span><span><span className="pulse-dot" />Rule-based analysis</span></footer>

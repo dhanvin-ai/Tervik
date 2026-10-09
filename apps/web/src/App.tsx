@@ -1,22 +1,18 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Activity, ArrowDownLeft, ArrowRight, ArrowUpRight, Bot, Check,
-  CheckCheck, ChevronDown, ChevronRight, ChevronUp, CircleHelp, Clock3, Code2, Copy,
-  Download, ExternalLink, Eye, EyeOff, FileCode2, Filter, FolderPlus, GitBranch,
-  Layers3, LayoutDashboard, LoaderCircle, Menu, MessageSquare, Pause, Play, Plus,
-  RotateCcw, Search, Settings2, ShieldCheck, Sparkles, Terminal, TriangleAlert, Users, X,
+  CheckCheck, ChevronDown, ChevronRight, CircleHelp, Clock3, Code2, Copy,
+  Download, Eye, EyeOff, FileCode2, Filter, FolderPlus, GitBranch,
+  Layers3, LayoutDashboard, LoaderCircle, Menu, MessageSquare, Play, Plus,
+  Search, Settings2, ShieldCheck, Sparkles, Terminal, TriangleAlert, Users, X,
   Zap, type LucideIcon,
 } from 'lucide-react';
 import { query, request } from './api';
 import { AsciiMatrixBackground } from './components/AsciiMatrixBackground';
 import { AnimatedBrandLogo } from './components/AnimatedBrandLogo';
 import { HeroHeadline } from './components/HeroHeadline';
-import { IsometricArchitecture } from './components/IsometricArchitecture';
-import { SetupStepMotion } from './components/SetupStepMotion';
-import { FeaturesMotionGrid } from './components/FeaturesMotionGrid';
-import { SocialProofMotion } from './components/SocialProofMotion';
+import { DashboardShowcase, DitherDivider, FeatureShowcase, FinalCta, LandingFooter, OtlpBanner, PrinciplesGrid, SetupSection, TurnWalkthrough } from './components/LandingSections';
 import { WorksWithMarquee } from './components/WorksWithMarquee';
-import { useScrollProgress, usePrefersReducedMotion } from './hooks/useMotion';
 import type { AlertRule, BehaviorRule, Cluster, ClusterDetail, Conversation, ConversationDetail, Delivery, Discovery, DiscoveryIntent, EvalDataset, EvalRun, Improvement, Overview, Page, Project, Range, SetupStatus } from './types';
 
 const INSTALL_COMMAND = 'npx skills add dhanvin-ai/tervik --skill tervik';
@@ -28,7 +24,7 @@ const titles: Record<Page, string> = {
   integration: 'Connect your agent', welcome: 'Welcome',
 };
 
-const welcomeAnchors = new Set(['welcome', 'how-it-works', 'setup-steps', 'features', 'case-studies', 'faq']);
+const welcomeAnchors = new Set(['welcome', 'features', 'how-it-works', 'walkthrough', 'setup-steps', 'preview', 'case-studies', 'faq']);
 
 function currentPage(): Page {
   const value = window.location.hash.replace('#', '');
@@ -791,263 +787,7 @@ function IntegrationPage({ project, refresh }: { project: Project; refresh: numb
   })}</div><div className="foundation-note"><span className="pulse-dot" /><strong>Local foundation</strong><p>This version runs on your machine. Signals use transparent rules; hosted access, semantic clustering, and automated fixes are future milestones.</p></div></aside></div>;
 }
 
-function AgentExecutionSimulator({ onStart }: { onStart: () => void }) {
-  const [stage, setStage] = useState<1 | 2 | 3 | 4 | 5>(1);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const { ref, progress } = useScrollProgress<HTMLDivElement>();
-  const prefersReduced = usePrefersReducedMotion();
-
-  useEffect(() => {
-    if (!isPlaying) return;
-    const interval = setInterval(() => {
-      setStage(s => (s === 5 ? 1 : ((s + 1) as 1 | 2 | 3 | 4 | 5)));
-    }, 3200);
-    return () => clearInterval(interval);
-  }, [isPlaying]);
-
-  const tiltX = prefersReduced ? 0 : (0.5 - progress) * 6;
-  const tiltY = prefersReduced ? 0 : (0.5 - progress) * 4;
-  const scale = prefersReduced ? 1 : 0.97 + Math.min(progress, 0.5) * 0.06;
-  const parallaxX = prefersReduced ? 0 : (0.5 - progress) * 10;
-
-  const captions = [
-    'Layer 1: Non-blocking asynchronous ingestion buffers user prompt without generation delay',
-    'Layer 1: Tool execution spans recorded with exact arguments, returns, and execution latency',
-    'Layer 2: Deterministic regex guardrail intercepts timeout exception without flaky LLM judges',
-    'Layer 3: Cross-session cluster groups recurring failures and cites exact message evidence',
-    'Layer 4: Replay evaluation executes candidate prompt against historical failures with 100% pass',
-  ];
-
-  return <div
-    ref={ref}
-    className="m-sim-wrapper"
-    style={{
-      transform: `perspective(1200px) rotateX(${tiltX}deg) rotateY(${tiltY}deg) scale(${scale}) translateX(${parallaxX}px)`,
-      transition: prefersReduced ? 'none' : 'transform 0.15s ease-out',
-    }}
-  >
-    <div className="m-sim-caption-bar">
-      <span className="m-sim-caption-badge">LIVE DEMO · STAGE 0{stage}</span>
-      <span className="m-sim-caption-text" key={stage}>
-        {captions[stage - 1]}
-      </span>
-    </div>
-    <div className="m-sim-card">
-      <div className="m-sim-header">
-        <div className="m-sim-header-left">
-          <div className="m-window-dots">
-            <span className="m-dot m-dot-red" />
-            <span className="m-dot m-dot-yellow" />
-            <span className="m-dot m-dot-green" />
-          </div>
-          <div className="m-sim-telemetry-strip">
-            <span className="m-sim-telemetry-item">RUN: <strong>#exec-8192</strong></span>
-            <span className="m-sim-telemetry-item">LATENCY: <strong>{stage === 1 ? '12ms' : stage === 2 ? '4.1s' : stage === 3 ? '4.1s' : stage === 4 ? '4.1s' : '182ms'}</strong></span>
-            <span className="m-sim-telemetry-item">TOKENS: <strong>{stage === 1 ? '48' : stage >= 2 ? '342 ($0.0012)' : '0'}</strong></span>
-          </div>
-        </div>
-        <div className={`m-sim-phase-pill phase-${stage}`}>
-          <span className="pulse-dot" style={{ display: 'inline-block' }} />
-          <span>{stage === 1 ? '01 Prompt Ingestion' : stage === 2 ? '02 Spans Executing' : stage === 3 ? '03 Rule Intercept' : stage === 4 ? '04 Cluster Synthesis' : '05 Replay Verified'}</span>
-        </div>
-      </div>
-
-      <div className="m-sim-nav">
-        {[
-          { id: 1, label: '01 Ingest Prompt' },
-          { id: 2, label: '02 Tool Spans' },
-          { id: 3, label: '03 Rule Intercept' },
-          { id: 4, label: '04 Cluster Synthesis' },
-          { id: 5, label: '05 Replay Verified' },
-        ].map(item => <button
-          key={item.id}
-          className={`m-sim-nav-btn ${stage === item.id ? 'active' : ''}`}
-          onClick={() => { setStage(item.id as any); setIsPlaying(false); }}
-        >
-          <span className="m-sim-nav-num">0{item.id}</span>
-          <span>{item.label}</span>
-        </button>)}
-      </div>
-
-      <div className="m-sim-body">
-        {/* Left Column: The Agent Story */}
-        <div className="m-sim-col">
-          <div className="m-sim-panel-box">
-            <div className="m-sim-panel-title">
-              <span>USER PROMPT & RUNTIME CONTEXT</span>
-              <span className="status status-healthy"><span />Buffered</span>
-            </div>
-            <div className="m-chat-message m-chat-user" style={{ marginBottom: 12 }}>
-              <span className="m-chat-avatar"><Users size={13} /></span>
-              <div>
-                <strong>User Input</strong>
-                <p>Deploy the updated Stripe webhook migration to production.</p>
-              </div>
-            </div>
-            <div className="m-sim-span-meta" style={{ fontSize: 10 }}>
-              <span>Environment: <strong>Production-US-East</strong></span>
-              <span>Model: <strong>sample-agent-v1</strong></span>
-              <span>Context: <strong>4.2k tokens</strong></span>
-            </div>
-          </div>
-
-          <div className="m-sim-panel-box">
-            <div className="m-sim-panel-title">
-              <span>TOOL EXECUTION SPANS</span>
-              <span>{stage >= 2 ? '3 spans dispatched' : 'Pending dispatch'}</span>
-            </div>
-            <div className="m-sim-span-list">
-              <div className={`m-sim-span-row ${stage >= 2 ? 'success' : ''}`}>
-                <div className="m-sim-span-left">
-                  {stage >= 2 ? <Check size={12} color="#34d399" /> : <Clock3 size={12} />}
-                  <span>tool: verify_database_connection</span>
-                </div>
-                <div className="m-sim-span-meta">
-                  <span>14ms</span>
-                  <span>200 OK</span>
-                </div>
-              </div>
-              <div className={`m-sim-span-row ${stage >= 2 ? 'success' : ''}`}>
-                <div className="m-sim-span-left">
-                  {stage >= 2 ? <Check size={12} color="#34d399" /> : <Clock3 size={12} />}
-                  <span>tool: check_migration_checksums</span>
-                </div>
-                <div className="m-sim-span-meta">
-                  <span>38ms</span>
-                  <span>200 OK</span>
-                </div>
-              </div>
-              <div className={`m-sim-span-row ${stage >= 2 ? (stage >= 5 ? 'success' : 'error') : ''}`}>
-                <div className="m-sim-span-left">
-                  {stage >= 5 ? <Check size={12} color="#34d399" /> : stage >= 2 ? <TriangleAlert size={12} color="#f43f5e" /> : <Clock3 size={12} />}
-                  <span>tool: execute_migration</span>
-                </div>
-                <div className="m-sim-span-meta">
-                  <span>{stage >= 5 ? '130ms (fallback retry)' : '4,120ms'}</span>
-                  <span style={{ color: stage >= 5 ? '#34d399' : stage >= 2 ? '#f43f5e' : 'inherit' }}>
-                    {stage >= 5 ? '200 OK' : stage >= 2 ? '504 TIMEOUT' : 'QUEUED'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column: Tervik Intelligence & Verification */}
-        <div className="m-sim-col">
-          {stage === 1 && <div className="m-sim-panel-box">
-            <div className="m-sim-panel-title">
-              <span>LAYER 1 · TELEMETRY INGESTION</span>
-              <span style={{ color: '#38bdf8' }}>Async Ingest</span>
-            </div>
-            <p style={{ fontSize: 12, color: '#a1a1aa', lineHeight: 1.6, marginBottom: 14 }}>
-              As soon as a user sends a prompt, Tervik records the turn with non-blocking async background flush. Sub-2ms overhead on your agent process.
-            </p>
-            <div className="m-term-line" style={{ background: '#0c0d12', padding: '10px 12px', borderRadius: 6, fontSize: 11 }}>
-              <span style={{ color: '#38bdf8' }}>✓ Ingested turn:</span> 1 prompt, 0 errors, ready for tool execution telemetry.
-            </div>
-          </div>}
-
-          {stage === 2 && <div className="m-sim-panel-box">
-            <div className="m-sim-panel-title">
-              <span>LAYER 2 · EXECUTION RUNTIME</span>
-              <span style={{ color: '#818cf8' }}>Active Spans</span>
-            </div>
-            <p style={{ fontSize: 12, color: '#a1a1aa', lineHeight: 1.6, marginBottom: 14 }}>
-              Sub-spans branch out across tools, APIs, and file operations. Latency, payload inputs, and error statuses are recorded in real time.
-            </p>
-            <div style={{ background: 'rgba(244, 63, 94, 0.08)', border: '1px solid rgba(244, 63, 94, 0.25)', borderRadius: 6, padding: '10px 12px', fontSize: 11, color: '#f43f5e' }}>
-              <strong>Exception Caught:</strong> worker pool timeout (504) after 4,120ms.
-            </div>
-          </div>}
-
-          {stage === 3 && <div className="m-sim-panel-box">
-            <div className="m-sim-panel-title">
-              <span>LAYER 2 · DETERMINISTIC TRIAGE</span>
-              <span className="severity severity-critical"><span />Critical Intercept</span>
-            </div>
-            <div className="m-signal-card" style={{ marginTop: 0 }}>
-              <div className="m-signal-head">
-                <TriangleAlert size={14} />
-                <strong>Signal #SIG-409 · Tool Timeout</strong>
-                <span className="severity severity-critical"><span />Critical</span>
-              </div>
-              <p>Rule &quot;required_tool&quot; violated: execute_migration timed out after 4000ms deadline.</p>
-              <div className="m-signal-meta">
-                <span>Rule: v1</span>
-                <span>Transparent Regex Guardrail</span>
-                <span>0 Hallucinated LLM tokens</span>
-              </div>
-            </div>
-          </div>}
-
-          {stage === 4 && <div className="m-sim-panel-box">
-            <div className="m-sim-panel-title">
-              <span>LAYER 3 · CROSS-SESSION CLUSTER</span>
-              <span className="count-badge">42 runs</span>
-            </div>
-            <div className="m-cluster-card" style={{ marginTop: 0 }}>
-              <div className="m-cluster-head">
-                <Layers3 size={14} />
-                <strong>Cluster #03 · Database Pool Exhaustion</strong>
-                <span className="count-badge">10.7% Traffic Share</span>
-              </div>
-              <p>Postgres connection pool exhaustion observed across 6 distinct users during peak deployment windows.</p>
-              <div className="m-cluster-action">
-                <span>Evidence cited with exact payload</span>
-                <button className="text-button" onClick={onStart}>Investigate in dashboard<ChevronRight size={13} /></button>
-              </div>
-            </div>
-          </div>}
-
-          {stage === 5 && <div className="m-sim-panel-box" style={{ borderColor: 'rgba(52, 211, 153, 0.3)', background: 'rgba(52, 211, 153, 0.04)' }}>
-            <div className="m-sim-panel-title">
-              <span style={{ color: '#34d399' }}>LAYER 4 · REPLAY EVALUATION LAB</span>
-              <span className="status status-healthy"><span />System Verified</span>
-            </div>
-            <p style={{ fontSize: 12, color: '#d4d4d8', lineHeight: 1.6, marginBottom: 12 }}>
-              A candidate prompt & tool descriptor with exponential backoff and circuit breaker was simulated across 42 historical production failure cases.
-            </p>
-            <div style={{ background: '#090b10', border: '1px solid rgba(52, 211, 153, 0.2)', borderRadius: 6, padding: '10px 14px', fontSize: 11, fontFamily: 'Geist Mono, monospace', marginBottom: 12 }}>
-              <div style={{ color: '#71717a', marginBottom: 4 }}>BASELINE: 0 / 42 passed (42 violations)</div>
-              <div style={{ color: '#34d399', fontWeight: 500 }}>CANDIDATE: 42 / 42 passed (0 violations) · 100% PASS</div>
-            </div>
-            <span style={{ fontSize: 11, color: '#34d399', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Check size={14} />
-              Zero regressions detected. Ready for production rollout.
-            </span>
-          </div>}
-        </div>
-      </div>
-
-      <div className="m-sim-controls">
-        <span>Click tabs or advance to see how Tervik turns execution friction into verified fixes.</span>
-        <div className="m-sim-controls-actions">
-          <button className="m-sim-btn-step" onClick={() => setIsPlaying(!isPlaying)}>
-            {isPlaying ? <Pause size={13} /> : <Play size={13} />}
-            <span>{isPlaying ? 'Pause' : 'Autoplay'}</span>
-          </button>
-          <button
-            className="m-sim-btn-step"
-            onClick={() => { setStage(s => (s === 1 ? 5 : ((s - 1) as any))); setIsPlaying(false); }}
-          >
-            <span>Prev</span>
-          </button>
-          <button
-            className="m-sim-btn-step m-sim-btn-primary"
-            onClick={() => { setStage(s => (s === 5 ? 1 : ((s + 1) as any))); setIsPlaying(false); }}
-          >
-            <span>{stage === 5 ? 'Restart Cycle' : 'Next Phase'}</span>
-            {stage === 5 ? <RotateCcw size={13} /> : <ChevronRight size={13} />}
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>;
-}
-
 function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: () => void; demoBusy: boolean }) {
-  const [expandedFaq, setExpandedFaq] = useState<number | null>(0);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [copyError, setCopyError] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -1063,29 +803,6 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
     }
   };
 
-  const faqs = [
-    {
-      q: 'Does Tervik work with my existing agent framework?',
-      a: 'Yes. Tervik works with Claude Code, Cursor, OpenCode, Codex, Devin, Antigravity, LangChain, LlamaIndex, or any custom agent harness. You can install the Tervik skill or use the @tervik/sdk client library.',
-    },
-    {
-      q: 'How does deterministic failure detection differ from LLM-as-a-judge?',
-      a: 'LLM judges are slow, costly, and non-deterministic. Tervik evaluates conversation turns using transparent, rule-based triage: required tools, forbidden patterns, repetition loops, and tool execution error payloads—with zero hallucinations.',
-    },
-    {
-      q: 'Where is my conversation data stored?',
-      a: 'Tervik runs on your local machine or private cloud. All conversations, failure clusters, and evidence are stored in your own SQLite or PostgreSQL database. Your data is never sent to our servers.',
-    },
-    {
-      q: 'What is the latency overhead on agent inference calls?',
-      a: 'Virtually zero (~2ms). Events are buffered and flushed asynchronously in the background, so your agent generation loops and user interactions are never blocked.',
-    },
-    {
-      q: 'Can we define custom rules and alert channels?',
-      a: 'Yes. You can define custom behavior rules (forbidden phrases, mandatory tools) and set up threshold or trend-based alerts that notify your team via Slack webhooks or email.',
-    },
-  ];
-
   return <div className="m-page">
     {/* Landing navigation */}
     <header className="m-nav-wrapper">
@@ -1095,11 +812,10 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
         </a>
 
         <div className="m-nav-links">
-          <a href="#how-it-works">How It Works</a>
-          <a href="#setup-steps">Setup</a>
           <a href="#features">Features</a>
-          <a href="#case-studies">Case Studies</a>
-          <a href="#faq">FAQ</a>
+          <a href="#how-it-works">How It Works</a>
+          <a href="#walkthrough">Walkthrough</a>
+          <a href="#setup-steps">Setup</a>
         </div>
 
         <div className="m-nav-actions">
@@ -1118,11 +834,10 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
       </nav>
 
       {mobileMenuOpen && <div className="m-mobile-menu" id="landing-mobile-menu">
-        <a href="#how-it-works" onClick={() => setMobileMenuOpen(false)}>01 · How It Works</a>
-        <a href="#setup-steps" onClick={() => setMobileMenuOpen(false)}>02 · Setup in 3 Steps</a>
-        <a href="#features" onClick={() => setMobileMenuOpen(false)}>03 · Features</a>
-        <a href="#case-studies" onClick={() => setMobileMenuOpen(false)}>04 · Case Studies</a>
-        <a href="#faq" onClick={() => setMobileMenuOpen(false)}>05 · FAQ</a>
+        <a href="#features" onClick={() => setMobileMenuOpen(false)}>01 · Features</a>
+        <a href="#how-it-works" onClick={() => setMobileMenuOpen(false)}>02 · How It Works</a>
+        <a href="#walkthrough" onClick={() => setMobileMenuOpen(false)}>03 · Walkthrough</a>
+        <a href="#setup-steps" onClick={() => setMobileMenuOpen(false)}>04 · Setup</a>
         <div className="m-mobile-menu-actions">
           <button className="button button-secondary" disabled={demoBusy} onClick={() => { setMobileMenuOpen(false); onDemo(); }}>
             {demoBusy ? <LoaderCircle size={14} className="spin" /> : <Layers3 size={14} />}
@@ -1166,183 +881,16 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
 
     <WorksWithMarquee />
 
-    <section className="m-hero-followup" aria-label="Interactive preview">
-      {/* Interactive preview below the first viewport */}
-      <AgentExecutionSimulator onStart={onStart} />
-    </section>
-
-    {/* Section Divider */}
-    <div className="m-divider" />
-
-    {/* How It Works (4 Layers Isometric Motion) */}
-    <section id="how-it-works" className="m-section">
-      <div className="m-section-header">
-        <span className="m-section-eyebrow">FOUR DETERMINISTIC LAYERS</span>
-        <h2 className="m-section-title">How It Works.</h2>
-        <p className="m-section-subtitle">
-          From raw trace ingestion to reproducible evaluation, Tervik gives your agents a systematic feedback loop.
-        </p>
-      </div>
-
-      <IsometricArchitecture />
-    </section>
-
-    {/* Section Divider */}
-    <div className="m-divider" />
-
-    {/* Set Up In Three Steps */}
-    <section id="setup-steps" className="m-section">
-      <div className="m-section-header">
-        <span className="m-section-eyebrow">FAST ONBOARDING</span>
-        <h2 className="m-section-title">Set Up In Three Steps.</h2>
-        <p className="m-section-subtitle">
-          Connect your agent in two minutes. Start seeing signals on your very next turn.
-        </p>
-      </div>
-
-      <SetupStepMotion onCopy={copyHeroCmd} copied={copiedCmd} />
-    </section>
-
-    {/* Section Divider */}
-    <div className="m-divider" />
-
-    {/* Built For Production AI Agents (Features Bento Grid) */}
-    <section id="features" className="m-section">
-      <div className="m-section-header">
-        <span className="m-section-eyebrow">ENTERPRISE PRECISION</span>
-        <h2 className="m-section-title">Built For Production AI Agents.</h2>
-        <p className="m-section-subtitle">
-          Everything you need to observe, triage, and validate agent behavior in high-stakes environments.
-        </p>
-      </div>
-
-      <FeaturesMotionGrid />
-    </section>
-
-    {/* Section Divider */}
-    <div className="m-divider" />
-
-    {/* Case Studies & Impact */}
-    <section id="case-studies" className="m-section">
-      <div className="m-section-header">
-        <span className="m-section-eyebrow">VERIFIED OUTCOMES</span>
-        <h2 className="m-section-title">Case Studies &amp; Impact Metrics.</h2>
-        <p className="m-section-subtitle">
-          Measured outcomes from engineering teams building autonomous AI agents with Tervik.
-        </p>
-      </div>
-
-      <SocialProofMotion />
-    </section>
-
-    {/* Section Divider */}
-    <div className="m-divider" />
-
-    {/* FAQ Accordion */}
-    <section id="faq" className="m-section">
-      <div className="m-section-header">
-        <span className="m-section-eyebrow">COMMON QUESTIONS</span>
-        <h2 className="m-section-title">Frequently Asked Questions.</h2>
-        <p className="m-section-subtitle">
-          Everything you need to know about Tervik&apos;s architecture, privacy, and integrations.
-        </p>
-      </div>
-
-      <div className="m-faq-container">
-        {faqs.map((faq, index) => {
-          const isOpen = expandedFaq === index;
-          return <div key={faq.q} className={`m-faq-item ${isOpen ? 'open' : ''}`}>
-            <button className="m-faq-trigger" onClick={() => setExpandedFaq(isOpen ? null : index)}>
-              <span>{faq.q}</span>
-              {isOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-            </button>
-            {isOpen && <div className="m-faq-answer">
-              <p>{faq.a}</p>
-            </div>}
-          </div>;
-        })}
-      </div>
-    </section>
-
-    {/* Grand CTA Banner */}
-    <section className="m-cta-section">
-      <div className="m-cta-glow" />
-      <div className="m-cta-content">
-        <span className="m-cta-eyebrow">READY TO LISTEN?</span>
-        <h2>Build Agents That Get Better Every Turn.</h2>
-        <p>Install the skill, connect your agent, and see where conversations stumble in minutes.</p>
-
-        <div className="m-cta-buttons">
-          <button className="button button-primary m-cta-btn" onClick={onStart}>
-            <span>Open Dashboard</span>
-            <ChevronRight size={16} />
-          </button>
-          <button className="button button-secondary m-cta-btn" disabled={demoBusy} onClick={onDemo}>
-            {demoBusy ? <LoaderCircle size={15} className="spin" /> : <Layers3 size={15} />}
-            <span>Explore Sample Workspace</span>
-          </button>
-        </div>
-
-        <div className="m-cta-snippet" onClick={copyHeroCmd} title="Click to copy">
-          <Terminal size={14} />
-          <code>{INSTALL_COMMAND}</code>
-          {copiedCmd ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-        </div>
-      </div>
-    </section>
-
-    {/* Footer */}
-    <footer className="m-footer">
-      <div className="m-footer-top">
-        <div className="m-footer-brand">
-          <div className="logo">
-            <span className="logo-symbol"><span /></span>
-            <span>tervik<span className="logo-dot">.</span></span>
-          </div>
-          <p>Find failures. Understand friction. Build better AI agents.</p>
-          <div className="m-footer-local-badge">
-            <span className="local-dot" />
-            <span>Local Foundation · Transparent Rules</span>
-          </div>
-        </div>
-
-        <div className="m-footer-cols">
-          <div className="m-footer-col">
-            <h4>Product</h4>
-            <a href="#how-it-works">How It Works</a>
-            <a href="#setup-steps">Setup in 3 Steps</a>
-            <a href="#features">Features</a>
-            <a href="#case-studies">Case Studies</a>
-          </div>
-
-          <div className="m-footer-col">
-            <h4>Documentation</h4>
-            <a href="#integration" onClick={onStart}>SDK &amp; Ingestion</a>
-            <a href="#setup-steps">Skill Guide</a>
-            <a href="#faq">FAQ</a>
-            <a href="/tervik-skill.zip" download>Download ZIP</a>
-          </div>
-
-          <div className="m-footer-col">
-            <h4>Connect</h4>
-            <a href="https://github.com/dhanvin-ai/tervik" target="_blank" rel="noreferrer">
-              <span>GitHub</span>
-              <ExternalLink size={12} />
-            </a>
-            <a href="https://twitter.com" target="_blank" rel="noreferrer">
-              <span>Twitter / X</span>
-              <ExternalLink size={12} />
-            </a>
-            <button className="text-button" onClick={onStart}>Dashboard</button>
-          </div>
-        </div>
-      </div>
-
-      <div className="m-footer-bottom">
-        <span>&copy; {new Date().getFullYear()} Tervik. All rights reserved.</span>
-        <span>Procedural Conversation Intelligence</span>
-      </div>
-    </footer>
+    <FeatureShowcase />
+    <DitherDivider />
+    <PrinciplesGrid />
+    <TurnWalkthrough onStart={onStart} />
+    <SetupSection onCopy={copyHeroCmd} copied={copiedCmd} />
+    <DitherDivider />
+    <DashboardShowcase onDemo={onDemo} demoBusy={demoBusy} />
+    <OtlpBanner />
+    <FinalCta onStart={onStart} />
+    <LandingFooter onStart={onStart} onDemo={onDemo} />
   </div>;
 }
 

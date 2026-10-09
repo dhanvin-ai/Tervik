@@ -11,6 +11,7 @@ import { query, request } from './api';
 import { DitherCanvas } from './components/DitherCanvas';
 import { DitherText } from './components/DitherText';
 import { PixelIcon, type PixelIconName } from './components/PixelIcon';
+import { RateChart, ShareStrip, SparkBars, SparkLine } from './components/DashCharts';
 import { AsciiMatrixBackground } from './components/AsciiMatrixBackground';
 import { AnimatedBrandLogo } from './components/AnimatedBrandLogo';
 import { HeroHeadline } from './components/HeroHeadline';
@@ -201,14 +202,19 @@ function ConversationRow({ conversation, onClick, compact = false }: { conversat
 function OverviewHero({ data, range, onPage }: { data: Overview; range: Range; onPage: (page: Page) => void }) {
   const metrics = data.metrics;
   const flagged = Math.round(metrics.conversations * metrics.failure_rate / 100);
-  const stages: { icon: PixelIconName; label: string; value: string; detail: string; page: Page }[] = [
-    { icon: 'ingest', label: 'Conversations', value: formatNumber(metrics.conversations), detail: `${formatNumber(metrics.messages)} messages received`, page: 'conversations' },
-    { icon: 'trace', label: 'Average latency', value: latency(metrics.avg_latency_ms), detail: `${money(metrics.cost_usd)} reported cost`, page: 'conversations' },
-    { icon: 'detect', label: 'Affected users', value: formatNumber(metrics.affected_users), detail: 'with a flagged conversation', page: 'failures' },
-    { icon: 'cluster', label: 'Failure clusters', value: formatNumber(data.top_clusters.length), detail: 'grouped by cause', page: 'failures' },
+  const recentLatency = [...data.recent_conversations].reverse().map(conversation => conversation.latency_ms);
+  const stats: { icon: PixelIconName; label: string; value: string; detail: string; caption: string; page: Page; graph: ReactNode }[] = [
+    { icon: 'ingest', label: 'Conversations', value: formatNumber(metrics.conversations), detail: `${formatNumber(metrics.messages)} messages received`, caption: 'per day', page: 'conversations',
+      graph: <SparkBars values={data.trend.map(day => day.conversations)} label="Conversations per day" /> },
+    { icon: 'trace', label: 'Average latency', value: latency(metrics.avg_latency_ms), detail: `${money(metrics.cost_usd)} reported cost`, caption: `last ${recentLatency.length} conversations`, page: 'conversations',
+      graph: <SparkLine values={recentLatency} label="Latency of recent conversations" /> },
+    { icon: 'detect', label: 'Affected users', value: formatNumber(metrics.affected_users), detail: 'with a flagged conversation', caption: 'flagged per day', page: 'failures',
+      graph: <SparkBars values={data.trend.map(day => day.failures)} tone="red" label="Flagged conversations per day" /> },
+    { icon: 'cluster', label: 'Failure clusters', value: formatNumber(data.top_clusters.length), detail: 'grouped by cause', caption: 'share by cluster', page: 'failures',
+      graph: <ShareStrip parts={data.top_clusters.map(cluster => ({ key: cluster.id, value: cluster.count, tone: cluster.severity as 'high' }))} label="Conversations by failure cluster" /> },
   ];
-  return <section className="dash-hero">
-    <div className="dash-hero-feature">
+  return <>
+    <section className="dash-hero">
       <DitherCanvas vignette={0.4} intensity={0.9} seed={11} />
       <div className="dash-hero-copy">
         <span className="dash-eyebrow">Flagged conversations · {rangeLabels[range].toLowerCase()}</span>
@@ -216,15 +222,18 @@ function OverviewHero({ data, range, onPage }: { data: Overview; range: Range; o
         <p>{formatNumber(flagged)} of {formatNumber(metrics.conversations)} conversations carried at least one failure signal.</p>
         <button className="lp-btn" onClick={() => onPage('failures')}>Review failure clusters<ArrowRight size={15} /></button>
       </div>
-    </div>
-    <div className="dash-hero-stages">
-      {stages.map(stage => <button key={stage.label} className="dash-stage" onClick={() => onPage(stage.page)}>
-        <span className="dash-stage-icon"><PixelIcon name={stage.icon} size={3} /></span>
-        <span className="dash-stage-text"><small>{stage.label}</small><strong>{stage.value}</strong><span>{stage.detail}</span></span>
-        <ChevronRight size={15} />
+      <RateChart trend={data.trend} />
+    </section>
+    <div className="dash-stats">
+      {stats.map(stat => <button key={stat.label} className="dash-stat" onClick={() => onPage(stat.page)}>
+        <span className="dash-stat-head"><PixelIcon name={stat.icon} size={2} /><small>{stat.label}</small><ChevronRight size={14} /></span>
+        <strong>{stat.value}</strong>
+        <span className="dash-stat-detail">{stat.detail}</span>
+        <span className="dash-stat-graph">{stat.graph}</span>
+        <span className="dash-stat-caption">{stat.caption}</span>
       </button>)}
     </div>
-  </section>;
+  </>;
 }
 
 function OverviewPage({ data, loading, error, retry, range, onPage, onCluster, onConversation, onDemo, demoBusy }: {

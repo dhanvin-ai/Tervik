@@ -2701,21 +2701,35 @@ body:has(.m-page) { min-width: 320px; }
 .app-shell .metric-detail { color: #8a8a8a; font-size: 12.5px; }
 
 /* Overview hero */
-.dash-hero { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 12px; margin-bottom: 20px; }
-.dash-hero-feature { position: relative; display: flex; align-items: flex-end; min-height: 360px; overflow: hidden; border: 1px solid rgba(255, 255, 255, .1); border-radius: 4px; background: #000; }
-.dash-hero-feature::before { content: ''; position: absolute; inset: 0; z-index: 1; background: linear-gradient(90deg, rgba(0, 0, 0, .94), rgba(0, 0, 0, .7) 48%, rgba(0, 0, 0, .1)); }
-.dash-hero-copy { position: relative; z-index: 2; width: min(100%, 580px); padding: 32px; }
+.dash-hero { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 32px; min-height: 360px; margin-bottom: 12px; overflow: hidden; border: 1px solid rgba(255, 255, 255, .1); border-radius: 4px; background: #000; }
+.dash-hero::before { content: ''; position: absolute; inset: 0; z-index: 1; background: linear-gradient(90deg, rgba(0, 0, 0, .94), rgba(0, 0, 0, .6) 45%, rgba(0, 0, 0, .25)); }
+.dash-hero-copy { position: relative; z-index: 2; flex: 1; align-self: flex-end; max-width: 560px; padding: 32px; }
 .dash-hero-number { margin: 12px 0 8px; font: inherit; }
 .dash-hero-copy p { max-width: 440px; margin: 0 0 22px; color: #a3a3a3; font-size: 15px; line-height: 1.6; }
-.dash-hero-stages { display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(255, 255, 255, .1); border-radius: 4px; background: #000; }
-.dash-stage { display: flex; flex: 1; align-items: center; gap: 18px; padding: 16px 22px; border-bottom: 1px solid rgba(255, 255, 255, .1); color: #4f4f4f; text-align: left; transition: background .15s ease, color .15s ease; }
-.dash-stage:last-child { border-bottom: 0; }
-.dash-stage:hover { background: rgba(255, 255, 255, .03); color: #fff; }
-.dash-stage-icon { display: flex; justify-content: center; width: 36px; color: #a3a3a3; }
-.dash-stage-text { display: flex; flex: 1; flex-direction: column; gap: 3px; }
-.dash-stage-text small { color: #6b6b6b; font: 10.5px var(--font-mono); letter-spacing: .1em; text-transform: uppercase; }
-.dash-stage-text strong { color: #fff; font: 400 24px/1.2 var(--font-sans); letter-spacing: -0.02em; }
-.dash-stage-text span { color: #8a8a8a; font-size: 12.5px; }
+
+/* Flagged-rate chart window */
+.dash-rate { position: relative; z-index: 2; flex: 0 1 460px; margin: 28px 28px 28px 0; overflow: hidden; border: 1px solid rgba(255, 255, 255, .1); border-radius: 8px; background: rgba(12, 12, 14, .92); box-shadow: 0 24px 60px rgba(0, 0, 0, .6); }
+.dash-rate-bar { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 12px; border-bottom: 1px solid rgba(255, 255, 255, .07); color: #8a8a8a; font: 11px var(--font-mono); }
+.dash-rate svg { display: block; width: 100%; height: auto; padding: 8px 6px 0; }
+.dash-rate svg text { fill: #6b6b6b; font: 10px var(--font-mono); }
+.dash-rate svg .dash-rate-last text { fill: #fca5a5; font-size: 10.5px; }
+.dash-rate-foot { margin: 0; padding: 8px 14px 12px; color: #6b6b6b; font: 11px var(--font-mono); }
+.dash-rate-foot b { color: #e5e5e5; font-weight: 400; }
+
+/* Stat strip with mini graphs */
+.dash-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 20px; overflow: hidden; border: 1px solid rgba(255, 255, 255, .1); border-radius: 4px; background: #000; }
+.dash-stat { display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 20px 24px 18px; border-right: 1px solid rgba(255, 255, 255, .1); color: #a3a3a3; text-align: left; transition: background .15s ease; }
+.dash-stat:last-child { border-right: 0; }
+.dash-stat:hover { background: rgba(255, 255, 255, .025); }
+.dash-stat-head { display: flex; align-items: center; gap: 10px; color: #6b6b6b; }
+.dash-stat-head small { flex: 1; font: 10.5px var(--font-mono); letter-spacing: .1em; text-transform: uppercase; }
+.dash-stat-head .lp-pixel-icon { color: #a3a3a3; }
+.dash-stat:hover .dash-stat-head svg:last-child { color: #fff; }
+.dash-stat > strong { margin-top: 10px; color: #fff; font: 400 30px/1.15 var(--font-sans); letter-spacing: -0.03em; }
+.dash-stat-detail { color: #8a8a8a; font-size: 12.5px; }
+.dash-stat-graph { display: block; height: 44px; margin-top: 16px; }
+.dash-spark { display: block; width: 100%; height: 44px; }
+.dash-stat-caption { color: #555; font: 10px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
 
 /* Activity chart */
 .app-shell .chart-wrap { margin: 6px 22px 8px 14px; }
@@ -2794,15 +2808,24 @@ body:has(.m-page) { min-width: 320px; }
 .app-shell .dashboard-footer { font: 11px var(--font-mono); }
 
 @media (max-width: 1080px) {
-  .dash-hero { grid-template-columns: minmax(0, 1fr); }
+  .dash-hero { flex-direction: column; align-items: stretch; }
+  .dash-hero-copy { align-self: auto; max-width: none; padding-bottom: 8px; }
+  .dash-rate { flex: none; margin: 0 24px 24px; }
+  .dash-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-stat:nth-child(2n) { border-right: 0; }
+  .dash-stat:nth-child(n + 3) { border-top: 1px solid rgba(255, 255, 255, .1); }
   .app-shell .metric-grid { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .app-shell .metric-card:nth-child(2n) { border-right: 0; }
   .app-shell .metric-card:nth-child(n + 3) { border-top: 1px solid rgba(255, 255, 255, .1); }
 }
 @media (max-width: 640px) {
   .app-shell .page-heading h1 { font-size: 26px; }
-  .dash-hero-feature { min-height: 300px; }
-  .dash-hero-copy { padding: 22px; }
+  .dash-hero { min-height: 0; }
+  .dash-hero-copy { padding: 22px 22px 8px; }
+  .dash-rate { margin: 0 14px 14px; }
+  .dash-stats { grid-template-columns: minmax(0, 1fr); }
+  .dash-stat { border-right: 0; }
+  .dash-stat + .dash-stat { border-top: 1px solid rgba(255, 255, 255, .1); }
   .app-shell .metric-grid { grid-template-columns: minmax(0, 1fr); }
   .app-shell .metric-card { border-right: 0; }
   .app-shell .metric-card + .metric-card { border-top: 1px solid rgba(255, 255, 255, .1); }

@@ -1048,15 +1048,17 @@ function AgentExecutionSimulator({ onStart }: { onStart: () => void }) {
 function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: () => void; demoBusy: boolean }) {
   const [expandedFaq, setExpandedFaq] = useState<number | null>(0);
   const [copiedCmd, setCopiedCmd] = useState(false);
+  const [copyError, setCopyError] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const copyHeroCmd = async () => {
+    setCopyError(false);
     try {
       await navigator.clipboard.writeText(INSTALL_COMMAND);
       setCopiedCmd(true);
       setTimeout(() => setCopiedCmd(false), 2000);
     } catch {
-      // ignore
+      setCopyError(true);
     }
   };
 
@@ -1084,10 +1086,7 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
   ];
 
   return <div className="m-page">
-    {/* Procedural ASCII Matrix Glow Background */}
-    <AsciiMatrixBackground />
-
-    {/* Floating Frosted Navigation Bar */}
+    {/* Landing navigation */}
     <header className="m-nav-wrapper">
       <nav className="m-navbar">
         <a href="#welcome" className="m-brand">
@@ -1111,13 +1110,13 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
             <span>Dashboard</span>
             <ChevronRight size={13} />
           </button>
-          <button className="icon-button m-nav-mobile-toggle" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} aria-label="Toggle navigation">
+          <button className="icon-button m-nav-mobile-toggle" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} aria-label="Toggle navigation" aria-expanded={mobileMenuOpen} aria-controls="landing-mobile-menu">
             {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
           </button>
         </div>
       </nav>
 
-      {mobileMenuOpen && <div className="m-mobile-menu">
+      {mobileMenuOpen && <div className="m-mobile-menu" id="landing-mobile-menu">
         <a href="#how-it-works" onClick={() => setMobileMenuOpen(false)}>01 · How It Works</a>
         <a href="#setup-steps" onClick={() => setMobileMenuOpen(false)}>02 · Setup in 3 Steps</a>
         <a href="#features" onClick={() => setMobileMenuOpen(false)}>03 · Features</a>
@@ -1137,35 +1136,34 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
     </header>
 
     {/* Hero Section */}
-    <section className="m-hero">
-      <div className="m-hero-eyebrow">
-        <span className="m-eyebrow-badge">AGENT SYSTEM</span>
-        <span className="m-eyebrow-text">CONVERSATION INTELLIGENCE</span>
-        <span className="m-eyebrow-sep">/</span>
-        <span className="m-eyebrow-sub">LOCAL-FIRST</span>
-      </div>
+    <section className="m-hero" aria-label="Tervik agent intelligence">
+      <AsciiMatrixBackground />
+      <div className="m-hero-content">
+        <span className="m-hero-eyebrow">Agent conversation intelligence</span>
 
-      <HeroHeadline line1="Procedural Intelligence &" line2="Failure Detection For Agents." />
+        <HeroHeadline line1="Procedural intelligence &" line2="failure detection for agents." />
 
-      <p className="m-hero-subtitle">
-        Tervik records every turn, evaluates failure signals with transparent rules, and synthesizes clusters with evidence. Fewer turns, zero blind spots, and continuous improvement.
-      </p>
+        <p className="m-hero-subtitle">
+          Record every turn. Find failure signals. Follow the evidence.
+        </p>
 
-      <div className="m-hero-actions">
-        <button className="m-hero-primary-btn" onClick={onStart}>
-          <span>Go to Dashboard</span>
-          <ArrowRight size={14} />
-        </button>
-
-        <div className="m-hero-cmd-box" onClick={copyHeroCmd} title="Click to copy install command">
-          <Terminal size={14} className="m-hero-cmd-icon" />
-          <code>{INSTALL_COMMAND}</code>
-          <button className="icon-button m-hero-copy-btn" aria-label="Copy install command">
-            {copiedCmd ? <Check size={14} /> : <Copy size={14} />}
+        <div className="m-hero-actions">
+          <button className="m-hero-primary-btn" onClick={onStart}>
+            <span>Go to Dashboard</span>
+            <ArrowRight size={16} />
+          </button>
+          <button className="m-hero-secondary-btn" onClick={copyHeroCmd}>
+            {copiedCmd ? <Check size={17} /> : <Copy size={17} />}
+            <span aria-live="polite">{copiedCmd ? 'Command copied' : 'Copy install command'}</span>
           </button>
         </div>
-      </div>
 
+        {copyError && <p className="m-hero-copy-error" role="status">Copy this command: <code>{INSTALL_COMMAND}</code></p>}
+        <a className="m-hero-setup-link" href="#setup-steps">Get started in minutes<ChevronDown size={13} /></a>
+      </div>
+    </section>
+
+    <section className="m-hero-followup" aria-label="Compatible agents and interactive preview">
       <div className="m-hero-partners">
         <span className="m-partners-label">WORKS WITH</span>
         <div className="m-partners-list">
@@ -1179,7 +1177,7 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
         </div>
       </div>
 
-      {/* Interactive Agent Execution Simulator */}
+      {/* Interactive preview below the first viewport */}
       <AgentExecutionSimulator onStart={onStart} />
     </section>
 

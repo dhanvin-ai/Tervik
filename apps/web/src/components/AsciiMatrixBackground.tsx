@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type CSSProperties } from 'react';
 
 const CHAR_SET = ['>', '#', '$', '%', '*', '&', '{', '}', '\\', '|', '@', '/', '+', '-', '=', '(', ')', ':', ';', '0', '8', 'B', 'S', 'X', '~', '<'];
+const SPOTLIGHT_RADIUS = 100;
 
 export function AsciiMatrixBackground() {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -21,10 +22,11 @@ export function AsciiMatrixBackground() {
     let pointerX = 0;
     let pointerY = 0;
     let cols = 0;
+    let rows = 0;
     let symbols: string[] = [];
     let lastMutation = 0;
-    const cellWidth = 14;
-    const cellHeight = 18;
+    const cellWidth = 12;
+    const cellHeight = 16;
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
     const paintCell = (index: number) => {
@@ -42,12 +44,13 @@ export function AsciiMatrixBackground() {
       canvas.width = Math.round(width * dpr);
       canvas.height = Math.round(height * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.font = '13px "Geist Mono", monospace';
+      ctx.font = '500 13px "Geist Mono", monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = '#fff';
       cols = Math.ceil(width / cellWidth);
-      symbols = Array.from({ length: cols * Math.ceil(height / cellHeight) },
+      rows = Math.ceil(height / cellHeight);
+      symbols = Array.from({ length: cols * rows },
         () => CHAR_SET[Math.floor(Math.random() * CHAR_SET.length)]);
       symbols.forEach((_, index) => paintCell(index));
     };
@@ -62,11 +65,27 @@ export function AsciiMatrixBackground() {
         mutationFrame = null;
         return;
       }
-      if (now - lastMutation >= 100) {
+      if (now - lastMutation >= 75) {
         lastMutation = now;
-        // Redraw changed cells only; keep the rest of the field stable between ticks.
-        for (let i = 0; i < Math.ceil(symbols.length * .12); i++) {
-          const index = Math.floor(Math.random() * symbols.length);
+        // Animate the revealed region without redrawing thousands of hidden cells.
+        const candidates: number[] = [];
+        const startCol = Math.max(0, Math.floor((pointerX - SPOTLIGHT_RADIUS) / cellWidth));
+        const endCol = Math.min(cols - 1, Math.ceil((pointerX + SPOTLIGHT_RADIUS) / cellWidth));
+        const startRow = Math.max(0, Math.floor((pointerY - SPOTLIGHT_RADIUS) / cellHeight));
+        const endRow = Math.min(rows - 1, Math.ceil((pointerY + SPOTLIGHT_RADIUS) / cellHeight));
+        for (let row = startRow; row <= endRow; row++) {
+          for (let col = startCol; col <= endCol; col++) {
+            const x = col * cellWidth + cellWidth / 2;
+            const y = row * cellHeight + cellHeight / 2;
+            if (Math.hypot(x - pointerX, y - pointerY) <= SPOTLIGHT_RADIUS + cellHeight / 2) {
+              candidates.push(row * cols + col);
+            }
+          }
+        }
+        for (let i = 0; i < Math.ceil(candidates.length * .25); i++) {
+          const pick = i + Math.floor(Math.random() * (candidates.length - i));
+          [candidates[i], candidates[pick]] = [candidates[pick], candidates[i]];
+          const index = candidates[i];
           const current = CHAR_SET.indexOf(symbols[index]);
           const offset = 1 + Math.floor(Math.random() * (CHAR_SET.length - 1));
           symbols[index] = CHAR_SET[(current + offset) % CHAR_SET.length];
@@ -144,7 +163,8 @@ export function AsciiMatrixBackground() {
     };
   }, []);
 
-  return <div ref={containerRef} className="m-ascii-canvas-wrapper" aria-hidden="true">
+  return <div ref={containerRef} className="m-ascii-canvas-wrapper" aria-hidden="true"
+    style={{ '--spotlight-radius': `${SPOTLIGHT_RADIUS}px` } as CSSProperties}>
     <canvas ref={canvasRef} className="m-ascii-canvas" />
   </div>;
 }

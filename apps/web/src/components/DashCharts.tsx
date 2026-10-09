@@ -1,4 +1,4 @@
-// Small dotted charts for the overview, drawn in the landing page's dithered style.
+// Dotted chart for the overview hero, drawn in the landing page's dithered style.
 import { useId } from 'react';
 
 type Day = { date: string; conversations: number; failures: number };
@@ -56,68 +56,5 @@ export function RateChart({ trend }: { trend: Day[] }) {
       </svg>
       <p className="dash-rate-foot">{known.length ? <>daily avg <b>{average.toFixed(1)}%</b>{peak && <> · peak <b>{peak.rate.toFixed(0)}%</b> on {shortDate(peak.date)}</>}</> : 'Daily rates appear once conversations arrive.'}</p>
     </figure>
-  );
-}
-
-/** Dotted mini columns, one per value. */
-export function SparkBars({ values, tone = 'gray', label }: { values: number[]; tone?: 'gray' | 'red'; label: string }) {
-  const id = useId().replace(/:/g, '');
-  const width = 200, height = 44;
-  const max = Math.max(1, ...values);
-  const band = width / Math.max(1, values.length);
-  const bar = Math.max(4, band * 0.62);
-  return (
-    <svg className="dash-spark" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={label}>
-      <defs>
-        <DotPattern id={`${id}-fill`} color={tone === 'red' ? '#f87171' : '#c4c4c4'} size={2.2} gap={3.5} />
-        <DotPattern id={`${id}-track`} color="rgba(255, 255, 255, 0.07)" size={1.4} gap={3.5} />
-      </defs>
-      {values.map((value, index) => {
-        const h = Math.max(value ? 3 : 0, (value / max) * (height - 2));
-        const left = index * band + (band - bar) / 2;
-        return <g key={index}>
-          <rect x={left} y={0} width={bar} height={height} fill={`url(#${id}-track)`} />
-          <rect x={left} y={height - h} width={bar} height={h} fill={`url(#${id}-fill)`} />
-        </g>;
-      })}
-    </svg>
-  );
-}
-
-/** Stepped line with square markers. */
-export function SparkLine({ values, label }: { values: number[]; label: string }) {
-  const width = 200, height = 44, pad = 4;
-  if (!values.length) return <svg className="dash-spark" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={label} />;
-  const max = Math.max(...values), min = Math.min(...values);
-  const x = (index: number) => pad + (index / Math.max(1, values.length - 1)) * (width - pad * 2);
-  const y = (value: number) => pad + (1 - (max === min ? 0.5 : (value - min) / (max - min))) * (height - pad * 2);
-  const path = values.map((value, index) => (index === 0 ? `M${x(index)},${y(value)}` : `H${x(index)} V${y(value)}`)).join(' ');
-  return (
-    <svg className="dash-spark" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={label}>
-      <line x1="0" x2={width} y1={height - 1} y2={height - 1} stroke="rgba(255, 255, 255, 0.1)" strokeDasharray="2 3" />
-      <path d={path} fill="none" stroke="#d4d4d4" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-      {values.map((value, index) => <rect key={index} x={x(index) - 2} y={y(value) - 2} width="4" height="4" fill={index === values.length - 1 ? '#fff' : '#8a8a8a'} />)}
-    </svg>
-  );
-}
-
-/** Segmented dotted strip: each segment is one part's share of the total. */
-export function ShareStrip({ parts, label }: { parts: { key: string; value: number; tone: 'high' | 'medium' | 'low' | 'critical' }[]; label: string }) {
-  const id = useId().replace(/:/g, '');
-  const total = parts.reduce((sum, part) => sum + part.value, 0) || 1;
-  const width = 200, height = 44, gap = 4;
-  const colors = { critical: '#f87171', high: '#f87171', medium: '#fbbf24', low: '#c4c4c4' };
-  let cursor = 0;
-  const usable = width - gap * Math.max(0, parts.length - 1);
-  return (
-    <svg className="dash-spark" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={label}>
-      <defs>{Object.entries(colors).map(([tone, color]) => <DotPattern key={tone} id={`${id}-${tone}`} color={color} size={2.2} gap={3.5} />)}</defs>
-      {parts.map(part => {
-        const w = (part.value / total) * usable;
-        const rect = <rect key={part.key} x={cursor} y={height - 26} width={w} height={26} fill={`url(#${id}-${part.tone})`} />;
-        cursor += w + gap;
-        return rect;
-      })}
-    </svg>
   );
 }

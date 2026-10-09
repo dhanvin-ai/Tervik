@@ -11,7 +11,7 @@ import { query, request } from './api';
 import { DitherCanvas } from './components/DitherCanvas';
 import { DitherText } from './components/DitherText';
 import { PixelIcon, type PixelIconName } from './components/PixelIcon';
-import { RateChart, ShareStrip, SparkBars, SparkLine } from './components/DashCharts';
+import { RateChart } from './components/DashCharts';
 import { AsciiMatrixBackground } from './components/AsciiMatrixBackground';
 import { AnimatedBrandLogo } from './components/AnimatedBrandLogo';
 import { HeroHeadline } from './components/HeroHeadline';
@@ -287,16 +287,11 @@ function AdvancedTools({ tools }: { tools: { id: string; title: string; text: st
 function OverviewHero({ data, range, onPage }: { data: Overview; range: Range; onPage: (page: Page) => void }) {
   const metrics = data.metrics;
   const flagged = Math.round(metrics.conversations * metrics.failure_rate / 100);
-  const recentLatency = [...data.recent_conversations].reverse().map(conversation => conversation.latency_ms);
-  const stats: { icon: PixelIconName; label: string; value: string; detail: string; caption: string; page: Page; graph: ReactNode }[] = [
-    { icon: 'ingest', label: 'Conversations', value: formatNumber(metrics.conversations), detail: 'chats with your agent', caption: 'per day', page: 'conversations',
-      graph: <SparkBars values={data.trend.map(day => day.conversations)} label="Conversations per day" /> },
-    { icon: 'trace', label: 'Response time', value: latency(metrics.avg_latency_ms), detail: 'average time to reply', caption: `last ${recentLatency.length} conversations`, page: 'conversations',
-      graph: <SparkLine values={recentLatency} label="Latency of recent conversations" /> },
-    { icon: 'detect', label: 'People affected', value: formatNumber(metrics.affected_users), detail: 'had at least one problem', caption: 'problems per day', page: 'failures',
-      graph: <SparkBars values={data.trend.map(day => day.failures)} tone="red" label="Flagged conversations per day" /> },
-    { icon: 'cluster', label: 'Problem types', value: formatNumber(data.top_clusters.length), detail: 'different causes found', caption: 'share of each type', page: 'failures',
-      graph: <ShareStrip parts={data.top_clusters.map(cluster => ({ key: cluster.id, value: cluster.count, tone: cluster.severity as 'high' }))} label="Conversations by failure cluster" /> },
+  const stats: { icon: PixelIconName; label: string; value: string; detail: string; page: Page }[] = [
+    { icon: 'ingest', label: 'Conversations', value: formatNumber(metrics.conversations), detail: 'chats with your agent', page: 'conversations' },
+    { icon: 'trace', label: 'Response time', value: latency(metrics.avg_latency_ms), detail: 'average time to reply', page: 'conversations' },
+    { icon: 'detect', label: 'People affected', value: formatNumber(metrics.affected_users), detail: 'had at least one problem', page: 'failures' },
+    { icon: 'cluster', label: 'Problem types', value: formatNumber(data.top_clusters.length), detail: 'different causes found', page: 'failures' },
   ];
   return <>
     <section className="dash-hero">
@@ -314,8 +309,6 @@ function OverviewHero({ data, range, onPage }: { data: Overview; range: Range; o
         <span className="dash-stat-head"><PixelIcon name={stat.icon} size={2} /><small>{stat.label}</small><ChevronRight size={14} /></span>
         <strong>{stat.value}</strong>
         <span className="dash-stat-detail">{stat.detail}</span>
-        <span className="dash-stat-graph">{stat.graph}</span>
-        <span className="dash-stat-caption">{stat.caption}</span>
       </button>)}
     </div>
   </>;

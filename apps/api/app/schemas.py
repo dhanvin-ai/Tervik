@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Literal
 from uuid import uuid4
 import json
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 from .db import utc_now
 
 
@@ -148,7 +148,14 @@ class IntentInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=1000)
-    examples: list[str] = Field(min_length=1, max_length=20)
+    # Example matching needs examples; the LLM reviewer can work from the description.
+    examples: list[str] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def described(self):
+        if not self.examples and not self.description.strip():
+            raise ValueError("give the intent a description or at least one example")
+        return self
 
     @field_validator("name")
     @classmethod
@@ -162,8 +169,8 @@ class IntentInput(BaseModel):
     @classmethod
     def clean_examples(cls, value):
         cleaned = [str(item).strip() for item in value if str(item).strip()]
-        if not cleaned:
-            raise ValueError("at least one non-blank example is required")
+        if value and not cleaned:
+            raise ValueError("examples cannot be blank")
         if any(len(item) > 500 for item in cleaned):
             raise ValueError("examples cannot exceed 500 characters")
         return cleaned[:20]
@@ -298,3 +305,46 @@ class ImprovementTransition(BaseModel):
 class ImprovementEval(BaseModel):
     model_config = ConfigDict(extra="forbid")
     eval_run_id: str = Field(min_length=1, max_length=36)
+
+
+class PolicyInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=2000)
+    severity: Literal["critical", "high", "medium", "low"] = "high"
+
+    @field_validator("title")
+    @classmethod
+    def clean_title(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("title cannot be blank")
+        return value
+
+
+class PolicyPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=2000)
+    severity: Literal["critical", "high", "medium", "low"] | None = None
+    active: bool | None = None
+
+
+class ClassifyInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    range: Literal["1h", "24h", "7d", "30d", "90d", "all"] = "7d"
+    limit: int = Field(default=20, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+    force: bool = False
+
+
+class IntentDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=1000)
+
+
+class SuggestInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    product_description: str = Field(default="", max_length=2000)
+    limit: int = Field(default=8, ge=1, le=20)

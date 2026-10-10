@@ -17,7 +17,7 @@ from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from .capture import apply_capture, project_settings, retention_cutoff
-from .db import (Event, IngestionJob, PayloadObject,
+from .db import (AnalyzedConversation, Classification, ConversationSession, Event, IngestionJob, PayloadObject,
                  Project, UsageRecord, utc, utc_now)
 
 logger = logging.getLogger(__name__)
@@ -220,4 +220,13 @@ def run_retention(session, engine, project: Project) -> dict:
         PayloadObject.project_id == project.id,
         PayloadObject.retention_deadline.is_not(None),
         PayloadObject.retention_deadline < utc_now()))
+    # Findings and sessions expire with the telemetry they describe.
+    session.execute(delete(Classification).where(
+        Classification.project_id == project.id, Classification.occurred_at < cutoff))
+    session.execute(delete(AnalyzedConversation).where(
+        AnalyzedConversation.project_id == project.id, AnalyzedConversation.last_event_at < cutoff))
+    live = select(Event.conversation_id).where(Event.project_id == project.id)
+    session.execute(delete(ConversationSession).where(
+        ConversationSession.project_id == project.id, ConversationSession.started_at < cutoff,
+        ConversationSession.conversation_id.not_in(live)))
     return {"removed_events": removed, "cutoff": cutoff.isoformat().replace("+00:00", "Z")}

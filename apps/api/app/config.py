@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 
 
@@ -24,6 +24,10 @@ class Settings:
     smtp_user: str | None = None
     smtp_password: str = ""
     smtp_from: str = "tervik@localhost"
+    # LLM classification of intents and policies. Unset = example matching only.
+    llm_api_key: str | None = field(default=None, repr=False)
+    llm_model: str = "claude-opus-5-5"
+    llm_base_url: str = "https://api.anthropic.com"
 
     @classmethod
     def from_env(cls):
@@ -55,4 +59,7 @@ class Settings:
             smtp_user=os.getenv("SMTP_USER") or None,
             smtp_password=os.getenv("SMTP_PASSWORD", ""),
             smtp_from=os.getenv("SMTP_FROM", "tervik@localhost"),
+            llm_api_key=os.getenv("ANTHROPIC_API_KEY") or None,
+            llm_model=os.getenv("TERVIK_LLM_MODEL", "claude-opus-5-5"),
+            llm_base_url=os.getenv("TERVIK_LLM_BASE_URL", "https://api.anthropic.com").rstrip("/"),
         )

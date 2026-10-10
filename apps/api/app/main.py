@@ -24,13 +24,16 @@ from . import improve as improve_mod
 from . import mcp as mcp_mod
 from . import capture_v1 as capture_mod
 from . import insights as insights_mod
+from . import classify as classify_mod
+from . import llm as llm_mod
 from .auth import (ROLES, SESSION_PREFIX, add_membership, create_organization,
                    create_session, credential_for_token, hash_password, is_ingest_token,
                    new_ingest_key, normalize_email, project_role, require_project_role,
                    resolve_session, sha256_hex, verify_password)
 from .capture import project_settings
 from .config import Settings
-from .db import (Account, AlertDelivery, AlertRule, AuditRecord, BehaviorRule, ClusterState, ConversationSession, Credential, EndUser, Environment,
+from .db import (Account, AlertDelivery, AlertRule, AnalyzedConversation, AuditRecord, BehaviorRule, Classification, ClusterState,
+                 ConversationSession, Credential, EndUser, Environment, Policy,
                  EvalDataset, EvalRun, Event, Improvement, IngestionJob,
                  Intent, Membership, Organization, PayloadObject, Plan, Project, PromptVersion, SemanticCluster, SemanticMembership, Session, UsageRecord,
                  iso, make_database, utc, utc_now)
@@ -280,6 +283,7 @@ def create_app(settings: Settings | None = None):
     app.state.engine = engine
     app.state.sessions = sessions
     app.state.settings = settings
+    app.state.llm = llm_mod.from_settings(settings)
     app.add_middleware(RequestGuards, settings=settings)
     app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
                        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
@@ -306,7 +310,8 @@ def create_app(settings: Settings | None = None):
             select(ClusterState).where(ClusterState.project_id == project_id))}
         rules = list(session.scalars(select(BehaviorRule).where(
             BehaviorRule.project_id == project_id, BehaviorRule.enabled == True)))  # noqa: E712
-        return events, analysis.analyze(events, rules), states
+        signals = analysis.analyze(events, rules) + classify_mod.policy_signals(session, project_id, events)
+        return events, signals, states
 
     def window(range):
         end = utc_now()
@@ -541,7 +546,7 @@ def create_app(settings: Settings | None = None):
                 dashboard_access(request, session, project)
             rules = list(session.scalars(select(BehaviorRule).where(
                 BehaviorRule.project_id == events[0].project_id, BehaviorRule.enabled == True)))  # noqa: E712
-            signals = analysis.analyze(events, rules)
+            signals = analysis.analyze(events, rules) + classify_mod.policy_signals(session, events[0].project_id, events)
             captured = session.get(ConversationSession, (events[0].project_id, events[0].source_conversation_id))
             profile = session.get(EndUser, (events[0].project_id, captured.user_id)) if captured and captured.user_id else None
             return {**analysis.summary(events, signals), "messages": [analysis.event_dict(e) for e in events],
@@ -1042,6 +1047,19 @@ def create_app(settings: Settings | None = None):
             session.delete(intent)
             return {"ok": True}
 
+    def write_project(request, db_session, project_id, minimum="admin"):
+        project = intent_project(request, db_session, project_id, minimum)
+        resolved = session_auth(request, db_session)
+        return project, resolved[1].id if resolved else None
+
+    def project_audit(db_session, project, action, resource, account_id):
+        if project.org_id is not None:
+            audit(db_session, project.org_id, action, resource, account_id)
+
+    classify_mod.register(app, sessions=sessions,
+                          read_project=lambda request, db_session, project_id: intent_project(request, db_session, project_id, "viewer"),
+                          write_project=write_project, audit=project_audit)
+
     insights_mod.register(
         app, sessions=sessions,
         read_project=lambda request, db_session, project_id: intent_project(request, db_session, project_id, "viewer"),
@@ -1486,6 +1504,15 @@ def create_app(settings: Settings | None = None):
             session.execute(delete(AlertRule).where(AlertRule.project_id == project.id))
             session.execute(delete(BehaviorRule).where(BehaviorRule.project_id == project.id))
             session.execute(delete(Intent).where(Intent.project_id == project.id))
+            for model in (Classification, AnalyzedConversation, Policy, ConversationSession, EndUser):
+                session.execute(delete(model).where(model.project_id == project.id))
+            for row in session.scalars(select(Improvement.id).where(Improvement.project_id == project.id)):
+                session.execute(delete(PromptVersion).where(PromptVersion.improvement_id == row))
+            session.execute(delete(PromptVersion).where(PromptVersion.project_id == project.id))
+            session.execute(delete(Improvement).where(Improvement.project_id == project.id))
+            for row in session.scalars(select(EvalDataset.id).where(EvalDataset.project_id == project.id)):
+                session.execute(delete(EvalRun).where(EvalRun.dataset_id == row))
+            session.execute(delete(EvalDataset).where(EvalDataset.project_id == project.id))
             for row in session.scalars(select(SemanticCluster).where(
                     SemanticCluster.project_id == project.id)):
                 session.execute(delete(SemanticMembership).where(

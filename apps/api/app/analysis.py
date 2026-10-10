@@ -16,6 +16,7 @@ RULE_VERSIONS = {
     "unresolved": "5.0.0",
     "unsupported_claim": "5.0.0",
     "rule_violation": "5.0.0",
+    "policy_violation": "1.0.0",
 }
 RULES = {
     "correction": {
@@ -59,6 +60,12 @@ RULES = {
         "description": "An assistant message claims a completed action with no supporting successful tool call in the same turn. Saying an action was done does not prove it.",
         "severity": "high",
         "suggested_fix": "Check whether any tool actually performed the claimed action. Require tool confirmation before the agent reports completion.",
+    },
+    "policy_violation": {
+        "title": "A policy was not followed",
+        "description": "A reviewer read the conversation and found the agent did not follow one of your policies. This is a classified finding: read the cited messages before acting on it.",
+        "severity": "high",
+        "suggested_fix": "Read the cited messages, confirm the policy applied, then make the agent's instructions or tooling enforce it and test the same conversation again.",
     },
     "rule_violation": {
         "title": "A behavior rule was violated",
@@ -270,8 +277,8 @@ def clusters(project_id, all_events, all_signals, states, start, end):
         historical = [s for s in all_signals if s["cluster_id"] == id and utc(s["event"].timestamp) <= end]
         rows.append({
             "id": id, "project_id": project_id, "title": rule["title"] +
-            (f' · {evidence[0]["tool_name"]}' if kind in ("tool_error", "tool_timeout") else ""),
-            "description": rule["description"], "severity": rule["severity"], "kind": kind,
+            (f' · {evidence[0]["tool_name"]}' if kind in ("tool_error", "tool_timeout", "policy_violation") else ""),
+            "description": rule["description"], "severity": evidence[0].get("severity", rule["severity"]), "kind": kind,
             "detector_version": DETECTOR_VERSION, "rule_version": RULE_VERSIONS[kind],
             "status": states.get(id, "open"), "count": count,
             "affected_users": len({e.user_id for e in current_events

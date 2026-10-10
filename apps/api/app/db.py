@@ -230,6 +230,57 @@ class Intent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class Policy(Base):
+    """Expected agent behavior written in plain language (an SOP). An LLM
+    reviewer checks analyzed conversations against it."""
+    __tablename__ = "policies"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    title: Mapped[str] = mapped_column(String(160))
+    description: Mapped[str] = mapped_column(Text, default="")
+    severity: Mapped[str] = mapped_column(String(20), default="high")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class Classification(Base):
+    """One classified finding for a conversation: a matched intent, a policy
+    violation, or a suggested intent when nothing configured fits. Evidence
+    cites recorded event ids."""
+    __tablename__ = "classifications"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    conversation_id: Mapped[str] = mapped_column(String(36), index=True)
+    kind: Mapped[str] = mapped_column(String(20), index=True)
+    target_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    label: Mapped[str] = mapped_column(String(200), default="")
+    reason: Mapped[str] = mapped_column(Text, default="")
+    evidence: Mapped[list] = mapped_column(JSON, default=list)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    classifier: Mapped[str] = mapped_column(String(20), default="llm")
+    model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AnalyzedConversation(Base):
+    """Classification bookkeeping, so runs only revisit conversations that
+    changed or whose intents and policies changed."""
+    __tablename__ = "analyzed_conversations"
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    last_event_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    event_count: Mapped[int] = mapped_column(Integer, default=0)
+    config_hash: Mapped[str] = mapped_column(String(64), default="")
+    status: Mapped[str] = mapped_column(String(20), default="done")
+    classifier: Mapped[str] = mapped_column(String(20), default="llm")
+    error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    analyzed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class SemanticCluster(Base):
     """Phase 6 discovered topic. `key` is the deterministic group identity;
     `label` is editable without touching evidence."""

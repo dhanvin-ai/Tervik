@@ -2786,19 +2786,20 @@ body:has(.m-page) { min-width: 320px; }
   .dash-glossary dl > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
 }
 
-/* ===== Clean pass: flat soft-dark surfaces and calm type, after Agnost's dashboard ===== */
+/* ===== Clean pass: calm type and layout on the black-and-white maritime palette ===== */
 .app-shell {
-  --d-bg: #171717; --d-side: #141414; --d-panel: #1c1c1c; --d-raise: #212121; --d-strip: #1f1f1f;
-  --d-line: #2a2a2a; --d-line-soft: #252525; --d-muted: #9a9a9a; --d-faint: #707070;
-  --d-accent: #a78bfa; --d-accent-line: rgba(167, 139, 250, .55); --d-accent-soft: rgba(167, 139, 250, .1);
+  --d-bg: #0a0a0a; --d-side: #000; --d-panel: #000; --d-raise: #0a0a0a; --d-strip: #000;
+  --d-line: rgba(255, 255, 255, .1); --d-line-soft: rgba(255, 255, 255, .08); --d-muted: #9a9a9a; --d-faint: #6b6b6b;
+  --d-accent-line: rgba(255, 255, 255, .14);
 }
-.modal-backdrop { --d-bg: #171717; --d-panel: #1c1c1c; --d-raise: #212121; --d-line: #2a2a2a; --d-line-soft: #252525; --d-muted: #9a9a9a; --d-faint: #707070; }
-:is(.app-shell, .modal-backdrop), :is(.app-shell, .modal-backdrop) .main-shell, :is(.app-shell, .modal-backdrop) .topbar { background: var(--d-bg); }
+.modal-backdrop { --d-bg: #050505; --d-panel: #000; --d-raise: #0a0a0a; --d-line: rgba(255, 255, 255, .1); --d-line-soft: rgba(255, 255, 255, .08); --d-muted: #9a9a9a; --d-faint: #6b6b6b; }
+.app-shell, .app-shell .main-shell, .app-shell .topbar { background: var(--d-bg); }
 
 /* Sidebar */
 :is(.app-shell, .modal-backdrop) .sidebar { background: var(--d-side); border-right-color: var(--d-line-soft); }
 :is(.app-shell, .modal-backdrop) .main-nav a, :is(.app-shell, .modal-backdrop) .secondary-nav a, .sidebar-link { padding: 10px 12px; font-size: 14.5px; color: #b5b5b5; }
-:is(.app-shell, .modal-backdrop) .main-nav a.active, :is(.app-shell, .modal-backdrop) .secondary-nav a.active { background: var(--d-accent-soft); box-shadow: inset 0 0 0 1px var(--d-accent-line); color: #fff; }
+:is(.app-shell, .modal-backdrop) .main-nav a.active, :is(.app-shell, .modal-backdrop) .secondary-nav a.active { background: #000; box-shadow: inset 0 0 0 1px var(--d-accent-line); color: #fff; }
+.nav-dither { -webkit-mask-image: linear-gradient(90deg, transparent 25%, rgba(0, 0, 0, .55) 65%, #000); mask-image: linear-gradient(90deg, transparent 25%, rgba(0, 0, 0, .55) 65%, #000); }
 :is(.app-shell, .modal-backdrop) .main-nav a:hover, :is(.app-shell, .modal-backdrop) .secondary-nav a:hover, .sidebar-link:hover { background: rgba(255, 255, 255, .04); color: #fff; }
 :is(.app-shell, .modal-backdrop) .nav-divider { margin: 14px 4px; background: var(--d-line-soft); }
 :is(.app-shell, .modal-backdrop) .project-picker { background: var(--d-panel); border-color: var(--d-line); }
@@ -2813,11 +2814,13 @@ body:has(.m-page) { min-width: 320px; }
 :is(.app-shell, .modal-backdrop) .topbar .date-range { height: 34px; padding: 0 10px; border-color: var(--d-line); background: transparent; }
 :is(.app-shell, .modal-backdrop) .topbar .date-range select { font-size: 13.5px; }
 .topbar-refresh { color: var(--d-faint); }
-.page-intro { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 18px 32px; border-bottom: 1px solid var(--d-line-soft); background: var(--d-strip); }
+.page-intro { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 24px; overflow: hidden; padding: 18px 32px; border-bottom: 1px solid var(--d-line-soft); background: var(--d-strip); }
+.page-intro > *:not(.lp-dither) { position: relative; }
+.intro-dither, .strip-dither { -webkit-mask-image: linear-gradient(90deg, transparent 40%, rgba(0, 0, 0, .55) 75%, #000); mask-image: linear-gradient(90deg, transparent 40%, rgba(0, 0, 0, .55) 75%, #000); }
 .page-intro strong { display: block; color: #fff; font-size: 15.5px; font-weight: 500; }
 .page-intro span { display: block; margin-top: 4px; color: var(--d-muted); font-size: 15px; line-height: 1.5; }
-.intro-cta { display: inline-flex; flex: none; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border: 1px solid rgba(255, 255, 255, .18); border-radius: 4px; background: var(--d-accent); color: #fff; font-size: 14.5px; font-weight: 500; transition: filter .15s ease; }
-.intro-cta:hover { filter: brightness(1.08); }
+.intro-cta { display: inline-flex; flex: none; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border: 1px solid #fff; border-radius: 4px; background: #fff; color: #000; font-size: 14.5px; font-weight: 500; transition: background .15s ease; }
+.intro-cta:hover { background: #e5e5e5; }
 :is(.app-shell, .modal-backdrop) .main-content { padding: 24px 32px; }
 
 /* Surfaces */
@@ -2834,16 +2837,14 @@ body:has(.m-page) { min-width: 320px; }
 :is(.app-shell, .modal-backdrop) .modal { border-color: var(--d-line); background: var(--d-panel); }
 :is(.app-shell, .modal-backdrop) .sheet { border-left-color: var(--d-line); background: var(--d-bg); }
 :is(.app-shell, .modal-backdrop) .text-field, :is(.app-shell, .modal-backdrop) .search-input, :is(.app-shell, .modal-backdrop) .tab-switch, :is(.app-shell, .modal-backdrop) .filter-button {
-  border-color: #2e2e2e; background: #161616;
+  border-color: rgba(255, 255, 255, .12); background: #0a0a0a;
 }
 :is(.app-shell, .modal-backdrop) .panel-heading h2, :is(.app-shell, .modal-backdrop) .panel-heading h3 { font-size: 16px; }
 :is(.app-shell, .modal-backdrop) .panel-heading p { font-size: 13.5px; }
 
-/* Overview hero: flat panel, number stays the focal point */
-.dash-hero::before { content: none; }
+/* Overview hero: the number stays the focal point over the dithered field */
 .dash-hero { min-height: 320px; }
 .dash-hero-copy p { color: var(--d-muted); }
-.dash-rate { border-color: var(--d-line); background: #181818; box-shadow: none; }
 
 /* Stat strip: number first, label below */
 .dash-stat { position: relative; gap: 2px; padding: 22px 24px; border-right-color: var(--d-line); }

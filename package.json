@@ -28,6 +28,7 @@
     "test:schema": "python3 scripts/run_schema_tests.py",
     "try:agent": "python3 scripts/try_agent.py",
     "import:codex": "python3 scripts/import_chats.py codex",
-    "import:chatgpt": "python3 scripts/import_chats.py chatgpt"
+    "import:chatgpt": "python3 scripts/import_chats.py chatgpt",
+    "demo:agent": "python3 scripts/demo_agent.py"
   }
 }

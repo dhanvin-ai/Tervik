@@ -97,6 +97,34 @@ turn.end('It ships tomorrow.');
 await tervik.shutdown();
 ```
 
+### Import Codex and ChatGPT conversations
+
+Apps you cannot instrument can still be analyzed.
+
+**Codex:** imports the sessions OpenAI Codex keeps in `~/.codex/sessions`.
+
+```bash
+npm run import:codex -- --classify            # import once
+npm run import:codex -- --watch --classify    # then keep sending each new turn
+```
+
+**ChatGPT:** use the zip from ChatGPT's Settings > Data controls > Export data.
+
+```bash
+npm run import:chatgpt -- ~/Downloads/<export>.zip --classify
+```
+
+Each source conversation becomes a session, and each user request becomes a
+turn. Codex commands, file edits, MCP calls, and web searches become nested
+tool calls; for ChatGPT, browsing, code runs, and image generation do.
+
+- Re-imports are deduplicated by source ids.
+- `--days` (default 90) limits how far back the import goes. Events older
+  than the project's retention are dropped anyway.
+- `--dry-run` only counts what it would send.
+- Conversations go to projects named "Codex" and "ChatGPT", created with
+  starter intents and policies.
+
 ## Read analytics
 
 Dashboard routes accept a dashboard session (`Authorization: Bearer tvs_…`),

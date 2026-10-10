@@ -26,6 +26,8 @@
     "test:containers": "python3 scripts/container_smoke.py",
     "check": "npm run typecheck && npm run build && npm test && npm run test:smoke",
     "test:schema": "python3 scripts/run_schema_tests.py",
-    "try:agent": "python3 scripts/try_agent.py"
+    "try:agent": "python3 scripts/try_agent.py",
+    "import:codex": "python3 scripts/import_chats.py codex",
+    "import:chatgpt": "python3 scripts/import_chats.py chatgpt"
   }
 }

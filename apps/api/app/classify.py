@@ -191,16 +191,23 @@ def classify_llm(llm, events, intents, policies):
     return findings
 
 
+EXAMPLE_MESSAGES = 8
+EXAMPLE_MESSAGE_CHARS = 600
+
+
 def classify_examples(events, intents):
+    """Match each of the first user messages on its own: a whole conversation
+    is too long to compare with short examples. Each intent keeps its best
+    match, citing the message that matched."""
     users = [e for e in sorted(events, key=lambda e: (utc(e.timestamp), e.id)) if e.role == "user" and e.content]
-    if not users:
-        return []
     candidates = [{"id": i.id, "name": i.name, "examples": i.examples, "enabled": True} for i in intents if i.examples]
-    match = clustering.match_intent(" ".join(e.content for e in users)[:4000], candidates)
-    if match is None:
-        return []
-    return [{"kind": "intent", "target_id": match["intent_id"], "label": match["intent_name"],
-             "evidence": [users[0].id], "confidence": match["score"], "reason": ""}]
+    best = {}
+    for event in users[:EXAMPLE_MESSAGES]:
+        match = clustering.match_intent(event.content[:EXAMPLE_MESSAGE_CHARS], candidates)
+        if match and match["score"] > best.get(match["intent_id"], ({}, -1))[1]:
+            best[match["intent_id"]] = (match, match["score"], event.id)
+    return [{"kind": "intent", "target_id": intent_id, "label": match["intent_name"], "evidence": [event_id],
+             "confidence": score, "reason": ""} for intent_id, (match, score, event_id) in best.items()]
 
 
 def config_hash(mode, model, intents, policies):

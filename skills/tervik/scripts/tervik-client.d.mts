@@ -122,3 +122,127 @@ export declare class Tervik {
         output?: (full: string) => string;
     }): AsyncGenerator<T, void, unknown>;
 }
+export interface InteractionOptions {
+    /** Project ingest key. When set it is sent instead of the project ID. */
+    apiKey?: string;
+    /** Base origin, e.g. http://127.0.0.1:8000. */
+    endpoint?: string;
+    debug?: boolean;
+    flushIntervalMs?: number;
+    requestTimeoutMs?: number;
+    maxRetries?: number;
+    retryBaseMs?: number;
+    maxQueueSize?: number;
+    /** Runs on each capture-event body before it is queued; return null to drop it. */
+    redact?: (body: CaptureEventBody) => CaptureEventBody | null;
+}
+export interface BeginOptions {
+    userId: string;
+    agentName?: string;
+    input?: unknown;
+    conversationId?: string;
+    interactionId?: string;
+}
+export interface TrackOptions {
+    userId: string;
+    input?: unknown;
+    output?: unknown;
+    agentName?: string;
+    conversationId?: string;
+    success?: boolean;
+    latencyMs?: number;
+    properties?: Record<string, unknown>;
+}
+export interface CaptureEventBody {
+    event_id: string;
+    session_id: string;
+    primitive_name: string;
+    args: string;
+    result: string;
+    success: boolean;
+    latency: number;
+    timestamp: number;
+    parent_id?: string;
+    metadata: Record<string, string>;
+}
+export interface InteractionStats {
+    sent: number;
+    dropped: number;
+    pending: number;
+}
+declare abstract class Operation {
+    protected readonly client: InteractionClient;
+    readonly id: string;
+    output: unknown;
+    readonly properties: Record<string, unknown>;
+    protected readonly startedAt: number;
+    protected readonly started: number;
+    protected ended: boolean;
+    protected constructor(client: InteractionClient, id?: string);
+    abstract get conversationId(): string;
+    setProperty(key: string, value: unknown): this;
+    setProperties(values: Record<string, unknown>): this;
+    /** Start a nested tool call. End it, or pass a function to `run`. */
+    tool(name: string, input?: unknown): ToolCall;
+}
+export declare class ToolCall extends Operation {
+    private readonly parent;
+    readonly name: string;
+    readonly input: unknown;
+    constructor(client: InteractionClient, parent: Operation, name: string, input: unknown);
+    get conversationId(): string;
+    end(output?: unknown, success?: boolean): void;
+    /** Run the tool, record its result or error, and return or rethrow it unchanged. */
+    run<T>(operation: () => T | Promise<T>): Promise<T>;
+}
+export declare class Interaction extends Operation {
+    readonly userId: string;
+    readonly agentName: string;
+    readonly input: unknown;
+    readonly conversationId: string;
+    constructor(client: InteractionClient, userId: string, agentName: string, input: unknown, conversationId?: string, interactionId?: string);
+    end(output?: unknown, success?: boolean, latencyMs?: number): void;
+}
+/** Bounded FIFO of capture requests. A session is queued before its events. */
+export declare class InteractionClient {
+    private readonly projectId;
+    private readonly options;
+    disabled?: 'configuration' | 'authentication';
+    private readonly base;
+    private readonly queue;
+    private readonly open;
+    private readonly sessions;
+    private readonly userSessions;
+    private readonly traits;
+    private readonly timer?;
+    private flushing?;
+    private closed;
+    private sent;
+    private dropped;
+    constructor(projectId?: string, options?: InteractionOptions);
+    begin({ userId, agentName, input, conversationId, interactionId }: BeginOptions): Interaction;
+    track({ userId, input, output, agentName, conversationId, success, latencyMs, properties }: TrackOptions): string;
+    /** Attach traits to a user; they are sent with the user's sessions. */
+    identify(userId: string, traits?: Record<string, unknown>): void;
+    getInteraction(interactionId: string): Interaction | undefined;
+    /** @internal */
+    forget(interactionId: string): void;
+    /** @internal */
+    event(conversationId: string, eventId: string, name: string, input: unknown, output: unknown, success: boolean, latencyMs: number, startedAt: number, properties: Record<string, unknown>, parentId?: string): void;
+    flush(): Promise<InteractionStats>;
+    shutdown(): Promise<InteractionStats>;
+    private drain;
+    private queueSession;
+    private push;
+    private drop;
+    private send;
+}
+/** Configure the module-level client. Call once, before tracking. */
+export declare function init(projectId?: string, options?: InteractionOptions): InteractionClient;
+export declare function begin(options: BeginOptions): Interaction;
+export declare function track(options: TrackOptions): string;
+export declare function identify(userId: string, traits?: Record<string, unknown>): void;
+export declare function getInteraction(interactionId: string): Interaction | undefined;
+export declare function flush(): Promise<InteractionStats>;
+export declare function shutdown(): Promise<InteractionStats>;
+export {};

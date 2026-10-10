@@ -118,6 +118,7 @@ class CaptureInput(BaseModel):
     capture_content: bool | None = None
     redact_keys: list[str] | None = None
     retention_days: int | None = Field(default=None, ge=1, le=3650)
+    public_ingest: bool | None = None
 
 
 class RuleInput(BaseModel):

@@ -123,6 +123,33 @@ class Event(Base):
     ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class ConversationSession(Base):
+    """One conversation boundary from the session/event capture API, with the
+    end user's identity. `id` is the client's session_id; `conversation_id`
+    is the same project-scoped UUID the events table uses."""
+    __tablename__ = "conversation_sessions"
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), primary_key=True)
+    id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(String(36), index=True)
+    user_id: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)
+    user_data: Mapped[dict] = mapped_column(JSON, default=dict)
+    session_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    client_config: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class EndUser(Base):
+    """A customer's end user, keyed by their stable (ideally pseudonymous) id.
+    Traits come from session `user_data` and identify calls."""
+    __tablename__ = "end_users"
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    traits: Mapped[dict] = mapped_column(JSON, default=dict)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class IngestionJob(Base):
     """Durable outbox. Ack follows this commit; workers process afterwards."""
     __tablename__ = "ingestion_jobs"

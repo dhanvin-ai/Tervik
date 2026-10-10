@@ -356,3 +356,269 @@ export class Tervik {
     if (hasFailure) throw failure;
   }
 }
+
+// ---- Interaction tracking: init(), begin()/end(), track(), identify() ----
+//
+// One interaction is one agent turn: the user's input and the agent's output,
+// sent together as one event to the session/event capture API. Tool calls made
+// during the turn nest under it with `interaction.tool()`. Sending happens in
+// the background; nothing here throws into agent code.
+
+export interface InteractionOptions {
+  /** Project ingest key. When set it is sent instead of the project ID. */
+  apiKey?: string;
+  /** Base origin, e.g. http://127.0.0.1:8000. */
+  endpoint?: string;
+  debug?: boolean;
+  flushIntervalMs?: number;
+  requestTimeoutMs?: number;
+  maxRetries?: number;
+  retryBaseMs?: number;
+  maxQueueSize?: number;
+  /** Runs on each capture-event body before it is queued; return null to drop it. */
+  redact?: (body: CaptureEventBody) => CaptureEventBody | null;
+}
+export interface BeginOptions { userId: string; agentName?: string; input?: unknown; conversationId?: string; interactionId?: string }
+export interface TrackOptions { userId: string; input?: unknown; output?: unknown; agentName?: string; conversationId?: string; success?: boolean; latencyMs?: number; properties?: Record<string, unknown> }
+export interface CaptureEventBody { event_id: string; session_id: string; primitive_name: string; args: string; result: string; success: boolean; latency: number; timestamp: number; parent_id?: string; metadata: Record<string, string> }
+export interface InteractionStats { sent: number; dropped: number; pending: number }
+
+const MAX_TEXT = 32000;
+function clip(value: unknown): string {
+  const text = value === undefined || value === null ? '' : stringify(value);
+  return redactText(text).slice(0, MAX_TEXT);
+}
+function stringMap(values: Record<string, unknown> | undefined): Record<string, string> {
+  const clean: Record<string, string> = {};
+  for (const [key, value] of Object.entries(values ?? {}).slice(0, 50)) {
+    if (value === undefined || value === null || !key.trim()) continue;
+    clean[key.slice(0, 100)] = SECRET_FIELD.test(key) ? '[REDACTED]' : clip(value).slice(0, 500);
+  }
+  return clean;
+}
+
+abstract class Operation {
+  readonly id: string;
+  output: unknown;
+  readonly properties: Record<string, unknown> = {};
+  protected readonly startedAt = Date.now();
+  protected readonly started = performance.now();
+  protected ended = false;
+  protected constructor(protected readonly client: InteractionClient, id?: string) { this.id = id || randomUUID(); }
+  abstract get conversationId(): string;
+  setProperty(key: string, value: unknown): this { this.properties[key] = value; return this; }
+  setProperties(values: Record<string, unknown>): this { Object.assign(this.properties, values); return this; }
+  /** Start a nested tool call. End it, or pass a function to `run`. */
+  tool(name: string, input?: unknown): ToolCall { return new ToolCall(this.client, this, name, input); }
+}
+
+export class ToolCall extends Operation {
+  constructor(client: InteractionClient, private readonly parent: Operation, readonly name: string, readonly input: unknown) { super(client); }
+  get conversationId(): string { return this.parent.conversationId; }
+  end(output?: unknown, success = true): void {
+    if (this.ended) return;
+    this.ended = true;
+    if (output !== undefined) this.output = output;
+    this.client.event(this.conversationId, this.id, this.name, this.input, this.output, success, performance.now() - this.started, this.startedAt, this.properties, this.parent.id);
+  }
+  /** Run the tool, record its result or error, and return or rethrow it unchanged. */
+  async run<T>(operation: () => T | Promise<T>): Promise<T> {
+    try {
+      const result = await operation();
+      this.end(result);
+      return result;
+    } catch (error) {
+      this.end(errorText(error), false);
+      throw error;
+    }
+  }
+}
+
+export class Interaction extends Operation {
+  readonly conversationId: string;
+  constructor(client: InteractionClient, readonly userId: string, readonly agentName: string, readonly input: unknown, conversationId?: string, interactionId?: string) {
+    super(client, interactionId);
+    this.conversationId = conversationId || randomUUID();
+  }
+  end(output?: unknown, success = true, latencyMs?: number): void {
+    if (this.ended) return;
+    this.ended = true;
+    if (output !== undefined) this.output = output;
+    this.client.forget(this.id);
+    this.client.event(this.conversationId, this.id, this.agentName, this.input, this.output, success, latencyMs ?? performance.now() - this.started, this.startedAt, this.properties);
+  }
+}
+
+/** Bounded FIFO of capture requests. A session is queued before its events. */
+export class InteractionClient {
+  disabled?: 'configuration' | 'authentication';
+  private readonly base: string;
+  private readonly queue: { path: string; body: object }[] = [];
+  private readonly open = new Map<string, Interaction>();
+  private readonly sessions = new Map<string, string>();
+  private readonly userSessions = new Map<string, string[]>();
+  private readonly traits = new Map<string, Record<string, string>>();
+  private readonly timer?: ReturnType<typeof setInterval>;
+  private flushing?: Promise<InteractionStats>;
+  private closed = false;
+  private sent = 0;
+  private dropped = 0;
+
+  constructor(private readonly projectId = '', private readonly options: InteractionOptions = {}) {
+    this.base = (options.endpoint ?? 'http://127.0.0.1:8000').replace(/\/+$/, '');
+    let valid = false;
+    try {
+      const url = new URL(this.base);
+      valid = (url.protocol === 'http:' || url.protocol === 'https:') && !url.username && !url.password;
+    } catch { valid = false; }
+    if (!valid || !(projectId || options.apiKey)) {
+      this.disabled = 'configuration';
+      console.warn('Tervik interactions are disabled: set a project ID (or API key) and an http(s) endpoint');
+    }
+    const interval = options.flushIntervalMs ?? 1000;
+    if (!this.disabled && interval > 0) {
+      this.timer = setInterval(() => { void this.flush(); }, interval);
+      this.timer.unref?.();
+    }
+  }
+
+  begin({ userId, agentName = 'agent', input, conversationId, interactionId }: BeginOptions): Interaction {
+    const interaction = new Interaction(this, String(userId), String(agentName).slice(0, 200) || 'agent', input, conversationId, interactionId);
+    if (interactionId) this.open.set(interactionId, interaction);
+    // Start the session before any of its events, including tool calls that finish first.
+    if (this.sessions.get(interaction.conversationId) !== interaction.userId) {
+      this.sessions.set(interaction.conversationId, interaction.userId);
+      const recent = this.userSessions.get(interaction.userId) ?? [];
+      recent.push(interaction.conversationId);
+      this.userSessions.set(interaction.userId, recent.slice(-20));
+      this.queueSession(interaction.conversationId, interaction.userId);
+    }
+    return interaction;
+  }
+
+  track({ userId, input, output, agentName, conversationId, success = true, latencyMs, properties }: TrackOptions): string {
+    const interaction = this.begin({ userId, agentName, input, conversationId });
+    interaction.setProperties(properties ?? {});
+    interaction.end(output, success, latencyMs);
+    return interaction.id;
+  }
+
+  /** Attach traits to a user; they are sent with the user's sessions. */
+  identify(userId: string, traits: Record<string, unknown> = {}): void {
+    const key = String(userId);
+    this.traits.set(key, { ...this.traits.get(key), ...stringMap(traits) });
+    for (const conversationId of this.userSessions.get(key) ?? []) this.queueSession(conversationId, key);
+  }
+
+  getInteraction(interactionId: string): Interaction | undefined { return this.open.get(interactionId); }
+
+  /** @internal */
+  forget(interactionId: string): void { this.open.delete(interactionId); }
+
+  /** @internal */
+  event(conversationId: string, eventId: string, name: string, input: unknown, output: unknown, success: boolean, latencyMs: number, startedAt: number, properties: Record<string, unknown>, parentId?: string): void {
+    try {
+      let body: CaptureEventBody | null = {
+        event_id: eventId, session_id: conversationId, primitive_name: name.slice(0, 200) || 'tool',
+        args: clip(input), result: clip(output), success: Boolean(success),
+        latency: Math.max(0, Math.round(latencyMs * 1000) / 1000), timestamp: startedAt, metadata: stringMap(properties),
+      };
+      if (parentId) body.parent_id = parentId;
+      if (this.options.redact) body = this.options.redact(body);
+      if (body) this.push('/api/v1/capture-event', body);
+      else this.drop();
+    } catch { this.drop(); }
+  }
+
+  flush(): Promise<InteractionStats> {
+    this.flushing ??= this.drain().finally(() => { this.flushing = undefined; });
+    return this.flushing;
+  }
+
+  async shutdown(): Promise<InteractionStats> {
+    this.closed = true;
+    if (this.timer) clearInterval(this.timer);
+    await this.flushing;
+    return this.flush();
+  }
+
+  private async drain(): Promise<InteractionStats> {
+    while (this.queue.length) {
+      if (this.disabled) { this.drop(this.queue.length); this.queue.length = 0; break; }
+      const next = this.queue[0]!;
+      await this.send(next.path, next.body);
+      if (this.queue[0] === next) this.queue.shift();
+    }
+    return { sent: this.sent, dropped: this.dropped, pending: this.queue.length };
+  }
+
+  private queueSession(conversationId: string, userId: string): void {
+    this.push('/api/v1/capture-session', {
+      session_id: conversationId, user_data: { ...this.traits.get(userId), user_id: userId.slice(0, 200) },
+      client_config: `${SDK_NAME}/${SDK_VERSION}`,
+    });
+  }
+
+  private push(path: string, body: object): void {
+    if (this.closed || this.disabled || this.queue.length >= (this.options.maxQueueSize ?? 1000)) { this.drop(); return; }
+    this.queue.push({ path, body });
+  }
+
+  private drop(count = 1): void {
+    this.dropped += count;
+    if (this.options.debug) console.debug(`Tervik dropped ${count} capture request(s)`);
+  }
+
+  private async send(path: string, body: object): Promise<void> {
+    const headers: Record<string, string> = { 'content-type': 'application/json', 'x-tervik-client': `${SDK_NAME}/${SDK_VERSION}` };
+    if (this.options.apiKey) headers.authorization = `Bearer ${this.options.apiKey}`;
+    else headers['x-org-id'] = this.projectId;
+    const retries = Math.min(10, Math.max(0, this.options.maxRetries ?? 2));
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), this.options.requestTimeoutMs ?? 5000);
+      try {
+        const response = await fetch(this.base + path, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal, redirect: 'error' });
+        if (response.ok) { this.sent++; return; }
+        if (response.status === 401 || response.status === 403) {
+          this.disabled = 'authentication';
+          console.warn('Tervik rejected the project ID or API key; capture is disabled');
+          this.drop();
+          return;
+        }
+        if (response.status !== 429 && response.status < 500) { this.drop(); return; }
+      } catch {
+        // Network failure: retry below.
+      } finally {
+        clearTimeout(timeout);
+      }
+      if (attempt < retries) await new Promise(resolve => setTimeout(resolve, Math.min(2000, (this.options.retryBaseMs ?? 200) * 2 ** attempt)));
+    }
+    this.drop();
+  }
+}
+
+let defaultClient: InteractionClient | undefined;
+function current(): InteractionClient {
+  if (!defaultClient) {
+    console.warn('tervik.init() has not been called; capture is disabled');
+    defaultClient = new InteractionClient();
+  }
+  return defaultClient;
+}
+/** Configure the module-level client. Call once, before tracking. */
+export function init(projectId?: string, options: InteractionOptions = {}): InteractionClient {
+  void defaultClient?.shutdown();
+  defaultClient = new InteractionClient(projectId, options);
+  return defaultClient;
+}
+export function begin(options: BeginOptions): Interaction { return current().begin(options); }
+export function track(options: TrackOptions): string { return current().track(options); }
+export function identify(userId: string, traits?: Record<string, unknown>): void { current().identify(userId, traits); }
+export function getInteraction(interactionId: string): Interaction | undefined { return current().getInteraction(interactionId); }
+export function flush(): Promise<InteractionStats> { return defaultClient ? defaultClient.flush() : Promise.resolve({ sent: 0, dropped: 0, pending: 0 }); }
+export async function shutdown(): Promise<InteractionStats> {
+  const client = defaultClient;
+  defaultClient = undefined;
+  return client ? client.shutdown() : { sent: 0, dropped: 0, pending: 0 };
+}

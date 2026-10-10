@@ -22,13 +22,16 @@ from . import alerts as alerts_mod
 from . import evaluate as evaluate_mod
 from . import improve as improve_mod
 from . import mcp as mcp_mod
+from . import capture_v1 as capture_mod
+from . import insights as insights_mod
 from .auth import (ROLES, SESSION_PREFIX, add_membership, create_organization,
                    create_session, credential_for_token, hash_password, is_ingest_token,
                    new_ingest_key, normalize_email, project_role, require_project_role,
                    resolve_session, sha256_hex, verify_password)
 from .capture import project_settings
 from .config import Settings
-from .db import (Account, AlertDelivery, AlertRule, AuditRecord, BehaviorRule, ClusterState, Credential, Environment, EvalDataset, EvalRun, Event, Improvement, IngestionJob,
+from .db import (Account, AlertDelivery, AlertRule, AuditRecord, BehaviorRule, ClusterState, ConversationSession, Credential, EndUser, Environment,
+                 EvalDataset, EvalRun, Event, Improvement, IngestionJob,
                  Intent, Membership, Organization, PayloadObject, Plan, Project, PromptVersion, SemanticCluster, SemanticMembership, Session, UsageRecord,
                  iso, make_database, utc, utc_now)
 from .demo import DEMO_PROJECT_ID, demo_events
@@ -52,7 +55,7 @@ class RequestGuards:
             return await self.app(scope, receive, send)
         headers = {key.lower(): value for key, value in scope.get("headers", [])}
         path = scope.get("path", "")
-        if path.startswith("/api/") and path != "/api/health" and self.settings.admin_token:
+        if path.startswith("/api/") and path != "/api/health" and not path.startswith("/api/v1/") and self.settings.admin_token:
             provided = headers.get(b"authorization", b"")
             expected = f"Bearer {self.settings.admin_token}".encode()
             if hmac.compare_digest(provided, expected):
@@ -170,7 +173,32 @@ def resolve_ingest(request, session):
     header = request.headers.get("authorization", "")
     if not header.startswith("Bearer "):
         raise HTTPException(401, "Project ingest key required")
-    secret = header[len("Bearer "):]
+    return ingest_secret(session, header[len("Bearer "):])
+
+
+def resolve_capture(request, session):
+    """Resolve a capture API caller to (project, environment).
+
+    Accepts the project ingest key (`Authorization: Bearer` or `x-api-key`) or
+    the project ID in `x-org-id`. The ID is a public, write-only routing
+    identifier, like a browser analytics key: it can add events but never read
+    them, and a project can turn it off with the `public_ingest` setting.
+    """
+    if request.headers.get("authorization", "").startswith("Bearer "):
+        return resolve_ingest(request, session)[:2]
+    api_key = request.headers.get("x-api-key", "").strip()
+    if api_key:
+        return ingest_secret(session, api_key)[:2]
+    org_id = request.headers.get("x-org-id", "").strip()
+    if not org_id:
+        raise HTTPException(401, "Send the project ID in x-org-id, or a project ingest key")
+    project = session.get(Project, org_id)
+    if project is None or not project_settings(project).get("public_ingest", True):
+        raise HTTPException(401, "Unknown project ID, or public ingestion is turned off for it")
+    return project, "production"
+
+
+def ingest_secret(session, secret):
     key_hash = sha256_hex(secret)
     project = session.scalars(select(Project).where(Project.key_hash == key_hash)).first()
     if project is not None:
@@ -254,7 +282,8 @@ def create_app(settings: Settings | None = None):
     app.state.settings = settings
     app.add_middleware(RequestGuards, settings=settings)
     app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
-                       allow_methods=["GET", "POST", "PATCH"], allow_headers=["Authorization", "Content-Type"])
+                       allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
+                       allow_headers=["Authorization", "Content-Type", "x-org-id", "x-api-key"])
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, error):
@@ -406,6 +435,40 @@ def create_app(settings: Settings | None = None):
                 queue_mod.process_pending(session, engine, settings, project_id=project.id)
         return {"accepted": accepted, "duplicates": duplicates}
 
+    # ---- Session and event capture API ----
+
+    def capture_after_commit(project_id, background_tasks):
+        if settings.inline_process:
+            with sessions.begin() as session:
+                queue_mod.process_pending(session, engine, settings, project_id=project_id)
+            if settings.clickhouse_url:
+                background_tasks.add_task(retry_mirrors_task, project_id)
+
+    @app.post("/api/v1/capture-session")
+    def capture_session(body: capture_mod.SessionCapture, request: Request):
+        with sessions.begin() as session:
+            project, _ = resolve_capture(request, session)
+            capture_mod.upsert_session(session, project.id, body)
+        return {"session_id": body.session_id}
+
+    @app.post("/api/v1/capture-event")
+    def capture_event(body: capture_mod.EventCapture, request: Request, background_tasks: BackgroundTasks):
+        with sessions.begin() as session:
+            project, environment = resolve_capture(request, session)
+            check_quota(session, project)
+            row = capture_mod.implicit_session(session, project.id, body.session_id,
+                                               capture_mod.from_millis(body.timestamp))
+            trace_id = capture_mod.resolve_trace(session, project.id, body.parent_id, body.event_id)
+            try:
+                events = capture_mod.to_events(body, row, trace_id)
+            except ValueError as error:
+                raise HTTPException(422, str(error).splitlines()[0])
+            queue_mod.enqueue_events(session, engine, project, events, environment=environment)
+        capture_after_commit(project.id, background_tasks)
+        with sessions.begin() as session:
+            capture_mod.reroot_children(session, project.id, body.event_id, trace_id)
+        return {"event_id": body.event_id}
+
     @app.get("/api/overview")
     def overview(request: Request, project_id: str | None = None, range: Range = "7d"):
         with sessions() as session:
@@ -479,8 +542,16 @@ def create_app(settings: Settings | None = None):
             rules = list(session.scalars(select(BehaviorRule).where(
                 BehaviorRule.project_id == events[0].project_id, BehaviorRule.enabled == True)))  # noqa: E712
             signals = analysis.analyze(events, rules)
+            captured = session.get(ConversationSession, (events[0].project_id, events[0].source_conversation_id))
+            profile = session.get(EndUser, (events[0].project_id, captured.user_id)) if captured and captured.user_id else None
             return {**analysis.summary(events, signals), "messages": [analysis.event_dict(e) for e in events],
-                    "signals": [analysis.public_signal(s) for s in signals], "spans": analysis.spans(events)}
+                    "signals": [analysis.public_signal(s) for s in signals], "spans": analysis.spans(events),
+                    "session": None if captured is None else {
+                        "session_id": captured.id, "user_id": captured.user_id,
+                        "user_traits": {**((profile.traits if profile else None) or {}),
+                                        **{k: v for k, v in (captured.user_data or {}).items() if k != "user_id"}},
+                        "metadata": captured.session_metadata or {}, "client_config": captured.client_config,
+                        "started_at": iso(captured.started_at)}}
 
     # ---- Phase 2: accounts, organizations, scoped credentials ----
 
@@ -734,6 +805,8 @@ def create_app(settings: Settings | None = None):
                 current["redact_keys"] = [k for k in body.redact_keys if k][:50]
             if body.retention_days is not None:
                 current["retention_days"] = body.retention_days
+            if body.public_ingest is not None:
+                current["public_ingest"] = body.public_ingest
             project.settings = current
             audit(session, project.org_id, "project.capture", project.id, account.id)
             return {"project_id": project.id, "settings": current}
@@ -968,6 +1041,11 @@ def create_app(settings: Settings | None = None):
                       resolved[1].id if resolved else None)
             session.delete(intent)
             return {"ok": True}
+
+    insights_mod.register(
+        app, sessions=sessions,
+        read_project=lambda request, db_session, project_id: intent_project(request, db_session, project_id, "viewer"),
+        project_signals=lambda db_session, project_id: project_analysis(db_session, project_id)[:2])
 
     # ---- Phase 6: discovery ----
 

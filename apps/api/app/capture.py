@@ -21,6 +21,8 @@ DEFAULT_SETTINGS = {
     "capture_content": True,
     "redact_keys": [],
     "retention_days": 90,
+    # Accept the project ID as a public, write-only ingestion identifier.
+    "public_ingest": True,
 }
 
 

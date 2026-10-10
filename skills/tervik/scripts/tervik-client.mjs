@@ -393,3 +393,283 @@ export class Tervik {
             throw failure;
     }
 }
+const MAX_TEXT = 32000;
+function clip(value) {
+    const text = value === undefined || value === null ? '' : stringify(value);
+    return redactText(text).slice(0, MAX_TEXT);
+}
+function stringMap(values) {
+    const clean = {};
+    for (const [key, value] of Object.entries(values ?? {}).slice(0, 50)) {
+        if (value === undefined || value === null || !key.trim())
+            continue;
+        clean[key.slice(0, 100)] = SECRET_FIELD.test(key) ? '[REDACTED]' : clip(value).slice(0, 500);
+    }
+    return clean;
+}
+class Operation {
+    client;
+    id;
+    output;
+    properties = {};
+    startedAt = Date.now();
+    started = performance.now();
+    ended = false;
+    constructor(client, id) {
+        this.client = client;
+        this.id = id || randomUUID();
+    }
+    setProperty(key, value) { this.properties[key] = value; return this; }
+    setProperties(values) { Object.assign(this.properties, values); return this; }
+    /** Start a nested tool call. End it, or pass a function to `run`. */
+    tool(name, input) { return new ToolCall(this.client, this, name, input); }
+}
+export class ToolCall extends Operation {
+    parent;
+    name;
+    input;
+    constructor(client, parent, name, input) {
+        super(client);
+        this.parent = parent;
+        this.name = name;
+        this.input = input;
+    }
+    get conversationId() { return this.parent.conversationId; }
+    end(output, success = true) {
+        if (this.ended)
+            return;
+        this.ended = true;
+        if (output !== undefined)
+            this.output = output;
+        this.client.event(this.conversationId, this.id, this.name, this.input, this.output, success, performance.now() - this.started, this.startedAt, this.properties, this.parent.id);
+    }
+    /** Run the tool, record its result or error, and return or rethrow it unchanged. */
+    async run(operation) {
+        try {
+            const result = await operation();
+            this.end(result);
+            return result;
+        }
+        catch (error) {
+            this.end(errorText(error), false);
+            throw error;
+        }
+    }
+}
+export class Interaction extends Operation {
+    userId;
+    agentName;
+    input;
+    conversationId;
+    constructor(client, userId, agentName, input, conversationId, interactionId) {
+        super(client, interactionId);
+        this.userId = userId;
+        this.agentName = agentName;
+        this.input = input;
+        this.conversationId = conversationId || randomUUID();
+    }
+    end(output, success = true, latencyMs) {
+        if (this.ended)
+            return;
+        this.ended = true;
+        if (output !== undefined)
+            this.output = output;
+        this.client.forget(this.id);
+        this.client.event(this.conversationId, this.id, this.agentName, this.input, this.output, success, latencyMs ?? performance.now() - this.started, this.startedAt, this.properties);
+    }
+}
+/** Bounded FIFO of capture requests. A session is queued before its events. */
+export class InteractionClient {
+    projectId;
+    options;
+    disabled;
+    base;
+    queue = [];
+    open = new Map();
+    sessions = new Map();
+    userSessions = new Map();
+    traits = new Map();
+    timer;
+    flushing;
+    closed = false;
+    sent = 0;
+    dropped = 0;
+    constructor(projectId = '', options = {}) {
+        this.projectId = projectId;
+        this.options = options;
+        this.base = (options.endpoint ?? 'http://127.0.0.1:8000').replace(/\/+$/, '');
+        let valid = false;
+        try {
+            const url = new URL(this.base);
+            valid = (url.protocol === 'http:' || url.protocol === 'https:') && !url.username && !url.password;
+        }
+        catch {
+            valid = false;
+        }
+        if (!valid || !(projectId || options.apiKey)) {
+            this.disabled = 'configuration';
+            console.warn('Tervik interactions are disabled: set a project ID (or API key) and an http(s) endpoint');
+        }
+        const interval = options.flushIntervalMs ?? 1000;
+        if (!this.disabled && interval > 0) {
+            this.timer = setInterval(() => { void this.flush(); }, interval);
+            this.timer.unref?.();
+        }
+    }
+    begin({ userId, agentName = 'agent', input, conversationId, interactionId }) {
+        const interaction = new Interaction(this, String(userId), String(agentName).slice(0, 200) || 'agent', input, conversationId, interactionId);
+        if (interactionId)
+            this.open.set(interactionId, interaction);
+        // Start the session before any of its events, including tool calls that finish first.
+        if (this.sessions.get(interaction.conversationId) !== interaction.userId) {
+            this.sessions.set(interaction.conversationId, interaction.userId);
+            const recent = this.userSessions.get(interaction.userId) ?? [];
+            recent.push(interaction.conversationId);
+            this.userSessions.set(interaction.userId, recent.slice(-20));
+            this.queueSession(interaction.conversationId, interaction.userId);
+        }
+        return interaction;
+    }
+    track({ userId, input, output, agentName, conversationId, success = true, latencyMs, properties }) {
+        const interaction = this.begin({ userId, agentName, input, conversationId });
+        interaction.setProperties(properties ?? {});
+        interaction.end(output, success, latencyMs);
+        return interaction.id;
+    }
+    /** Attach traits to a user; they are sent with the user's sessions. */
+    identify(userId, traits = {}) {
+        const key = String(userId);
+        this.traits.set(key, { ...this.traits.get(key), ...stringMap(traits) });
+        for (const conversationId of this.userSessions.get(key) ?? [])
+            this.queueSession(conversationId, key);
+    }
+    getInteraction(interactionId) { return this.open.get(interactionId); }
+    /** @internal */
+    forget(interactionId) { this.open.delete(interactionId); }
+    /** @internal */
+    event(conversationId, eventId, name, input, output, success, latencyMs, startedAt, properties, parentId) {
+        try {
+            let body = {
+                event_id: eventId, session_id: conversationId, primitive_name: name.slice(0, 200) || 'tool',
+                args: clip(input), result: clip(output), success: Boolean(success),
+                latency: Math.max(0, Math.round(latencyMs * 1000) / 1000), timestamp: startedAt, metadata: stringMap(properties),
+            };
+            if (parentId)
+                body.parent_id = parentId;
+            if (this.options.redact)
+                body = this.options.redact(body);
+            if (body)
+                this.push('/api/v1/capture-event', body);
+            else
+                this.drop();
+        }
+        catch {
+            this.drop();
+        }
+    }
+    flush() {
+        this.flushing ??= this.drain().finally(() => { this.flushing = undefined; });
+        return this.flushing;
+    }
+    async shutdown() {
+        this.closed = true;
+        if (this.timer)
+            clearInterval(this.timer);
+        await this.flushing;
+        return this.flush();
+    }
+    async drain() {
+        while (this.queue.length) {
+            if (this.disabled) {
+                this.drop(this.queue.length);
+                this.queue.length = 0;
+                break;
+            }
+            const next = this.queue[0];
+            await this.send(next.path, next.body);
+            if (this.queue[0] === next)
+                this.queue.shift();
+        }
+        return { sent: this.sent, dropped: this.dropped, pending: this.queue.length };
+    }
+    queueSession(conversationId, userId) {
+        this.push('/api/v1/capture-session', {
+            session_id: conversationId, user_data: { ...this.traits.get(userId), user_id: userId.slice(0, 200) },
+            client_config: `${SDK_NAME}/${SDK_VERSION}`,
+        });
+    }
+    push(path, body) {
+        if (this.closed || this.disabled || this.queue.length >= (this.options.maxQueueSize ?? 1000)) {
+            this.drop();
+            return;
+        }
+        this.queue.push({ path, body });
+    }
+    drop(count = 1) {
+        this.dropped += count;
+        if (this.options.debug)
+            console.debug(`Tervik dropped ${count} capture request(s)`);
+    }
+    async send(path, body) {
+        const headers = { 'content-type': 'application/json', 'x-tervik-client': `${SDK_NAME}/${SDK_VERSION}` };
+        if (this.options.apiKey)
+            headers.authorization = `Bearer ${this.options.apiKey}`;
+        else
+            headers['x-org-id'] = this.projectId;
+        const retries = Math.min(10, Math.max(0, this.options.maxRetries ?? 2));
+        for (let attempt = 0; attempt <= retries; attempt++) {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), this.options.requestTimeoutMs ?? 5000);
+            try {
+                const response = await fetch(this.base + path, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal, redirect: 'error' });
+                if (response.ok) {
+                    this.sent++;
+                    return;
+                }
+                if (response.status === 401 || response.status === 403) {
+                    this.disabled = 'authentication';
+                    console.warn('Tervik rejected the project ID or API key; capture is disabled');
+                    this.drop();
+                    return;
+                }
+                if (response.status !== 429 && response.status < 500) {
+                    this.drop();
+                    return;
+                }
+            }
+            catch {
+                // Network failure: retry below.
+            }
+            finally {
+                clearTimeout(timeout);
+            }
+            if (attempt < retries)
+                await new Promise(resolve => setTimeout(resolve, Math.min(2000, (this.options.retryBaseMs ?? 200) * 2 ** attempt)));
+        }
+        this.drop();
+    }
+}
+let defaultClient;
+function current() {
+    if (!defaultClient) {
+        console.warn('tervik.init() has not been called; capture is disabled');
+        defaultClient = new InteractionClient();
+    }
+    return defaultClient;
+}
+/** Configure the module-level client. Call once, before tracking. */
+export function init(projectId, options = {}) {
+    void defaultClient?.shutdown();
+    defaultClient = new InteractionClient(projectId, options);
+    return defaultClient;
+}
+export function begin(options) { return current().begin(options); }
+export function track(options) { return current().track(options); }
+export function identify(userId, traits) { current().identify(userId, traits); }
+export function getInteraction(interactionId) { return current().getInteraction(interactionId); }
+export function flush() { return defaultClient ? defaultClient.flush() : Promise.resolve({ sent: 0, dropped: 0, pending: 0 }); }
+export async function shutdown() {
+    const client = defaultClient;
+    defaultClient = undefined;
+    return client ? client.shutdown() : { sent: 0, dropped: 0, pending: 0 };
+}

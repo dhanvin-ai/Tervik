@@ -18,7 +18,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from .capture import apply_capture, project_settings, retention_cutoff
 from .db import (AnalyzedConversation, Classification, ConversationSession, Event, IngestionJob, PayloadObject,
-                 Project, UsageRecord, utc, utc_now)
+                 Plan, Project, UsageRecord, utc, utc_now)
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +32,19 @@ def _insert(engine):
     return sqlite_insert if engine.dialect.name == "sqlite" else postgres_insert
 
 
+def retention_days(session, project: Project) -> int:
+    """The project's retention, capped by its organization's plan."""
+    days = int(project_settings(project).get("retention_days", 90))
+    plan = session.get(Plan, project.org_id) if project.org_id else None
+    return min(days, plan.retention_days) if plan is not None and plan.retention_days else days
+
+
 def enqueue_events(session, engine, project: Project, events, *, environment: str = "production"):
     """Durable acceptance. Returns (accepted, duplicates, expired)."""
     insert = _insert(engine)
     settings = project_settings(project)
-    retention_days = int(settings.get("retention_days", 90))
-    cutoff = retention_cutoff(retention_days, utc_now())
+    retention = retention_days(session, project)
+    cutoff = retention_cutoff(retention, utc_now())
     accepted, duplicates, expired = 0, 0, 0
     for event in events:
         values = event.model_dump()
@@ -88,9 +95,12 @@ def _write_event(session, engine, project_id: str, org_id: str | None, job: Inge
     inserted = session.execute(insert(Event).values(**values).on_conflict_do_nothing(
         index_elements=["project_id", "id"]).returning(Event.id)).scalar_one_or_none()
     content = values["content"] or ""
-    session.execute(insert(UsageRecord).values(
-        project_id=project_id, event_id=job.event_id, bytes=len(content.encode("utf-8", "ignore")),
-    ).on_conflict_do_nothing(index_elements=["project_id", "event_id"]))
+    # A turn pair is one billable event: its output half carries the usage.
+    turn_input = values["role"] == "user" and values["event_metadata"].get("event_type") == "turn"
+    if not turn_input:
+        session.execute(insert(UsageRecord).values(
+            project_id=project_id, event_id=job.event_id, bytes=len(content.encode("utf-8", "ignore")),
+        ).on_conflict_do_nothing(index_elements=["project_id", "event_id"]))
     if len(content) >= LARGE_PAYLOAD_CHARS:
         digest = hashlib.sha256(content.encode("utf-8", "ignore")).hexdigest()
         key = f"{project_id}/{job.event_id}/{digest[:16]}"
@@ -206,8 +216,7 @@ def job_stats(session, project_id: str) -> dict:
 
 def run_retention(session, engine, project: Project) -> dict:
     """Delete expired telemetry from SQL projections and payload objects."""
-    settings = project_settings(project)
-    cutoff = retention_cutoff(int(settings.get("retention_days", 90)), utc_now())
+    cutoff = retention_cutoff(retention_days(session, project), utc_now())
     expired_events = session.execute(select(Event.project_id, Event.id).where(
         Event.project_id == project.id, Event.timestamp < cutoff).limit(2000)).all()
     removed = 0

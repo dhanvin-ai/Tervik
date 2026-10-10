@@ -54,6 +54,15 @@ def new_session_token() -> str:
     return SESSION_PREFIX + secrets.token_urlsafe(32)
 
 
+API_KEY_PREFIX = "tervik_"
+
+
+def new_api_key() -> tuple[str, str, str]:
+    """Return (secret, prefix, hash) for a read API key: `tervik_<64 hex>`."""
+    secret = API_KEY_PREFIX + secrets.token_hex(32)
+    return secret, secret[:14], sha256_hex(secret)
+
+
 def new_ingest_key() -> tuple[str, str, str]:
     """Return (secret, prefix, hash). The secret is returned once."""
     secret = INGEST_PREFIX + secrets.token_urlsafe(32)

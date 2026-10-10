@@ -28,6 +28,8 @@ class Settings:
     llm_api_key: str | None = field(default=None, repr=False)
     llm_model: str = "claude-opus-5-5"
     llm_base_url: str = "https://api.anthropic.com"
+    # Linked from alert messages.
+    dashboard_url: str = "http://localhost:5173"
 
     @classmethod
     def from_env(cls):
@@ -62,4 +64,5 @@ class Settings:
             llm_api_key=os.getenv("ANTHROPIC_API_KEY") or None,
             llm_model=os.getenv("TERVIK_LLM_MODEL", "claude-opus-5-5"),
             llm_base_url=os.getenv("TERVIK_LLM_BASE_URL", "https://api.anthropic.com").rstrip("/"),
+            dashboard_url=os.getenv("TERVIK_DASHBOARD_URL", "http://localhost:5173"),
         )

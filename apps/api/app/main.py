@@ -10,6 +10,8 @@ from uuid import UUID, uuid4, uuid5
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
+from starlette.concurrency import run_in_threadpool
+from urllib.parse import parse_qs
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
@@ -26,20 +28,20 @@ from . import capture_v1 as capture_mod
 from . import insights as insights_mod
 from . import classify as classify_mod
 from . import llm as llm_mod
-from .auth import (ROLES, SESSION_PREFIX, add_membership, create_organization,
+from .auth import (API_KEY_PREFIX, ROLES, SESSION_PREFIX, add_membership, create_organization, new_api_key,
                    create_session, credential_for_token, hash_password, is_ingest_token,
                    new_ingest_key, normalize_email, project_role, require_project_role,
                    resolve_session, sha256_hex, verify_password)
 from .capture import project_settings
 from .config import Settings
-from .db import (Account, AlertDelivery, AlertRule, AnalyzedConversation, AuditRecord, BehaviorRule, Classification, ClusterState,
+from .db import (Account, AlertDelivery, AlertRule, AnalyzedConversation, ApiKey, AuditRecord, BehaviorRule, Classification, ClusterState,
                  ConversationSession, Credential, EndUser, Environment, Policy,
                  EvalDataset, EvalRun, Event, Improvement, IngestionJob,
                  Intent, Membership, Organization, PayloadObject, Plan, Project, PromptVersion, SemanticCluster, SemanticMembership, Session, UsageRecord,
                  iso, make_database, utc, utc_now)
 from .demo import DEMO_PROJECT_ID, demo_events
 from .mirror import mirror_events
-from .schemas import (AgentDescriptor, AlertRuleInput, AlertRulePatch, CaptureInput, ClusterPatch, CredentialInput, DiscoveryMembers, DiscoveryMerge,
+from .schemas import (AgentDescriptor, AlertChannel, AlertRuleInput, PlanInput, SlackConnect, AlertRulePatch, CaptureInput, ClusterPatch, CredentialInput, DiscoveryMembers, DiscoveryMerge,
                       DiscoveryRename, DiscoveryStatus, EvalCase, EvalDatasetInput, EvalDatasetPatch, EvalRunInput, EventBatch, FindingsDatasetInput, ImprovementEval, ImprovementInput, ImprovementTransition, IntentInput,
                       IntentPatch, LoginInput,
                       MemberInput, MemberPatch, OrgInput, OrgProjectInput, ProjectInput, RuleInput,
@@ -48,17 +50,51 @@ from .schemas import (AgentDescriptor, AlertRuleInput, AlertRulePatch, CaptureIn
 Range = Literal["24h", "7d", "30d"]
 
 
+# Read API keys reach one project's analytics, never its secrets or settings.
+API_KEY_PROJECT_PATH = re.compile(r"^/api/projects/(?P<id>[^/]+)/(?P<rest>.+)$")
+API_KEY_READABLE = re.compile(r"^(summary|tools|events|events/export|events/[^/]+|errors|metadata|users|groups|search|"
+                              r"violations|intent-stats|evidence|classify/status|policies|intents|discovery|rules)$")
+API_KEY_PROJECT_QUERY = {"/api/overview", "/api/clusters", "/api/conversations"}
+API_KEY_RESOURCE = re.compile(r"^/api/(conversations|clusters)/[^/]+$")
+
+
+def api_key_allows(method, path, query, project_id):
+    match = API_KEY_PROJECT_PATH.match(path)
+    if match:
+        if match["id"] != project_id:
+            return False
+        if method == "POST":
+            return match["rest"] == "classify"
+        return method == "GET" and bool(API_KEY_READABLE.match(match["rest"]))
+    if method != "GET":
+        return False
+    if path in API_KEY_PROJECT_QUERY:
+        return parse_qs(query).get("project_id", [None])[0] == project_id
+    # Handlers check that the conversation or cluster belongs to the key's project.
+    return bool(API_KEY_RESOURCE.match(path))
+
+
 class RequestGuards:
     """Validate body size while streaming and protect every dashboard route."""
-    def __init__(self, app, settings):
-        self.app, self.settings = app, settings
+    def __init__(self, app, settings, api_keys=None):
+        self.app, self.settings, self.api_keys = app, settings, api_keys
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         headers = {key.lower(): value for key, value in scope.get("headers", [])}
         path = scope.get("path", "")
-        if path.startswith("/api/") and path != "/api/health" and not path.startswith("/api/v1/") and self.settings.admin_token:
+        api_key = headers.get(b"x-api-key", b"").decode("latin1").strip()
+        keyed = api_key.startswith(API_KEY_PREFIX) and path.startswith("/api/") and not path.startswith("/api/v1/")
+        if keyed:
+            project_id = await run_in_threadpool(self.api_keys, api_key) if self.api_keys else None
+            if project_id is None:
+                return await JSONResponse({"detail": "Invalid or revoked API key"}, status_code=401)(scope, receive, send)
+            if not api_key_allows(scope["method"], path, scope.get("query_string", b"").decode("latin1"), project_id):
+                return await JSONResponse({"detail": "API keys can only read this project's analytics"},
+                                          status_code=403)(scope, receive, send)
+            scope.setdefault("state", {})["api_key_project"] = project_id
+        elif path.startswith("/api/") and path != "/api/health" and not path.startswith("/api/v1/") and self.settings.admin_token:
             provided = headers.get(b"authorization", b"")
             expected = f"Bearer {self.settings.admin_token}".encode()
             if hmac.compare_digest(provided, expected):
@@ -103,13 +139,21 @@ def audit(session, org_id, action, resource="", account_id=None):
                             action=action, resource=resource))
 
 
-def month_start(now):
-    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+# Event allowances per rolling 30 days, and how long telemetry is kept.
+PLAN_TIERS = {
+    "free": {"monthly_event_limit": 1_000, "retention_days": 7},
+    "starter": {"monthly_event_limit": 10_000, "retention_days": 30},
+    "pro": {"monthly_event_limit": 1_000_000, "retention_days": 90},
+    "beta": {"monthly_event_limit": 100_000, "retention_days": 90},
+    "enterprise": {"monthly_event_limit": 100_000_000, "retention_days": 365},
+}
+USAGE_WINDOW_DAYS = 30
 
 
 def month_usage(session, org_id):
-    """Accepted events this calendar month across the org's projects."""
-    start = month_start(utc_now())
+    """Accepted events over the rolling 30-day window across the org's projects.
+    A turn pair counts once; its input half is not billed separately."""
+    start = utc_now() - timedelta(days=USAGE_WINDOW_DAYS)
     project_ids = list(session.scalars(select(Project.id).where(Project.org_id == org_id)))
     if not project_ids:
         return 0
@@ -284,7 +328,18 @@ def create_app(settings: Settings | None = None):
     app.state.sessions = sessions
     app.state.settings = settings
     app.state.llm = llm_mod.from_settings(settings)
-    app.add_middleware(RequestGuards, settings=settings)
+    def api_key_project(secret):
+        """Project id for a live read API key, or None."""
+        with sessions.begin() as session:
+            key = session.scalars(select(ApiKey).where(ApiKey.key_hash == sha256_hex(secret))).first()
+            if key is None or key.revoked_at is not None:
+                return None
+            now = utc_now()
+            if key.last_used_at is None or utc(key.last_used_at) < now - timedelta(minutes=1):
+                key.last_used_at = now
+            return key.project_id
+
+    app.add_middleware(RequestGuards, settings=settings, api_keys=api_key_project)
     app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
                        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
                        allow_headers=["Authorization", "Content-Type", "x-org-id", "x-api-key"])
@@ -319,6 +374,11 @@ def create_app(settings: Settings | None = None):
 
     def dashboard_access(request: Request, db_session, project):
         """Org isolation for session callers. Legacy projects stay isolated from sessions."""
+        pinned = getattr(request.state, "api_key_project", None)
+        if pinned is not None:
+            if project.id != pinned:
+                raise HTTPException(404, "Project not found")
+            return None
         header = request.headers.get("authorization", "")
         if header.startswith("Bearer tvk_"):
             raise HTTPException(401, "Ingest keys cannot read customer data")
@@ -1056,6 +1116,41 @@ def create_app(settings: Settings | None = None):
         if project.org_id is not None:
             audit(db_session, project.org_id, action, resource, account_id)
 
+    def api_key_dict(key):
+        return {"id": key.id, "project_id": key.project_id, "name": key.name, "prefix": key.prefix,
+                "created_at": iso(key.created_at), "last_used_at": iso(key.last_used_at) if key.last_used_at else None,
+                "revoked_at": iso(key.revoked_at) if key.revoked_at else None}
+
+    @app.get("/api/projects/{id}/api-keys")
+    def list_api_keys(request: Request, id: str):
+        with sessions() as session:
+            write_project(request, session, id)
+            return [api_key_dict(k) for k in session.scalars(
+                select(ApiKey).where(ApiKey.project_id == id).order_by(ApiKey.created_at))]
+
+    @app.post("/api/projects/{id}/api-keys", status_code=201)
+    def create_api_key(request: Request, id: str, body: CredentialInput):
+        with sessions.begin() as session:
+            project, account_id = write_project(request, session, id)
+            secret, prefix, key_hash = new_api_key()
+            key = ApiKey(id=str(uuid4()), project_id=id, name=body.name.strip() or "default", prefix=prefix,
+                         key_hash=key_hash, created_by=account_id)
+            session.add(key)
+            session.flush()
+            project_audit(session, project, "api_key.create", key.id, account_id)
+            return {**api_key_dict(key), "secret": secret}
+
+    @app.delete("/api/api-keys/{id}")
+    def revoke_api_key(request: Request, id: str):
+        with sessions.begin() as session:
+            key = session.get(ApiKey, id)
+            if key is None:
+                raise HTTPException(404, "API key not found")
+            project, account_id = write_project(request, session, key.project_id)
+            key.revoked_at = key.revoked_at or utc_now()
+            project_audit(session, project, "api_key.revoke", key.id, account_id)
+            return api_key_dict(key)
+
     classify_mod.register(app, sessions=sessions,
                           read_project=lambda request, db_session, project_id: intent_project(request, db_session, project_id, "viewer"),
                           write_project=write_project, audit=project_audit)
@@ -1356,8 +1451,14 @@ def create_app(settings: Settings | None = None):
                 _, account = require_session(request, session)
                 org_project(session, project.id, account.id, "admin")
                 account_id = account.id
+            if body.metric == "intent" and (session.get(Intent, body.target) is None or session.get(Intent, body.target).project_id != project.id):
+                raise HTTPException(422, "target must be an intent in this project")
+            if body.metric == "violation" and (session.get(Policy, body.target) is None or session.get(Policy, body.target).project_id != project.id):
+                raise HTTPException(422, "target must be a policy in this project")
             rule = AlertRule(id=str(uuid4()), project_id=project.id, name=body.name.strip(),
                              kind=body.kind, signal_kind=body.signal_kind,
+                             metric=None if body.metric == "problems" else body.metric,
+                             target=(body.target or "").strip() or None,
                              threshold=body.threshold, window_hours=body.window_hours,
                              min_samples=body.min_samples, cooldown_hours=body.cooldown_hours,
                              channels=[c.model_dump() for c in body.channels],
@@ -1379,13 +1480,77 @@ def create_app(settings: Settings | None = None):
                 _, account = require_session(request, session)
                 org_project(session, project.id, account.id, "admin")
                 audit(session, project.org_id, "alert.update", rule.id, account.id)
-            if body.enabled is not None:
-                rule.enabled = body.enabled
-            if body.threshold is not None:
-                rule.threshold = body.threshold
-            if body.cooldown_hours is not None:
-                rule.cooldown_hours = body.cooldown_hours
+            for field in ("enabled", "threshold", "window_hours", "min_samples", "cooldown_hours"):
+                if getattr(body, field) is not None:
+                    setattr(rule, field, getattr(body, field))
+            if body.name is not None:
+                rule.name = body.name.strip()
+            if body.channels is not None:
+                rule.channels = [c.model_dump() for c in body.channels]
             return alerts_mod.public_rule(rule)
+
+    def alert_for_admin(request, db_session, id):
+        rule = db_session.get(AlertRule, id)
+        if rule is None:
+            raise HTTPException(404, "Alert not found")
+        project, account_id = write_project(request, db_session, rule.project_id)
+        return rule, project, account_id
+
+    @app.post("/api/alerts/{id}/test")
+    def test_alert(request: Request, id: str):
+        """Send the alert's current message to each channel now, without
+        checking the threshold or recording a delivery."""
+        with sessions() as session:
+            rule, project, _ = alert_for_admin(request, session, id)
+            now = utc_now()
+            if rule.kind == "summary":
+                title, body = (alerts_mod.intent_summary if rule.metric == "suggested_intents"
+                               else alerts_mod.daily_summary)(session, project, now, settings.dashboard_url)
+                body = body or "No new intents in the last 24 hours."
+            else:
+                current, total, examples = alerts_mod.measure(
+                    session, rule, now - timedelta(hours=rule.window_hours or 24), now)
+                title = f"Test: {rule.name}"
+                body = alerts_mod.describe(rule, current, total, examples, settings.dashboard_url,
+                                           alerts_mod.target_label(session, rule))
+            results = []
+            for channel in alerts_mod.rule_channels(rule):
+                try:
+                    alerts_mod.send(channel["type"], channel.get("target", ""), f"[Test] {title}", body, settings)
+                    results.append({"type": channel["type"], "ok": True, "error": None})
+                except (ValueError, RuntimeError) as error:
+                    results.append({"type": channel["type"], "ok": False, "error": str(error)})
+            return {"title": title, "body": body, "results": results}
+
+    @app.get("/api/alerts/{id}/history")
+    def alert_history(request: Request, id: str, limit: int = Query(default=50, ge=1, le=200)):
+        with sessions() as session:
+            rule, _, _ = alert_for_admin(request, session, id)
+            return [alerts_mod.public_delivery(d) for d in session.scalars(
+                select(AlertDelivery).where(AlertDelivery.rule_id == rule.id)
+                .order_by(AlertDelivery.created_at.desc()).limit(limit))]
+
+    @app.post("/api/projects/{id}/alerts/slack", status_code=201)
+    def connect_slack(request: Request, id: str, body: SlackConnect):
+        """Connect a Slack channel: turns on the daily summary and the new
+        intents summary there, as Agnost does when Slack is connected."""
+        channel = AlertChannel(type="slack", target=body.webhook_url)
+        with sessions.begin() as session:
+            project, account_id = write_project(request, session, id)
+            created = []
+            existing = list(session.scalars(select(AlertRule).where(AlertRule.project_id == id)))
+            for name, metric in (("Daily summary", None), ("New intents summary", "suggested_intents")):
+                rule = next((r for r in existing if r.kind == "summary" and r.metric == metric and
+                             any(c.get("type") == "slack" and c.get("target") == channel.target for c in r.channels or [])), None)
+                if rule is None:
+                    rule = AlertRule(id=str(uuid4()), project_id=id, name=name, kind="summary", metric=metric,
+                                     window_hours=24, min_samples=1, cooldown_hours=20,
+                                     channels=[channel.model_dump()], enabled=True, state="ok", created_by=account_id)
+                    session.add(rule)
+                    session.flush()
+                created.append(alerts_mod.public_rule(rule))
+            project_audit(session, project, "alert.slack_connect", id, account_id)
+            return {"alerts": created}
 
     @app.delete("/api/alerts/{id}")
     def delete_alert(request: Request, id: str):
@@ -1415,7 +1580,7 @@ def create_app(settings: Settings | None = None):
             results = []
             for rule in session.scalars(select(AlertRule).where(
                     AlertRule.project_id == project.id, AlertRule.enabled == True)):  # noqa: E712
-                fired, detail = alerts_mod.evaluate_rule(session, rule)
+                fired, detail = alerts_mod.evaluate_rule(session, rule, settings=settings)
                 results.append({"rule_id": rule.id, "fired": fired, "detail": detail})
             return {"evaluated": len(results), "results": results}
 
@@ -1459,9 +1624,43 @@ def create_app(settings: Settings | None = None):
             used = month_usage(session, id)
             return {"org_id": id, "plan": plan.name,
                     "monthly_event_limit": plan.monthly_event_limit,
+                    "retention_days": plan.retention_days or PLAN_TIERS.get(plan.name, {}).get("retention_days"),
+                    "usage_window_days": USAGE_WINDOW_DAYS,
                     "used_this_month": used,
                     "percent": round(100 * used / plan.monthly_event_limit, 2)
-                    if plan.monthly_event_limit else 0}
+                    if plan.monthly_event_limit else 0,
+                    "tiers": [{"name": name, **tier} for name, tier in PLAN_TIERS.items()]}
+
+    @app.get("/api/plans")
+    def plans():
+        return [{"name": name, **tier, "usage_window_days": USAGE_WINDOW_DAYS} for name, tier in PLAN_TIERS.items()]
+
+    @app.put("/api/orgs/{id}/plan")
+    def set_plan(request: Request, id: str, body: PlanInput):
+        """Change an organization's plan. Billing is not wired up, so with an
+        administrator token configured only the operator can do this;
+        otherwise (local development) the organization's owner can."""
+        with sessions.begin() as session:
+            if session.get(Organization, id) is None:
+                raise HTTPException(404, "Organization not found")
+            header = request.headers.get("authorization", "")
+            if settings.admin_token:
+                if not hmac.compare_digest(header.encode(), f"Bearer {settings.admin_token}".encode()):
+                    raise HTTPException(403, "Only the operator can change plans")
+                account_id = None
+            else:
+                _, account = require_session(request, session)
+                if org_membership(session, id, account.id).role != "owner":
+                    raise HTTPException(403, "Owner role required")
+                account_id = account.id
+            tier = PLAN_TIERS[body.name]
+            plan = ensure_plan(session, id)
+            plan.name = body.name
+            plan.monthly_event_limit = body.monthly_event_limit or tier["monthly_event_limit"]
+            plan.retention_days = body.retention_days or tier["retention_days"]
+            audit(session, id, "plan.change", body.name, account_id)
+            return {"org_id": id, "plan": plan.name, "monthly_event_limit": plan.monthly_event_limit,
+                    "retention_days": plan.retention_days}
 
     @app.get("/api/projects/{id}/export")
     def export_project(request: Request, id: str, range: Range = "7d", limit: int = Query(default=1000, ge=1, le=5000)):
@@ -1504,7 +1703,7 @@ def create_app(settings: Settings | None = None):
             session.execute(delete(AlertRule).where(AlertRule.project_id == project.id))
             session.execute(delete(BehaviorRule).where(BehaviorRule.project_id == project.id))
             session.execute(delete(Intent).where(Intent.project_id == project.id))
-            for model in (Classification, AnalyzedConversation, Policy, ConversationSession, EndUser):
+            for model in (Classification, AnalyzedConversation, Policy, ConversationSession, EndUser, ApiKey):
                 session.execute(delete(model).where(model.project_id == project.id))
             for row in session.scalars(select(Improvement.id).where(Improvement.project_id == project.id)):
                 session.execute(delete(PromptVersion).where(PromptVersion.improvement_id == row))
@@ -1967,9 +2166,52 @@ def create_app(settings: Settings | None = None):
             return JSONResponse(content=mcp_mod.error(request_id, code, error.detail))
         return JSONResponse(content=mcp_mod.text_result(request_id, payload))
 
+    INSIGHT_TOOLS = {"tervik_summary", "tervik_tool_stats", "tervik_list_errors", "tervik_intent_stats",
+                     "tervik_list_violations", "tervik_search"}
+
+    def mcp_insight(db_session, project, name, arguments):
+        range = arguments.get("range", "7d")
+        if range not in insights_mod.RANGE_HOURS and range != "all":
+            raise HTTPException(422, "Invalid range")
+        if name == "tervik_intent_stats":
+            return classify_mod.intent_stats(db_session, project.id, range)
+        if name == "tervik_list_violations":
+            return classify_mod.violation_stats(db_session, project.id, range)
+        query = select(Event).where(Event.project_id == project.id)
+        if range != "all":
+            query = query.where(Event.timestamp >= utc_now() - timedelta(hours=insights_mod.RANGE_HOURS[range]))
+        events = list(db_session.scalars(query.order_by(Event.timestamp, Event.id)))
+        start, end = insights_mod.window(range, events)
+        if name == "tervik_summary":
+            return insights_mod.summary(events, start, end)
+        if name == "tervik_tool_stats":
+            stats = insights_mod.tool_stats(events, start, end)
+            for tool in stats["tools"]:
+                tool.pop("timeline", None)
+            return stats
+        if name == "tervik_list_errors":
+            failed = insights_mod.filter_events(analysis.in_range(events, start, end), status="error",
+                                                name=arguments.get("name") or None)
+            failed.sort(key=lambda e: (utc(e.timestamp), e.id), reverse=True)
+            return {"total": len(failed), "top_messages": insights_mod.error_groups(failed, limit=10),
+                    "recent": [insights_mod.event_row(e) for e in failed[:20]]}
+        text = str(arguments.get("query") or "").strip()
+        if len(text) < 2:
+            raise HTTPException(422, "query needs at least two characters")
+        return insights_mod.search(analysis.in_range(events, start, end), text[:200], 30)
+
     def mcp_tool(db_session, account_id, name, arguments):
         if name == "tervik_ops_summary":
             return mcp_ops(db_session, account_id)
+        if name in INSIGHT_TOOLS:
+            project_id = arguments.get("project_id")
+            if not project_id:
+                raise HTTPException(422, "project_id is required")
+            project, _ = mcp_project(db_session, account_id, project_id)
+            if project is None:
+                raise HTTPException(404, "Project not found")
+            audit(db_session, project.org_id, "mcp.call", name, account_id)
+            return mcp_trim(mcp_insight(db_session, project, name, arguments))
         if name in ("tervik_list_conversations", "tervik_list_clusters", "tervik_list_intents"):
             project_id = arguments.get("project_id")
             if not project_id:

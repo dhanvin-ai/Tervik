@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, create_engine, event
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, create_engine, event, inspect
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.engine import make_url
@@ -71,6 +71,21 @@ class Session(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ApiKey(Base):
+    """Programmatic read access to one project's analytics (`tervik_<64 hex>`).
+    The secret is hashed; the prefix is for display only."""
+    __tablename__ = "api_keys"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120), default="default")
+    prefix: Mapped[str] = mapped_column(String(20))
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Environment(Base):
@@ -318,6 +333,10 @@ class AlertRule(Base):
     min_samples: Mapped[int] = mapped_column(Integer, default=10)
     cooldown_hours: Mapped[int] = mapped_column(Integer, default=24)
     channels: Mapped[list] = mapped_column(JSON, default=list)
+    # What the rule counts. None = flagged conversations (optionally one signal_kind).
+    metric: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # The intent id, policy id, or tool name a metric is about.
+    target: Mapped[str | None] = mapped_column(String(200), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     state: Mapped[str] = mapped_column(String(20), default="ok")
     last_fired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -351,6 +370,7 @@ class Plan(Base):
     org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), primary_key=True)
     name: Mapped[str] = mapped_column(String(40), default="beta")
     monthly_event_limit: Mapped[int] = mapped_column(Integer, default=100000)
+    retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
@@ -443,4 +463,23 @@ def make_database(url: str):
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.close()
     Base.metadata.create_all(engine)
+    add_missing_columns(engine)
     return engine, sessionmaker(engine, expire_on_commit=False)
+
+
+def add_missing_columns(engine):
+    """Additive upgrade for existing databases: create_all makes new tables but
+    never alters old ones, so add any model column the table lacks. Only
+    nullable columns qualify; anything else needs a written migration."""
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    with engine.begin() as connection:
+        for table in Base.metadata.sorted_tables:
+            if table.name not in tables:
+                continue
+            present = {column["name"] for column in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in present or not column.nullable:
+                    continue
+                kind = column.type.compile(dialect=engine.dialect)
+                connection.exec_driver_sql(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {kind}')

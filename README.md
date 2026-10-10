@@ -4,6 +4,16 @@ Skill-installed analytics for AI agents. Find failures. Build better agents.
 
 Tervik's first phase is a runnable local foundation: create a project, send real agent events, inspect conversations and tool spans, and review evidence from deterministic failure rules. The downloadable skill helps a coding agent add that instrumentation to an existing application.
 
+Tervik works like [Agnost AI](https://agnost.ai/). Send sessions and events (agent turns and nested tool calls) with the Python or TypeScript SDK, or call the capture API directly. Tervik then:
+
+- finds silent failures and groups them,
+- tracks tool reliability, users, and cohorts,
+- classifies intents and policy violations with an LLM,
+- alerts you by Slack, email, or webhook,
+- answers questions from MCP clients.
+
+See [the API reference](docs/api.md).
+
 ## Start locally
 
 Requirements: Node.js 22.12+ and Python 3.11+. Run these from this repository:
@@ -65,4 +75,4 @@ With the container stack already running, `npm run test:containers` verifies Pos
 
 See [Phase 1 acceptance](docs/phase-1.md), [the architecture](docs/architecture.md), and [the API contract](docs/api-contract.md).
 
-The current rules detect explicit corrections, frustration phrases, repeated requests, and reported tool errors. They are triage signals that require review. Groups are rule categories, not semantic clusters. Resolving a group changes its review status; it does not edit or deploy the customer's agent. Semantic clustering, account authentication and organizations, durable queue workers, alerts, regression evaluation, automated fixes, billing, and hosted MCP access are planned for later phases.
+The rules detect explicit corrections, frustration phrases, repeated requests, unsupported action claims, and reported tool errors and timeouts. They are triage signals that require review. Intent and policy findings come from an LLM reviewer that must cite the messages behind each finding; without `ANTHROPIC_API_KEY`, intents use example matching and policies are not checked. Resolving a group changes its review status; it does not edit or deploy the customer's agent. Payment-provider billing is not connected: plans are set by the operator.

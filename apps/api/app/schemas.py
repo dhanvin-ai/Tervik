@@ -206,8 +206,20 @@ class DiscoveryMerge(BaseModel):
 
 class AlertChannel(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    type: Literal["webhook", "email"]
+    type: Literal["webhook", "email", "slack"]
     target: str = Field(min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def valid_target(self):
+        target = self.target.strip()
+        if self.type == "slack" and not target.startswith("https://hooks.slack.com/"):
+            raise ValueError("a Slack channel needs an incoming webhook URL from hooks.slack.com")
+        if self.type == "webhook" and not target.startswith(("http://", "https://")):
+            raise ValueError("a webhook needs an http(s) URL")
+        if self.type == "email" and "@" not in target:
+            raise ValueError("an email channel needs an email address")
+        self.target = target
+        return self
 
 
 class AlertRuleInput(BaseModel):
@@ -215,18 +227,52 @@ class AlertRuleInput(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     kind: Literal["threshold", "trend", "summary"]
     signal_kind: str | None = Field(default=None, max_length=40)
+    # problems (default), intent, violation, tool_errors, error_rate, conversations;
+    # summaries take none (daily summary) or suggested_intents (new intents).
+    metric: Literal["problems", "intent", "violation", "tool_errors", "error_rate", "conversations",
+                    "suggested_intents"] | None = None
+    target: str | None = Field(default=None, max_length=200)
     threshold: float = Field(default=1, ge=0, le=1000000)
     window_hours: int = Field(default=24, ge=1, le=720)
     min_samples: int = Field(default=10, ge=1, le=1000000)
     cooldown_hours: int = Field(default=24, ge=1, le=720)
     channels: list[AlertChannel] = Field(min_length=1, max_length=5)
 
+    @model_validator(mode="after")
+    def consistent_metric(self):
+        if self.kind == "summary" and self.metric not in (None, "suggested_intents"):
+            raise ValueError("summaries take no metric, or suggested_intents")
+        if self.kind != "summary" and self.metric == "suggested_intents":
+            raise ValueError("suggested_intents is a summary")
+        if self.metric in ("intent", "violation") and not (self.target or "").strip():
+            raise ValueError("intent and violation alerts need a target id")
+        if self.metric == "error_rate" and self.threshold > 100:
+            raise ValueError("error_rate thresholds are percentages")
+        return self
+
 
 class AlertRulePatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=120)
     threshold: float | None = Field(default=None, ge=0, le=1000000)
+    window_hours: int | None = Field(default=None, ge=1, le=720)
+    min_samples: int | None = Field(default=None, ge=1, le=1000000)
     cooldown_hours: int | None = Field(default=None, ge=1, le=720)
+    channels: list[AlertChannel] | None = Field(default=None, min_length=1, max_length=5)
+
+
+class SlackConnect(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    webhook_url: str = Field(min_length=1, max_length=500)
+
+    @field_validator("webhook_url")
+    @classmethod
+    def slack_url(cls, value):
+        value = value.strip()
+        if not value.startswith("https://hooks.slack.com/"):
+            raise ValueError("use an incoming webhook URL from hooks.slack.com")
+        return value
 
 
 class EvalToolFixture(BaseModel):
@@ -348,3 +394,10 @@ class SuggestInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     product_description: str = Field(default="", max_length=2000)
     limit: int = Field(default=8, ge=1, le=20)
+
+
+class PlanInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Literal["free", "starter", "pro", "beta", "enterprise"]
+    monthly_event_limit: int | None = Field(default=None, ge=1, le=1_000_000_000)
+    retention_days: int | None = Field(default=None, ge=1, le=3650)

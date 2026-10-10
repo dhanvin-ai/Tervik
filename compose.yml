@@ -44,6 +44,9 @@ services:
       CLICKHOUSE_USER: tervik
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
       CLICKHOUSE_DATABASE: tervik
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      TERVIK_LLM_MODEL: ${TERVIK_LLM_MODEL:-claude-opus-5-5}
+      TERVIK_DASHBOARD_URL: ${TERVIK_DASHBOARD_URL:-http://localhost:4173}
     ports:
       - '127.0.0.1:${TERVIK_API_PORT:-8001}:8000'
     depends_on:
@@ -56,6 +59,34 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+
+  alerts:
+    build: ./apps/api
+    command: ["python", "-m", "app.jobs", "alerts"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://tervik:${POSTGRES_PASSWORD}@postgres:5432/tervik
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      TERVIK_LLM_MODEL: ${TERVIK_LLM_MODEL:-claude-opus-5-5}
+      TERVIK_DASHBOARD_URL: ${TERVIK_DASHBOARD_URL:-http://localhost:4173}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_FROM: ${SMTP_FROM:-tervik@localhost}
+    depends_on:
+      api:
+        condition: service_healthy
+
+  classifier:
+    build: ./apps/api
+    command: ["python", "-m", "app.jobs", "classify"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://tervik:${POSTGRES_PASSWORD}@postgres:5432/tervik
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      TERVIK_LLM_MODEL: ${TERVIK_LLM_MODEL:-claude-opus-5-5}
+      TERVIK_DASHBOARD_URL: ${TERVIK_DASHBOARD_URL:-http://localhost:4173}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_FROM: ${SMTP_FROM:-tervik@localhost}
+    depends_on:
+      api:
+        condition: service_healthy
 
   web:
     build:

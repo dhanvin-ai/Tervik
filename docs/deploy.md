@@ -20,13 +20,14 @@ The dashboard calls the API at the address in `VITE_API_URL`, which is set when 
    | Variable | Value |
    | - | - |
    | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}`, a reference to the database |
+   | `PORT` | `8000`, the port the API listens on, which **Generate Domain** asks for |
    | `TERVIK_ADMIN_TOKEN` | A long random secret, such as the output of `openssl rand -hex 32`. Without it, anyone could read the data. |
    | `TERVIK_CORS_ORIGINS` | Your dashboard's address, such as `https://tervik-seven.vercel.app` |
    | `TERVIK_DASHBOARD_URL` | The same address. Alert messages link to it. |
    | `TERVIK_DEMO_ENABLED` | `true` to allow **Load sample workspace** (optional) |
    | `ANTHROPIC_API_KEY` | Optional. Turns on intent and policy checks, and Claude in **Chat**. |
 
-5. **Give it an address.** Under **Settings → Networking → Generate Domain**, create a domain, such as `https://tervik-api-production.up.railway.app`.
+5. **Deploy, then give it an address.** Apply the changes and deploy. Then, under **Settings → Networking → Generate Domain**, enter port `8000`. Railway creates a domain such as `https://tervik-api-production.up.railway.app`.
 6. **Check it.** Opening `https://<that domain>/api/health` should return `{"status": "ok", "storage": "postgresql", ...}`.
 
 **Remove the old service.** A service built from the repository root, such as `@tervik/web`, builds the dashboard rather than the API. Delete it so it stops using credits.

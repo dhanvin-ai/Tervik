@@ -1,26 +1,38 @@
-"""A small shop-support agent, instrumented with the Tervik SDK, for testing
-Tervik the way a customer would: with a real model making real mistakes.
+"""Demo agents, instrumented with the Tervik SDK, for testing Tervik the way a
+customer would: with a real model making real mistakes.
 
-It runs on a free local model through Ollama, or on the OpenAI or Anthropic
-API. Its tools behave like a real backend: some orders cannot be refunded and
-the carrier API sometimes times out. Chat with it, try to confuse it, and
-watch Tervik catch what goes wrong.
+Two personas:
+- general: a ChatGPT-style assistant for any question, with a calculator and
+  a clock it uses only when a message asks for math or the time.
+- shop: a support agent for a small shop whose tools behave like a real
+  backend (some refunds are refused, the carrier API sometimes times out).
 
-    npm run demo:agent                       # chat in the terminal (Ollama by default)
-    npm run demo:agent -- --auto             # play scripted customers, then report
-    npm run demo:agent -- --provider anthropic
-    npm run demo:agent -- --provider openai --model <model>
+Each runs on a free local model through Ollama, or the OpenAI or Anthropic
+API. Every turn and tool call is sent to Tervik, and Tervik's findings for the
+conversation are shown under each reply.
+
+    npm run chat                                   # ChatGPT-style page in the browser (general)
+    npm run demo:agent                             # chat in the terminal (shop)
+    npm run demo:agent -- --persona general        # chat in the terminal (general)
+    npm run demo:agent -- --auto                   # scripted shop customers, then a report
+    npm run demo:agent -- --provider anthropic     # use an API model instead of Ollama
 """
 import argparse
+import ast
 import getpass
 import json
+import operator
 import os
 import random
+import re
 import sys
-import time
+import threading
 import urllib.error
 import urllib.request
 import uuid
+import webbrowser
+from datetime import datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,38 +47,6 @@ PROVIDERS = {
     "openai": {"base": "https://api.openai.com/v1", "model": "gpt-4.1-mini", "key": "OPENAI_API_KEY"},
     "anthropic": {"base": "https://api.anthropic.com", "model": "claude-opus-5-5", "key": "ANTHROPIC_API_KEY"},
 }
-
-SYSTEM = """You are the customer support assistant for Acme Shop.
-Use the tools to look up orders, track packages, issue refunds, and cancel subscriptions.
-Never say you did something unless a tool call confirmed it. Ask the customer to confirm before issuing a refund.
-Keep replies short and friendly."""
-
-ORDERS = {
-    "1001": {"item": "Wireless headphones", "status": "shipped", "tracking_id": "TRK-1001", "total": 89.99},
-    "1002": {"item": "Running shoes", "status": "processing", "tracking_id": None, "total": 120.00},
-    "1003": {"item": "Coffee grinder", "status": "delivered", "tracking_id": "TRK-1003", "total": 45.50},
-}
-
-TOOLS = [
-    {"name": "lookup_order", "description": "Get an order's item, status, total, and tracking ID.",
-     "parameters": {"type": "object", "properties": {"order_id": {"type": "string"}}, "required": ["order_id"]}},
-    {"name": "track_package", "description": "Get a package's location and delivery estimate from the carrier.",
-     "parameters": {"type": "object", "properties": {"tracking_id": {"type": "string"}}, "required": ["tracking_id"]}},
-    {"name": "refund_order", "description": "Refund an order that has shipped or been delivered.",
-     "parameters": {"type": "object", "properties": {"order_id": {"type": "string"}, "reason": {"type": "string"}},
-                    "required": ["order_id", "reason"]}},
-    {"name": "cancel_subscription", "description": "Cancel the customer's Acme Plus subscription.",
-     "parameters": {"type": "object", "properties": {"email": {"type": "string"}}, "required": ["email"]}},
-]
-
-CUSTOMERS = [
-    ["Hi, where is my order 1001?", "Can you track the package for me?"],
-    ["I want a refund for order 1002, I don't need the shoes anymore", "This is frustrating, why can't I get my money back?"],
-    ["Track package TRK-1003 please", "Track package TRK-1003 please"],
-    ["My coffee grinder from order 1003 arrived broken. Refund it.", "Yes, I confirm. Please refund it."],
-    ["Cancel my subscription, my email is sam@example.com", "No, I meant cancel it now, not at the end of the month"],
-]
-
 
 # What Tervik's detectors mean, in the words shown after each reply.
 FLAG_LABELS = {
@@ -86,7 +66,16 @@ class ToolFailure(Exception):
     pass
 
 
-def run_tool(name, args, rng):
+# ---- personas ----
+
+ORDERS = {
+    "1001": {"item": "Wireless headphones", "status": "shipped", "tracking_id": "TRK-1001", "total": 89.99},
+    "1002": {"item": "Running shoes", "status": "processing", "tracking_id": None, "total": 120.00},
+    "1003": {"item": "Coffee grinder", "status": "delivered", "tracking_id": "TRK-1003", "total": 45.50},
+}
+
+
+def shop_tool(name, args, rng):
     order_id = str(args.get("order_id", "")).strip().lstrip("#")
     if name == "lookup_order":
         if order_id not in ORDERS:
@@ -111,6 +100,102 @@ def run_tool(name, args, rng):
     raise ToolFailure(f"Unknown tool {name}")
 
 
+ARITHMETIC = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
+              ast.FloorDiv: operator.floordiv, ast.Mod: operator.mod, ast.Pow: operator.pow,
+              ast.USub: operator.neg, ast.UAdd: operator.pos}
+
+
+def calculate(expression):
+    """Arithmetic only: numbers, + - * / // % ** and parentheses."""
+    text = str(expression).replace("×", "*").replace("÷", "/").replace("^", "**").replace(",", "")
+
+    def walk(node):
+        if isinstance(node, ast.Expression):
+            return walk(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+            return node.value
+        if isinstance(node, ast.BinOp) and type(node.op) in ARITHMETIC:
+            left, right = walk(node.left), walk(node.right)
+            if isinstance(node.op, ast.Pow) and abs(right) > 100:
+                raise ToolFailure("Exponent too large")
+            return ARITHMETIC[type(node.op)](left, right)
+        if isinstance(node, ast.UnaryOp) and type(node.op) in ARITHMETIC:
+            return ARITHMETIC[type(node.op)](walk(node.operand))
+        raise ToolFailure(f"Not an arithmetic expression: {expression}")
+
+    try:
+        result = walk(ast.parse(text, mode="eval"))
+    except ZeroDivisionError:
+        raise ToolFailure("Division by zero")
+    except SyntaxError:
+        raise ToolFailure(f"Could not parse: {expression}")
+    return {"expression": expression, "result": round(result, 10) if isinstance(result, float) else result}
+
+
+def general_tool(name, args, rng):
+    if name == "calculator":
+        return calculate(args.get("expression", ""))
+    if name == "get_current_time":
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+        zone = str(args.get("timezone") or "UTC").strip()
+        try:
+            now = datetime.now(ZoneInfo(zone))
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ToolFailure(f"Unknown time zone {zone}; use a name like Asia/Tokyo")
+        return {"timezone": zone, "local_time": now.strftime("%A, %d %B %Y, %H:%M")}
+    raise ToolFailure(f"Unknown tool {name}")
+
+
+def tool(name, description, properties, required):
+    return {"name": name, "description": description,
+            "parameters": {"type": "object", "properties": properties, "required": required}}
+
+
+PERSONAS = {
+    "shop": {
+        "agent": "shop-assistant", "project": "Demo agent",
+        "system": ("You are the customer support assistant for Acme Shop.\n"
+                   "Use the tools to look up orders, track packages, issue refunds, and cancel subscriptions.\n"
+                   "Never say you did something unless a tool call confirmed it. Ask the customer to confirm "
+                   "before issuing a refund.\nKeep replies short and friendly."),
+        "tools": [tool("lookup_order", "Get an order's item, status, total, and tracking ID.", {"order_id": {"type": "string"}}, ["order_id"]),
+                  tool("track_package", "Get a package's location and delivery estimate from the carrier.", {"tracking_id": {"type": "string"}}, ["tracking_id"]),
+                  tool("refund_order", "Refund an order that has shipped or been delivered.",
+                       {"order_id": {"type": "string"}, "reason": {"type": "string"}}, ["order_id", "reason"]),
+                  tool("cancel_subscription", "Cancel the customer's Acme Plus subscription.", {"email": {"type": "string"}}, ["email"])],
+        "run": shop_tool, "route": None,
+        "intents": [("Track an order", "The customer wants to know where an order is.", ["where is my order", "track my package"]),
+                    ("Get a refund", "The customer wants money back.", ["I want a refund", "refund my order"]),
+                    ("Cancel a subscription", "The customer wants to stop a subscription.", ["cancel my subscription"])],
+        "policies": [("Confirm before refunding", "The agent asks the customer to confirm before it issues a refund."),
+                     ("Only state what tools returned", "Order, tracking, and refund details must come from a tool result.")],
+    },
+    "general": {
+        "agent": "chat-assistant", "project": "Chat assistant",
+        "system": "You are a helpful, friendly assistant. Answer any question clearly and concisely.",
+        # Added only when the tools are on offer, so plain answers never mention them.
+        "tool_hint": " For arithmetic, call the calculator and report its result. For the current date or time, call get_current_time.",
+        "tools": [tool("calculator", "Evaluate an arithmetic expression such as (12.5 * 4) / 3.", {"expression": {"type": "string"}}, ["expression"]),
+                  tool("get_current_time", "Get the current date and time in an IANA time zone such as Asia/Kolkata.",
+                       {"timezone": {"type": "string"}}, ["timezone"])],
+        "run": general_tool,
+        # Small local models answer casual messages badly when tools are on
+        # offer, so tools are offered only when a message asks for them.
+        "route": re.compile(r"\d\s*[-+*/x×÷^%]\s*\d|\d\s*%|\b(calculate|compute|percent|square root|sqrt|divided by|times|"
+                            r"plus|minus|how much is|what time|what's the time|time is it|time in|date today|"
+                            r"today's date|what day)\b", re.I),
+        "intents": [("Ask a question", "The user wants a fact or an explanation.", ["what is", "explain", "how does it work"]),
+                    ("Get writing help", "The user wants text drafted or edited.", ["write a message", "rewrite this", "draft an email"]),
+                    ("Do math", "The user wants a calculation.", ["what is 15% of 240", "calculate", "how much is"]),
+                    ("Small talk", "The user is chatting casually.", ["hi", "how are you", "tell me a joke"])],
+        "policies": [("Admit uncertainty", "When the assistant is not sure, it says so instead of presenting a guess as fact."),
+                     ("Use tools for math and time", "Arithmetic results and the current time come from a tool call, not a guess.")],
+    },
+}
+
+
+# ---- model calls ----
+
 def post(url, body, headers, timeout=180):
     request = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json", **headers},
                                      method="POST")
@@ -130,18 +215,20 @@ class Model:
     def __init__(self, provider, model, base, key):
         self.provider, self.model, self.base, self.key = provider, model, base.rstrip("/"), key
 
-    def step(self, history):
+    def step(self, history, tools, system):
         if self.provider == "anthropic":
-            body = {"model": self.model, "max_tokens": 1024, "system": SYSTEM, "messages": history,
-                    "tools": [{"name": t["name"], "description": t["description"], "input_schema": t["parameters"]} for t in TOOLS]}
+            body = {"model": self.model, "max_tokens": 1024, "system": system, "messages": history}
+            if tools:
+                body["tools"] = [{"name": t["name"], "description": t["description"], "input_schema": t["parameters"]} for t in tools]
             reply = post(self.base + "/v1/messages", body, {"x-api-key": self.key, "anthropic-version": "2023-06-01"})
             text = "".join(b.get("text", "") for b in reply.get("content", []) if b.get("type") == "text")
             calls = [(b["id"], b["name"], b.get("input") or {}) for b in reply.get("content", []) if b.get("type") == "tool_use"]
             usage = reply.get("usage") or {}
             history.append({"role": "assistant", "content": reply.get("content", [])})
             return text, calls, (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
-        body = {"model": self.model, "messages": [{"role": "system", "content": SYSTEM}] + history,
-                "tools": [{"type": "function", "function": t} for t in TOOLS]}
+        body = {"model": self.model, "messages": [{"role": "system", "content": system}] + history}
+        if tools:
+            body["tools"] = [{"type": "function", "function": t} for t in tools]
         headers = {"Authorization": f"Bearer {self.key}"} if self.key else {}
         reply = post(self.base + "/chat/completions", body, headers)
         message = (reply.get("choices") or [{}])[0].get("message") or {}
@@ -166,38 +253,62 @@ class Model:
             history.extend({"role": "tool", "tool_call_id": id, "content": text} for id, text, _ in results)
 
 
-def answer(model, history, text, user_id, conversation_id, rng):
-    """One customer message -> one Tervik turn with its tool calls nested under it."""
-    turn = tervik.begin(user_id=user_id, agent_name="shop-assistant", input=text, conversation_id=conversation_id)
-    turn.set_property("model", model.model)
-    history.append({"role": "user", "content": text})
-    tokens, reply = 0, ""
-    try:
-        for _ in range(6):
-            reply, calls, used = model.step(history)
-            tokens += used
-            if not calls:
-                break
-            results = []
-            for call_id, name, args in calls:
-                call = turn.tool(name, args)
-                try:
-                    output = run_tool(name, args, rng)
-                    call.end(output)
-                    results.append((call_id, json.dumps(output), False))
-                    print(f"    [tool] {name}({json.dumps(args)}) -> ok")
-                except ToolFailure as error:
-                    call.end(f"Error: {error}", success=False)
-                    results.append((call_id, f"Error: {error}", True))
-                    print(f"    [tool] {name}({json.dumps(args)}) -> failed: {error}")
-            model.add_results(history, results)
-        turn.set_property("tokens", tokens)
-        turn.end(reply or "(no reply)")
-        return reply
-    except RuntimeError as error:
-        turn.end(f"Model error: {error}", success=False)
-        raise
+def looks_like_tool_stub(text):
+    """Small models sometimes answer with an empty or malformed tool call."""
+    stripped = (text or "").strip()
+    return stripped.startswith("{") and (stripped == "{}" or '"name"' in stripped or '"parameters"' in stripped)
 
+
+class Agent:
+    def __init__(self, model, persona, rng):
+        self.model, self.persona, self.rng = model, PERSONAS[persona], rng
+
+    def answer(self, history, text, user_id, conversation_id, log=print):
+        """One user message -> one Tervik turn with its tool calls nested under it.
+        Returns (reply, tool records for display)."""
+        turn = tervik.begin(user_id=user_id, agent_name=self.persona["agent"], input=text, conversation_id=conversation_id)
+        turn.set_property("model", self.model.model)
+        route = self.persona["route"]
+        tools = self.persona["tools"] if route is None or route.search(text) else []
+        start = len(history)
+        history.append({"role": "user", "content": text})
+        tokens, reply, used = 0, "", []
+        try:
+            for _ in range(6):
+                system = self.persona["system"] + (self.persona.get("tool_hint", "") if tools else "")
+                reply, calls, spent = self.model.step(history, tools, system)
+                tokens += spent
+                if not calls and tools and looks_like_tool_stub(reply):
+                    del history[start + 1:]  # retry this message without tools
+                    tools = []
+                    continue
+                if not calls:
+                    break
+                results = []
+                for call_id, name, args in calls:
+                    call = turn.tool(name, args)
+                    try:
+                        output = self.persona["run"](name, args, self.rng)
+                        call.end(output)
+                        results.append((call_id, json.dumps(output), False))
+                        used.append({"name": name, "args": args, "ok": True, "output": json.dumps(output)[:300]})
+                        log(f"    [tool] {name}({json.dumps(args)}) -> ok")
+                    except ToolFailure as error:
+                        call.end(f"Error: {error}", success=False)
+                        results.append((call_id, f"Error: {error}", True))
+                        used.append({"name": name, "args": args, "ok": False, "output": f"Error: {error}"})
+                        log(f"    [tool] {name}({json.dumps(args)}) -> failed: {error}")
+                self.model.add_results(history, results)
+            turn.set_property("tokens", tokens)
+            turn.end(reply or "(no reply)")
+            return reply or "(no reply)", used
+        except RuntimeError as error:
+            turn.end(f"Model error: {error}", success=False)
+            del history[start:]
+            raise
+
+
+# ---- Tervik ----
 
 def fetch(api, path):
     """GET from Tervik, or None. Live checks must never stop the chat."""
@@ -216,12 +327,12 @@ def new_flags(api, project_id, conversation_id, seen):
     detail = fetch(api, f"/api/conversations/{internal}") or {}
     fresh = [s for s in detail.get("signals", []) if s["id"] not in seen]
     seen.update(s["id"] for s in fresh)
-    return fresh
+    return [{"kind": s["kind"], "label": FLAG_LABELS.get(s["kind"], s["kind"]), "reason": s["reason"]} for s in fresh]
 
 
 def show_flags(flags):
     for flag in flags:
-        print(f"    ⚑ Tervik: {FLAG_LABELS.get(flag['kind'], flag['kind'])}. {flag['reason']}")
+        print(f"    ⚑ Tervik: {flag['label']}. {flag['reason']}")
 
 
 def list_problems(api, project_id, user_id):
@@ -237,87 +348,229 @@ def list_problems(api, project_id, user_id):
     print("In the dashboard: Conversations, then turn on \"Problems only\".\n")
 
 
-def demo_project(api):
-    existing = next((p for p in api_call(api, "GET", "/api/projects") if p["name"] == "Demo agent"), None)
+def tervik_project(api, persona):
+    spec = PERSONAS[persona]
+    existing = next((p for p in api_call(api, "GET", "/api/projects") if p["name"] == spec["project"]), None)
     if existing:
         return existing["id"]
-    created = api_call(api, "POST", "/api/projects", {"name": "Demo agent"})
+    created = api_call(api, "POST", "/api/projects", {"name": spec["project"]})
     base = f'/api/projects/{created["id"]}'
-    for name, description, examples in [
-            ("Track an order", "The customer wants to know where an order is.", ["where is my order", "track my package"]),
-            ("Get a refund", "The customer wants money back.", ["I want a refund", "refund my order"]),
-            ("Cancel a subscription", "The customer wants to stop a subscription.", ["cancel my subscription"])]:
+    for name, description, examples in spec["intents"]:
         api_call(api, "POST", f"{base}/intents", {"name": name, "description": description, "examples": examples})
-    for title, description in [
-            ("Confirm before refunding", "The agent asks the customer to confirm before it issues a refund."),
-            ("Only state what tools returned", "Order, tracking, and refund details must come from a tool result.")]:
+    for title, description in spec["policies"]:
         api_call(api, "POST", f"{base}/policies", {"title": title, "description": description})
-    print('Created project "Demo agent" with 3 intents and 2 policies.')
+    print(f'Created Tervik project "{spec["project"]}" with {len(spec["intents"])} intents and {len(spec["policies"])} policies.')
     return created["id"]
+
+
+def pick_ollama_model(requested, base):
+    """The requested model, or the default if installed, or any installed model."""
+    if requested:
+        return requested
+    try:
+        with urllib.request.urlopen(base.replace("/v1", "") + "/api/tags", timeout=5) as response:
+            installed = [m["name"] for m in json.load(response).get("models", [])]
+    except (urllib.error.URLError, ValueError, OSError):
+        raise SystemExit("Ollama is not running. Start it with: brew services start ollama")
+    if not installed:
+        raise SystemExit("No Ollama models are installed. Download one with: ollama pull llama3.2")
+    default = PROVIDERS["ollama"]["model"]
+    return next((m for m in installed if m == default or m.split(":")[0] == default.split(":")[0]), installed[0])
+
+
+# ---- terminal chat ----
+
+SHOP_CUSTOMERS = [
+    ["Hi, where is my order 1001?", "Can you track the package for me?"],
+    ["I want a refund for order 1002, I don't need the shoes anymore", "This is frustrating, why can't I get my money back?"],
+    ["Track package TRK-1003 please", "Track package TRK-1003 please"],
+    ["My coffee grinder from order 1003 arrived broken. Refund it.", "Yes, I confirm. Please refund it."],
+    ["Cancel my subscription, my email is sam@example.com", "No, I meant cancel it now, not at the end of the month"],
+]
+
+
+def run_terminal(agent, api, project_id, args):
+    if args.auto:
+        for index, messages in enumerate(SHOP_CUSTOMERS, 1):
+            conversation_id, history, seen = str(uuid.uuid4()), [], set()
+            print(f"--- Customer {index} ---")
+            for text in messages:
+                print(f"Customer: {text}")
+                print(f"Agent:    {agent.answer(history, text, f'customer-{index}', conversation_id)[0]}")
+                show_flags(new_flags(api, project_id, conversation_id, seen))
+            print()
+        return
+    if args.persona == "shop":
+        print("Chat with the shop assistant. Orders 1001 (shipped), 1002 (processing), and 1003 (delivered)")
+        print("exist. Tervik's findings appear under each reply.")
+    else:
+        print("Chat about anything. Tervik's findings appear under each reply.")
+    print("Commands: /new starts a new conversation, /problems lists your flagged ones, /quit ends.\n")
+    conversation_id, history, seen = str(uuid.uuid4()), [], set()
+    while True:
+        try:
+            text = input("You: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+        if text in ("/quit", "/exit"):
+            return
+        if text == "/new":
+            conversation_id, history, seen = str(uuid.uuid4()), [], set()
+            print("(new conversation)\n")
+            continue
+        if text == "/problems":
+            tervik.flush()
+            list_problems(api, project_id, args.user)
+            continue
+        if text:
+            print(f"Agent: {agent.answer(history, text, args.user, conversation_id)[0]}")
+            show_flags(new_flags(api, project_id, conversation_id, seen))
+            print()
+
+
+# ---- browser chat ----
+
+class Chats:
+    """Conversations for the browser page, kept in memory while it runs."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.items = {}
+
+    def get(self, conversation_id):
+        return self.items.setdefault(conversation_id, {"id": conversation_id, "title": "New chat", "history": [],
+                                                        "messages": [], "seen": set(), "updated": datetime.now().isoformat()})
+
+    def listing(self):
+        rows = [c for c in self.items.values() if c["messages"]]
+        return [{"id": c["id"], "title": c["title"], "updated": c["updated"]}
+                for c in sorted(rows, key=lambda c: c["updated"], reverse=True)]
+
+
+def run_web(agent, api, project_id, args):
+    page = (ROOT / "scripts" / "chat_page.html").read_text(encoding="utf-8")
+    chats = Chats()
+    config = {"model": agent.model.model, "persona": args.persona, "project": PERSONAS[args.persona]["project"],
+              "dashboard": "http://127.0.0.1:5173/#conversations"}
+
+    class Handler(BaseHTTPRequestHandler):
+        def reply(self, status, payload, content_type="application/json"):
+            data = payload.encode() if isinstance(payload, str) else json.dumps(payload).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):
+            if self.path in ("/", "/index.html"):
+                return self.reply(200, page.replace("__CONFIG__", json.dumps(config)), "text/html; charset=utf-8")
+            if self.path == "/api/chats":
+                with chats.lock:
+                    return self.reply(200, chats.listing())
+            if self.path.startswith("/api/chats/"):
+                with chats.lock:
+                    chat = chats.items.get(self.path.rsplit("/", 1)[1])
+                    if chat is None:
+                        return self.reply(404, {"error": "Chat not found"})
+                    return self.reply(200, {"id": chat["id"], "title": chat["title"], "messages": chat["messages"]})
+            self.reply(404, {"error": "Not found"})
+
+        def do_POST(self):
+            if self.path != "/api/chat":
+                return self.reply(404, {"error": "Not found"})
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(min(length, 65536)) or b"{}")
+            except ValueError:
+                return self.reply(400, {"error": "Invalid JSON"})
+            text = str(body.get("message") or "").strip()[:4000]
+            if not text:
+                return self.reply(400, {"error": "Type a message first"})
+            conversation_id = str(body.get("chat_id") or uuid.uuid4())[:64]
+            with chats.lock:  # one model call at a time, like a single chat window
+                chat = chats.get(conversation_id)
+                if not chat["messages"]:
+                    chat["title"] = text[:48] + ("…" if len(text) > 48 else "")
+                chat["messages"].append({"role": "user", "content": text})
+                try:
+                    answer, used = agent.answer(chat["history"], text, args.user, conversation_id, log=lambda _: None)
+                except RuntimeError as error:
+                    chat["messages"].pop()
+                    hint = " Is Ollama running? Try: brew services start ollama" if args.provider == "ollama" else ""
+                    return self.reply(502, {"error": f"The model call failed: {error}.{hint}"})
+                flags = new_flags(api, project_id, conversation_id, chat["seen"])
+                message = {"role": "assistant", "content": answer, "tools": used, "flags": flags}
+                chat["messages"].append(message)
+                chat["updated"] = datetime.now().isoformat()
+                return self.reply(200, {"chat_id": conversation_id, "title": chat["title"], "message": message})
+
+        def log_message(self, *_args):
+            pass
+
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    except OSError:
+        raise SystemExit(f"Port {args.port} is in use. Pick another with --port.")
+    url = f"http://127.0.0.1:{args.port}"
+    print(f"Chat page:  {url}")
+    print(f"Tervik:     http://127.0.0.1:5173/#conversations  (project \"{config['project']}\")")
+    print("Press Ctrl+C to stop.\n")
+    if not args.no_open:
+        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopped the chat page.")
+    finally:
+        server.server_close()
 
 
 def main():
     sys.stdout.reconfigure(line_buffering=True)
     parser = argparse.ArgumentParser(description="Chat with a Tervik-instrumented demo agent")
+    parser.add_argument("--persona", choices=sorted(PERSONAS), default=None,
+                        help="general (ChatGPT-style) or shop (support agent); default shop, or general with --web")
+    parser.add_argument("--web", action="store_true", help="Serve a ChatGPT-style chat page in the browser")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--no-open", action="store_true", help="Do not open the browser")
     parser.add_argument("--provider", choices=sorted(PROVIDERS), default=os.getenv("DEMO_PROVIDER", "ollama"))
     parser.add_argument("--model", default=None, help="Model name (defaults depend on the provider)")
     parser.add_argument("--base-url", default=None, help="Another OpenAI-compatible server, such as LM Studio")
-    parser.add_argument("--auto", action="store_true", help="Play scripted customers instead of chatting")
+    parser.add_argument("--auto", action="store_true", help="Play scripted shop customers instead of chatting")
     parser.add_argument("--api", default=os.getenv("TERVIK_ENDPOINT", "http://127.0.0.1:8000"))
     parser.add_argument("--user", default=getpass.getuser())
     parser.add_argument("--seed", type=int, default=None, help="Make tool failures repeatable")
     args = parser.parse_args()
+    args.persona = args.persona or ("general" if args.web else "shop")
+    if args.auto:
+        args.persona = "shop"
     preset = PROVIDERS[args.provider]
     key = os.getenv(preset["key"]) if preset["key"] else None
     if preset["key"] and not key:
         raise SystemExit(f"Set {preset['key']} to use {args.provider}, or use the free local model: --provider ollama")
-    model = Model(args.provider, args.model or preset["model"], args.base_url or preset["base"], key)
-    api, rng = args.api.rstrip("/"), random.Random(args.seed)
-    project_id = demo_project(api)
+    base = args.base_url or preset["base"]
+    name = pick_ollama_model(args.model, base) if args.provider == "ollama" and not args.base_url else (args.model or preset["model"])
+    model = Model(args.provider, name, base, key)
+    api = args.api.rstrip("/")
+    project_id = tervik_project(api, args.persona)
+    agent = Agent(model, args.persona, random.Random(args.seed))
     tervik.init(project_id, endpoint=api, flush_interval=1.0)
-    print(f"Agent model: {model.model} via {args.provider}. Tervik project: Demo agent.\n")
+    print(f"Agent model: {model.model} via {args.provider}. Tervik project: {PERSONAS[args.persona]['project']}.\n")
     try:
-        if args.auto:
-            for index, messages in enumerate(CUSTOMERS, 1):
-                conversation_id, history, seen = str(uuid.uuid4()), [], set()
-                print(f"--- Customer {index} ---")
-                for text in messages:
-                    print(f"Customer: {text}")
-                    print(f"Agent:    {answer(model, history, text, f'customer-{index}', conversation_id, rng)}")
-                    show_flags(new_flags(api, project_id, conversation_id, seen))
-                print()
+        if args.web:
+            run_web(agent, api, project_id, args)
         else:
-            print("Chat with the shop assistant. Orders 1001 (shipped), 1002 (processing), and 1003 (delivered)")
-            print("exist. Tervik's findings appear under each reply.")
-            print("Commands: /new starts a new conversation, /problems lists your flagged ones, /quit ends.\n")
-            conversation_id, history, seen = str(uuid.uuid4()), [], set()
-            while True:
-                try:
-                    text = input("You: ").strip()
-                except (EOFError, KeyboardInterrupt):
-                    print()
-                    break
-                if text in ("/quit", "/exit"):
-                    break
-                if text == "/new":
-                    conversation_id, history, seen = str(uuid.uuid4()), [], set()
-                    print("(new conversation)\n")
-                    continue
-                if text == "/problems":
-                    tervik.flush()
-                    list_problems(api, project_id, args.user)
-                    continue
-                if text:
-                    print(f"Agent: {answer(model, history, text, args.user, conversation_id, rng)}")
-                    show_flags(new_flags(api, project_id, conversation_id, seen))
-                    print()
+            run_terminal(agent, api, project_id, args)
     except RuntimeError as error:
-        hint = "Is Ollama running? Start the Ollama app, or run: ollama serve" if args.provider == "ollama" else ""
+        hint = "Is Ollama running? Start it with: brew services start ollama" if args.provider == "ollama" else ""
         print(f"\nThe model call failed: {error}. {hint}".rstrip())
     finally:
         tervik.shutdown()
     classify(api, project_id)
-    report(api, project_id, "Demo agent")
+    report(api, project_id, PERSONAS[args.persona]["project"])
 
 
 if __name__ == "__main__":

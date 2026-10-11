@@ -13,7 +13,7 @@ import { failureLabel } from './labels';
 import { DitherCanvas } from './components/DitherCanvas';
 import { DitherText } from './components/DitherText';
 import { PixelIcon, type PixelIconName } from './components/PixelIcon';
-import { RateChart } from './components/DashCharts';
+import { CountChart, RateChart } from './components/DashCharts';
 import { AsciiMatrixBackground } from './components/AsciiMatrixBackground';
 import { AnimatedBrandLogo } from './components/AnimatedBrandLogo';
 import { HeroHeadline } from './components/HeroHeadline';
@@ -161,41 +161,6 @@ function Modal({ title, children, onClose, wide = false, sheet = false }: { titl
       <div className="modal-header"><span>{title}</span><button className="icon-button" onClick={onClose} aria-label="Close dialog"><X size={19} /></button></div>
       {children}
     </div>
-  </div>;
-}
-
-function TrendChart({ trend, range }: { trend: Overview['trend']; range: Range }) {
-  const [active, setActive] = useState<number | null>(null);
-  const width = 1000, height = 220, left = 36, right = 8, top = 12, bottom = 30;
-  const maximum = Math.max(4, Math.ceil(Math.max(...trend.map(point => point.conversations), 0) / 4) * 4);
-  const band = (width - left - right) / Math.max(1, trend.length);
-  const barWidth = Math.min(72, band * 0.62);
-  const x = (index: number) => left + band * index + (band - barWidth) / 2;
-  const y = (value: number) => height - bottom - (value / maximum) * (height - top - bottom);
-  const dateLabel = (value: string, verbose = false) => {
-    const date = new Date(value);
-    return range === '24h' ? date.toLocaleTimeString(undefined, { hour: 'numeric', ...(verbose ? { minute: '2-digit' } : {}) }) : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  };
-  const point = active !== null ? trend[active] : null;
-  // Dotted fills echo the landing page's dithered art: track, conversations, and the flagged share.
-  return <div className="chart-wrap" onMouseLeave={() => setActive(null)}>
-    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Conversations and flagged conversations over the selected period" className="trend-chart">
-      <defs>
-        <pattern id="dots-track" width="5" height="5" patternUnits="userSpaceOnUse"><rect width="2" height="2" fill="rgba(255, 255, 255, 0.07)" /></pattern>
-        <pattern id="dots-total" width="5" height="5" patternUnits="userSpaceOnUse"><rect width="3" height="3" fill="#b8b8b8" /></pattern>
-        <pattern id="dots-total-hot" width="5" height="5" patternUnits="userSpaceOnUse"><rect width="3.4" height="3.4" fill="#ffffff" /></pattern>
-        <pattern id="dots-flagged" width="5" height="5" patternUnits="userSpaceOnUse"><rect width="3.4" height="3.4" fill="#f87171" /></pattern>
-      </defs>
-      {[0, 1, 2, 3, 4].map(tick => <g key={tick}><line x1={left} x2={width - right} y1={y(maximum * tick / 4)} y2={y(maximum * tick / 4)} stroke="rgba(255, 255, 255, 0.06)" strokeDasharray="2 6" /><text x={left - 12} y={y(maximum * tick / 4) + 4} textAnchor="end" fontSize="10" fill="#6b6b6b">{maximum * tick / 4}</text></g>)}
-      {trend.map((item, index) => <g key={item.date} onMouseEnter={() => setActive(index)}>
-        <rect x={x(index)} y={top} width={barWidth} height={height - top - bottom} fill="url(#dots-track)" />
-        <rect x={x(index)} y={y(item.conversations)} width={barWidth} height={height - bottom - y(item.conversations)} fill={active === index ? 'url(#dots-total-hot)' : 'url(#dots-total)'} />
-        <rect x={x(index)} y={y(item.failures)} width={barWidth} height={height - bottom - y(item.failures)} fill="url(#dots-flagged)" />
-        {index % Math.max(1, Math.ceil(trend.length / 8)) === 0 && <text x={x(index) + barWidth / 2} y={height - 9} textAnchor="middle" fontSize="10" fill="#6b6b6b">{dateLabel(item.date)}</text>}
-        <rect x={left + band * index} y={top} width={band} height={height - top - bottom} fill="transparent" />
-      </g>)}
-    </svg>
-    {point && active !== null && <div className="chart-tooltip" style={{ left: `${Math.max(12, Math.min(88, (x(active) + barWidth / 2) / width * 100))}%` }}><strong>{dateLabel(point.date, true)}</strong><span><i className="legend-dot purple" />{formatNumber(point.conversations)} conversations</span><span><i className="legend-dot peach" />{formatNumber(point.failures)} with a problem</span></div>}
   </div>;
 }
 
@@ -351,7 +316,7 @@ function OverviewPage({ data, loading, error, retry, range, onPage, onCluster, o
   return <>
     <FirstRunGuide isDemo={data.project.is_demo} onGuide={onGuide} onPage={onPage} />
     <OverviewHero data={data} range={range} onPage={onPage} />
-    <section className="panel activity-panel"><div className="panel-heading"><div><h2>Conversations over time</h2><p>Gray dots are all conversations. Red dots are the ones with a problem.</p></div><div className="chart-legend"><span><i className="legend-dot purple" />Conversations</span><span><i className="legend-dot peach" />With a problem</span></div></div><TrendChart trend={data.trend} range={range} />
+    <section className="panel activity-panel"><div className="panel-heading"><div><h2>Conversations over time</h2><p>The white line is all conversations. The red line is the ones with a problem.</p></div><div className="chart-legend"><span><i className="legend-dot purple" />Conversations</span><span><i className="legend-dot peach" />With a problem</span></div></div><CountChart trend={data.trend} />
       <div className="chart-footer"><span><span className="pulse-dot" />{rangeLabels[range]}</span><span>Based on received events</span></div>
     </section>
     <div className="overview-lower"><section className="panel cluster-panel"><div className="panel-heading"><div className="heading-with-count"><h2>Start here: biggest problems</h2><span className="count-badge">{data.top_clusters.length}</span></div><button className="text-button" onClick={() => onPage('failures')}>View all<ArrowRight size={14} /></button></div>

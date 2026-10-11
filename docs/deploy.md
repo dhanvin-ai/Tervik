@@ -7,66 +7,166 @@ Tervik has two parts:
 
 The dashboard calls the API at the address in `VITE_API_URL`, which is set when the dashboard is built.
 
+This is how Tervik itself is hosted:
+
+| Part | Address | Host |
+| - | - | - |
+| Dashboard | https://www.tervik.in (`tervik.in` redirects to it) | Vercel |
+| API | https://api.tervik.in | Railway |
+| Database | Private to the Railway project | Railway Postgres |
+| DNS | Records for `tervik.in` | GoDaddy |
+
+Follow the sections in order. Steps that name `tervik.in` use your own domain in its place.
+
 ## 1. The API on Railway
 
 1. **Create the API service.** In your Railway project, choose **New → GitHub Repo** and pick this repository.
-2. **Point it at the API.** In the new service's **Settings**:
-   - **Source → Branch:** the branch to deploy, such as `ui-maritime-theme` until it is merged.
+2. **Point it at the API.** Click the new service's card to open its panel, then open **Settings**:
+   - **Source → Branch:** the branch to deploy, `ui-maritime-theme` until it's merged into `main`.
    - **Source → Root Directory:** `/apps/api`.
-   - **Config-as-code:** `/apps/api/railway.json`. This builds the service from the Dockerfile and health-checks `/api/health`.
-3. **Add a database.** Choose **New → Database → PostgreSQL**. Tervik creates its tables on first start.
-4. **Set variables.** Under the API service's **Variables**, add:
+   - **Config-as-code → Railway config file:** `/apps/api/railway.json`. This builds the service from the Dockerfile and health-checks `/api/health`.
+3. **Add a database.** On the project canvas, choose **New → Database → PostgreSQL**. Tervik creates its tables on first start.
+4. **Set variables.** In the API service's panel, open **Variables** (the tab next to **Settings**) and add these with **+ New Variable**:
 
    | Variable | Value |
    | - | - |
    | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}`, a reference to the database |
-   | `PORT` | `8000`, the port the API listens on, which **Generate Domain** asks for |
-   | `TERVIK_ADMIN_TOKEN` | A long random secret, such as the output of `openssl rand -hex 32`. Without it, anyone could read the data. |
-   | `TERVIK_CORS_ORIGINS` | Your dashboard's address, such as `https://tervik-seven.vercel.app` |
-   | `TERVIK_DASHBOARD_URL` | The same address. Alert messages link to it. |
-   | `TERVIK_DEMO_ENABLED` | `true` to allow **Load sample workspace** (optional) |
+   | `PORT` | `8000` |
+   | `TERVIK_ADMIN_TOKEN` | A long random secret. Create one with `openssl rand -hex 32`. Without it, anyone could read the data. |
+   | `TERVIK_CORS_ORIGINS` | Every address the dashboard is opened at, separated by commas: `https://www.tervik.in,https://tervik.in,https://tervik-seven.vercel.app` |
+   | `TERVIK_DASHBOARD_URL` | The dashboard's main address, `https://www.tervik.in`. Alert messages link to it. |
+   | `TERVIK_DEMO_ENABLED` | Optional. `true` allows **Explore sample workspace**. |
    | `ANTHROPIC_API_KEY` | Optional. Turns on intent and policy checks, and Claude in **Chat**. |
+   | `OPENAI_API_KEY` | Optional. Adds an OpenAI model to **Chat**. |
 
-5. **Deploy, then give it an address.** Apply the changes and deploy. Then, under **Settings → Networking → Generate Domain**, enter port `8000`. Railway creates a domain such as `https://tervik-api-production.up.railway.app`.
-6. **Check it.** Opening `https://<that domain>/api/health` should return `{"status": "ok", "storage": "postgresql", ...}`.
+5. **Deploy.** Choose **Deploy** in the banner that lists the changes, and wait for the deployment to show **Success**.
+6. **Give it a Railway address.** Under **Settings → Networking → Public networking**, choose **Generate Domain** and enter port `8000`. Railway creates an address such as `https://humorous-connection-production-917a.up.railway.app`.
+7. **Check it:**
 
-**Remove the old service.** A service built from the repository root, such as `@tervik/web`, builds the dashboard rather than the API. Delete it so it stops using credits.
+   ```bash
+   curl https://YOUR-SERVICE.up.railway.app/api/health
+   ```
 
-**Run the background jobs (optional).** Alerts and scheduled classification run as two more services from the same repository, each with the same root directory and variables. Set their start commands to `python -m app.jobs alerts` and `python -m app.jobs classify`.
+   It returns `{"status":"ok","storage":"postgresql","analysis_mode":"rule_based"}`. If `storage` says `sqlite`, `DATABASE_URL` isn't set.
 
-**Chat on a hosted API.** The **Chat** page uses Ollama, which runs on your own computer, not on Railway. On a hosted API, Chat needs `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
+**Remove the old service.** A service built from the repository root, such as `@tervik/web`, builds the dashboard rather than the API. Delete it under its **Settings → Danger** so it stops using credits.
+
+**Background jobs (optional).** Alerts and scheduled classification run as two more services from the same repository, each with the same root directory and variables. Set their start commands to `python -m app.jobs alerts` and `python -m app.jobs classify`.
+
+**Chat on a hosted API.** The **Chat** page's free model, Ollama, runs on your own computer, not on Railway. On the hosted API, Chat needs `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
 
 ## 2. The dashboard on Vercel
 
-1. **Production branch.** Under **Settings → Git → Production Branch**, choose the branch to deploy, such as `ui-maritime-theme`.
-2. **API address.** Under **Settings → Environment Variables**, add `VITE_API_URL` with the Railway domain from step 5, such as `https://tervik-api-production.up.railway.app`, for **Production** and **Preview**. Choose **Config**, not **Secret**: the dashboard runs in the browser, so the API address is public by design, and Vercel refuses a `VITE_` variable marked secret.
-3. **Redeploy.** Open **Deployments**, then **Redeploy** the latest deployment of that branch. `VITE_API_URL` is read when the dashboard is built, so changing it always needs a redeploy.
-4. **Sign in.** Open the dashboard, choose **Connection settings**, and paste the `TERVIK_ADMIN_TOKEN` value.
+1. **Import the repository.** Skip this if the Vercel project already exists. Otherwise choose **Add New → Project**, import this repository, set **Root Directory** to `apps/web`, and keep the **Vite** framework preset. The dashboard builds on its own: the skill download in `apps/web/public` is committed.
+2. **Production branch.** Under **Settings → Git → Production Branch**, choose `ui-maritime-theme` until it's merged into `main`.
+3. **API address.** Under **Settings → Environment Variables → Add New**:
+   - **Type:** **Config**, not **Secret**. The dashboard runs in the browser, so the API address is public by design, and Vercel refuses a `VITE_` variable marked secret.
+   - **Key:** `VITE_API_URL`. Keep the `VITE_` prefix; without it the dashboard never sees the value.
+   - **Value:** the API address with no trailing slash: `https://api.tervik.in`, or the Railway address from step 6 if you aren't using your own domain.
+   - **Environments:** Production and Preview.
+4. **Redeploy.** Open **Deployments**, open the **⋯** menu on the latest deployment of the production branch, and choose **Redeploy**. `VITE_API_URL` is read when the dashboard is built, so changing it always needs a redeploy.
+5. **Check it.** Open the dashboard. The top right shows **API connected**.
 
 ## 3. Your own domain
 
-This example puts the dashboard on `tervik.in` and the API on `api.tervik.in`, with DNS records at the domain's registrar (here, GoDaddy).
+This puts the dashboard on `www.tervik.in` and `tervik.in`, and the API on `api.tervik.in`, with the DNS records at GoDaddy. Other registrars have the same records under different menus.
 
-1. **API domain (Railway).** Under the API service's **Settings → Networking → Custom Domain**, add `api.tervik.in` with port `8000`. Railway shows a CNAME target, and sometimes a TXT record to verify ownership.
-2. **Dashboard domains (Vercel).** Under **Domains**, add `tervik.in` and `www.tervik.in`. Vercel shows an A record for `tervik.in` and a CNAME for `www`.
-3. **DNS records (registrar).** At the registrar's DNS records:
+1. **Dashboard domains (Vercel).** In the project, open **Settings → Domains** and add `tervik.in`. Accept Vercel's suggestion to add `www.tervik.in` too, with `tervik.in` redirecting to it; this is how Tervik is set up. Vercel then shows the records to create, such as:
 
    | Type | Name | Value |
    | - | - | - |
-   | A | `@` | The IP Vercel shows. It replaces the "Parked" record. |
-   | CNAME | `www` | The target Vercel shows. It replaces `tervik.in.` |
-   | CNAME | `api` | The target Railway shows |
-   | TXT | The name Railway shows | The value Railway shows, if it asks |
+   | A | `@` | `216.198.79.1` |
+   | CNAME | `www` | `42741f31064f7810.vercel-dns-017.com` |
 
-   Leave the NS, SOA, and `_domainconnect` records alone. Changes usually apply within minutes, but can take a few hours. Both hosts then issue HTTPS certificates on their own.
+   Use the values Vercel shows you; the CNAME target is different for each project.
+
+2. **API domain (Railway).** In the API service, open **Settings → Networking → Custom Domain**, enter `api.tervik.in` and port `8000`. It then shows **Waiting for DNS update**. Choose **Show DNS records** to see the two records to create:
+
+   | Type | Name | Value |
+   | - | - | - |
+   | CNAME | `api` | A target such as `wss8eszy.up.railway.app` |
+   | TXT | `_railway-verify.api` | `railway-verify=` followed by a long code |
+
+   Railway cuts the TXT value short on screen. Copy it with the copy button instead of typing it.
+
+3. **DNS records (GoDaddy).** Open **Domain → tervik.in → DNS → DNS Records**:
+   - **Delete** the `A @ Parked` record with its trash icon. GoDaddy won't let you edit it, and leaving it beside Vercel's record would send some visitors to the parking page.
+   - **Add New Record:** `A`, name `@`, value Vercel's IP.
+   - **Edit** the `CNAME www` record (its value is `tervik.in.`) with its pencil icon, and change the value to Vercel's CNAME target.
+   - **Add New Record:** `CNAME`, name `api`, value Railway's target.
+   - **Add New Record:** `TXT`, name `_railway-verify.api` (GoDaddy adds `.tervik.in` itself), value Railway's full `railway-verify=…` code.
+   - Leave the `NS`, `SOA`, `_domainconnect`, and `_dmarc` records alone.
+
+   Changes usually apply within minutes, but can take a few hours. Both hosts then issue HTTPS certificates on their own.
+
 4. **Point the parts at each other.**
-   - On Railway, set `TERVIK_CORS_ORIGINS=https://www.tervik.in,https://tervik.in` and `TERVIK_DASHBOARD_URL` to whichever address Vercel serves. Vercel makes `www.tervik.in` the main one and redirects `tervik.in` to it, so use `https://www.tervik.in`.
-   - On Vercel, set `VITE_API_URL=https://api.tervik.in`, then redeploy.
+   - **Railway:** `TERVIK_CORS_ORIGINS` and `TERVIK_DASHBOARD_URL` as in section 1, step 4. Deploy.
+   - **Vercel:** `VITE_API_URL=https://api.tervik.in`, then redeploy, as in section 2.
 
-## 4. Connect an agent to the hosted API
+5. **Check everything:**
 
-On **Connect your agent**, the endpoint is the Railway domain. Agents send events there with the project ID:
+   ```bash
+   dig +short A tervik.in
+   ```
+
+   Only Vercel's IP, `216.198.79.1`. Two more addresses mean the parked record is still there.
+
+   ```bash
+   dig +short CNAME www.tervik.in && dig +short CNAME api.tervik.in
+   ```
+
+   Vercel's and Railway's targets.
+
+   ```bash
+   curl https://api.tervik.in/api/health
+   ```
+
+   `"status":"ok"` and `"storage":"postgresql"`.
+
+   ```bash
+   curl -s -o /dev/null -D - -X OPTIONS -H "Origin: https://www.tervik.in" -H "Access-Control-Request-Method: GET" https://api.tervik.in/api/projects | grep -i access-control-allow-origin
+   ```
+
+   `access-control-allow-origin: https://www.tervik.in`. No output means the address is missing from `TERVIK_CORS_ORIGINS`.
+
+## 4. Sign in
+
+1. Open https://www.tervik.in. Until you sign in, the overview says "Access denied. Sign in or add your administrator token in connection settings."
+2. Choose **Connection settings** at the bottom left.
+3. Paste the `TERVIK_ADMIN_TOKEN` value from Railway's **Variables** into **Administrator token**, the second field. Leave **Account session** empty: a value there is used instead of the token.
+4. Choose **Save connection**. The overview shows **Create your first project**.
+
+The token is kept for that browser tab only. Paste it again in a new tab or window. It's never stored in Vercel.
+
+## 5. Connect an agent to the hosted API
+
+On **Connect agent**, the endpoint is `https://api.tervik.in`. Agents send events there with the project ID from step 03 of that page:
 
 ```bash
-TERVIK_PROJECT_ID=<project ID> TERVIK_ENDPOINT=https://<railway domain> python3 agent.py
+TERVIK_PROJECT_ID=PASTE_PROJECT_ID TERVIK_ENDPOINT=https://api.tervik.in python3 agent.py
 ```
+
+Replace `PASTE_PROJECT_ID` with the real ID, without `<` `>`. [examples/starter-agent](../examples/starter-agent) walks through connecting an agent from start to finish.
+
+The scripts in this repository take the endpoint and the token from the environment. To read the token at a prompt rather than leave it in your shell history:
+
+```bash
+read -rs "TERVIK_ADMIN_TOKEN?Admin token: " && export TERVIK_ADMIN_TOKEN TERVIK_ENDPOINT=https://api.tervik.in
+```
+
+```bash
+cd ~/Projects/tervik && npm run demo:agent -- --persona general
+```
+
+## Troubleshooting
+
+| You see | Cause and fix |
+| - | - |
+| The dashboard on Vercel is the old design | Vercel builds `main`. Set **Production Branch** to `ui-maritime-theme` and redeploy. |
+| "API offline" | `VITE_API_URL` is missing or wrong, or the dashboard wasn't redeployed after setting it. |
+| A request to `/api/...` on `www.tervik.in` returns 404 | Same cause: without `VITE_API_URL`, the dashboard asks Vercel instead of the API. |
+| "Access denied" after signing in | The token is in **Account session** instead of **Administrator token**, or it was cut short when copied. |
+| The browser console shows a CORS error | Add the dashboard's exact address, with `https://` and no trailing slash, to `TERVIK_CORS_ORIGINS`, then deploy on Railway. |
+| Railway shows **Waiting for DNS update** for hours | Check `dig +short CNAME api.tervik.in` and `dig +short TXT _railway-verify.api.tervik.in` against the values Railway shows. |
+| Railway says you hit the custom domain limit | Your Railway plan allows no more custom domains. The one you have is enough for `api.tervik.in`. |
+| `/api/health` says `sqlite` | `DATABASE_URL` isn't set to `${{Postgres.DATABASE_URL}}`, so data is lost on every deploy. |

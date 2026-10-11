@@ -1,24 +1,84 @@
 # Tervik API
 
-From `apps/api`:
+The FastAPI service behind the dashboard. It receives agent events, checks each conversation for problems, and serves the dashboard's data. The endpoints are documented in [docs/api.md](../../docs/api.md), and at `/docs` on a running API.
 
-```sh
-python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
-.venv/bin/python -m pytest
-.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+From the repository root, `npm run dev` starts this API together with the dashboard. The steps below run the API on its own.
+
+## Set up (once)
+
+It needs Python 3.11 or newer. macOS's own `python3` is 3.9, so use Homebrew's, such as `python3.14`:
+
+```bash
+cd ~/Projects/tervik/apps/api && python3.14 -m venv .venv && .venv/bin/python -m pip install -e '.[dev]'
 ```
 
-Default durable storage is `sqlite:///./.data/tervik.db`, relative to the launch directory. `DATABASE_URL=postgresql+psycopg://...` selects PostgreSQL. Schema creation is automatic for this foundation; versioned database migrations are still pending.
+## Run
 
-`TERVIK_ADMIN_TOKEN` guards every `/api/*` route except `/api/health`. Project ingest keys are required for `/v1/events` and cannot authorize dashboard routes. Local mode without the admin token should bind localhost. Project keys are stored retrievably in SQL for the integration setup endpoint; production key management and user/workspace authentication are pending. `TERVIK_CORS_ORIGINS` is a comma-separated allowlist, defaulting to localhost and 127.0.0.1 on port 5173.
+```bash
+cd ~/Projects/tervik/apps/api && .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
 
-`POST /api/demo/seed` creates **Sample workspace**, with all events marked `metadata.sample=true`. Repeating it preserves the same project/events. `TERVIK_DEMO_ENABLED=false` disables seeding. Demo seeding defaults to disabled when an admin token is configured. No sample data is inserted automatically by the API.
+Check it:
 
-The request limit is 4 MiB (`TERVIK_MAX_BODY_BYTES`); validated batches contain 1–100 events. Unknown fields (including supplied `project_id`) are rejected. Timestamps require a timezone, are normalized to UTC, and cannot be over five minutes into the future. SQL primary keys deduplicate `(project_id, event_id)` in a transaction, including concurrent requests. Duplicate IDs keep the first stored payload. Customer conversation IDs are mapped into stable, globally unique dashboard IDs per project.
+```bash
+curl http://127.0.0.1:8000/api/health
+```
 
-Analysis is explicitly `rule_based`: correction phrases, frustration phrases, repeated normalized requests of at least eight characters, and explicit tool error statuses. It does not infer abandonment, churn, or semantic topic clusters. Clusters group signals by kind, and tool errors additionally by tool name. Counts use distinct affected conversations; failure rate means conversations with at least one heuristic signal. Anonymous users do not inflate affected-user counts. Missing latency/cost values are not estimated; average latency uses supplied event latencies. Resolution changes only review status, retaining evidence and failure counts.
+It returns `{"status":"ok","storage":"sqlite","analysis_mode":"rule_based"}`. With a database set through `DATABASE_URL`, `storage` is `postgresql`.
 
-Ranges are rolling 24-hour, 7-day, or 30-day UTC windows, including their boundaries and excluding future events. Daily trend buckets cover every UTC calendar date intersecting the window (so a 7-day rolling window can touch eight dates). Conversation lists/counts reflect events inside the window; conversation detail contains all recorded events. A conversation spanning multiple days may appear once on each applicable daily trend bucket. Cluster trend compares affected conversations with the immediately preceding equal-length window. A positive count with no prior count is represented as +100%, a display convention rather than a mathematically defined growth rate.
+## Test
 
-Optional ClickHouse event mirror: install `.[clickhouse]`, then set `CLICKHOUSE_URL=http://localhost:8123`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`, and `CLICKHOUSE_DATABASE` (default `tervik`). Background tasks create `{database}.events` and copy newly accepted SQL events. Dashboard reads remain SQL-backed. Mirroring is **best effort**: errors preserve ingestion success and log a non-sensitive warning, with no durable retry/outbox or historical backfill. Each batch opens its own client. Distributed workers, analytics at scale, migrations, retention/redaction, alerts, OAuth, and production SaaS authentication are pending.
+```bash
+cd ~/Projects/tervik/apps/api && .venv/bin/python -m pytest
+```
+
+From the repository root, `npm run test:api` runs the same tests, and `npm run check` runs every check in the repository.
+
+## Settings
+
+All settings are environment variables. Locally, none are needed.
+
+| Variable | Default | What it does |
+| - | - | - |
+| `DATABASE_URL` | `sqlite:///./.data/tervik.db`, relative to where the API starts | The database. `postgres://` and `postgresql://` URLs, such as Railway's, select PostgreSQL. Tables and new columns are created on start. |
+| `TERVIK_ADMIN_TOKEN` | none | Protects every `/api/*` route except `/api/health` and the capture API. The dashboard sends it as `Authorization: Bearer`. Generate one with `openssl rand -hex 32`. |
+| `TERVIK_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | The dashboard addresses allowed to call the API from a browser, separated by commas. |
+| `TERVIK_DASHBOARD_URL` | `http://localhost:5173` | Where alert messages link to. |
+| `TERVIK_DEMO_ENABLED` | `true`, or `false` when an admin token is set | Allows **Explore sample workspace**. |
+| `ANTHROPIC_API_KEY` | none | Turns on LLM intent and policy checks, and Claude in **Chat**. |
+| `TERVIK_LLM_MODEL` | `claude-opus-5-5` | The Claude model for those. |
+| `OPENAI_API_KEY` | none | Adds an OpenAI model to **Chat**. |
+| `TERVIK_OPENAI_MODEL` | `gpt-4.1-mini` | That model. |
+| `OLLAMA_HOST_URL` | `http://127.0.0.1:11434` | Where **Chat** finds local Ollama models. |
+| `PORT` | `8000` | The port, in the container image only. |
+| `TERVIK_MAX_BODY_BYTES` | `4194304` (4 MiB) | The largest request accepted. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | none | Email delivery for alerts. |
+| `CLICKHOUSE_URL`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`, `CLICKHOUSE_DATABASE` | none | An optional event mirror. Install `.[clickhouse]` first. |
+
+## Background jobs
+
+Alerts and scheduled LLM classification run as separate processes from the same code:
+
+```bash
+cd ~/Projects/tervik/apps/api && .venv/bin/python -m app.jobs alerts
+```
+
+```bash
+cd ~/Projects/tervik/apps/api && .venv/bin/python -m app.jobs classify
+```
+
+Add `--once` to run a single pass. Stopping either job loses nothing.
+
+## Deploy
+
+`Dockerfile` builds the API image and listens on `$PORT`. `railway.json` tells Railway to build from it and health-check `/api/health`. [docs/deploy.md](../../docs/deploy.md) has every step, including the database and the domain.
+
+## How it handles data
+
+- **Who can send what.** Agents send events with the project ID (`x-org-id`), which can only add events to its project, or with a secret project key. Neither can read data or authorize dashboard routes.
+- **Validation.** A batch holds 1 to 100 events. Unknown fields are rejected. Timestamps need a timezone, are stored in UTC, and can't be more than five minutes in the future.
+- **Duplicates.** Events are deduplicated by project and event ID, so retries are safe. The first stored copy wins.
+- **Analysis.** Rules check every conversation as its events arrive. The root [README](../../README.md#what-tervik-detects) lists what they detect. Counts use distinct affected conversations, and anonymous users don't inflate affected-user counts. Missing latency and cost values aren't estimated.
+- **Date ranges** are rolling UTC windows. Daily trends cover every UTC date the window touches, so a 7-day range can show eight dates.
+- **Resolving** a problem group changes only its review status. The evidence and counts stay.
+- **The ClickHouse mirror** is best effort: a mirror failure doesn't fail ingestion, and there's no retry or backfill. Dashboard reads always use the SQL database.

@@ -1,7 +1,8 @@
 """Recipe helper: a small chat agent on a local Ollama model with three tools,
 connected to Tervik the way the Tervik skill connects a customer's agent.
 
-    TERVIK_PROJECT_ID=<id> python3 examples/recipe-agent/agent.py
+    TERVIK_PROJECT_ID=PASTE_PROJECT_ID python3 examples/recipe-agent/agent.py
+    TERVIK_PROJECT_ID=PASTE_PROJECT_ID TERVIK_ENDPOINT=https://api.tervik.in python3 examples/recipe-agent/agent.py
 """
 import json
 import os

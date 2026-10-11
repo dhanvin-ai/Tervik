@@ -2,77 +2,178 @@
 
 Skill-installed analytics for AI agents. Find failures. Build better agents.
 
-Tervik's first phase is a runnable local foundation: create a project, send real agent events, inspect conversations and tool spans, and review evidence from deterministic failure rules. The downloadable skill helps a coding agent add that instrumentation to an existing application.
+Tervik works like [Agnost AI](https://agnost.ai/). Your agent sends each conversation to Tervik: user messages, replies, and the tool calls in between. Tervik checks every conversation for problems and shows them in a dashboard:
 
-Tervik works like [Agnost AI](https://agnost.ai/). Send sessions and events (agent turns and nested tool calls) with the Python or TypeScript SDK, or call the capture API directly. Tervik then:
-
-- finds silent failures and groups them,
-- tracks tool reliability, users, and cohorts,
-- classifies intents and policy violations with an LLM,
-- alerts you by Slack, email, or webhook,
+- finds silent failures, such as failed tool calls, made-up tool values, actions nobody asked for, and frustrated users, and groups them;
+- tracks tool reliability, users, and cohorts;
+- classifies intents and policy violations with an LLM;
+- alerts you by Slack, email, or webhook;
 - answers questions from MCP clients.
 
-See [the API reference](docs/api.md). To put it online, see [Deploy: dashboard on Vercel, API on Railway](docs/deploy.md).
+| | Where |
+| - | - |
+| Dashboard | https://www.tervik.in |
+| API | https://api.tervik.in |
+| API reference | [docs/api.md](docs/api.md) |
+| Hosting it yourself | [docs/deploy.md](docs/deploy.md) |
 
-## Start locally
+In the commands below, replace the words in capitals, such as `PASTE_PROJECT_ID`, with your own values. Don't type `<` or `>` around them: zsh reads `<` as "read from a file".
 
-Requirements: Node.js 22.12+ and Python 3.11+. Run these from this repository:
+## Use the hosted Tervik
 
-```sh
-npm ci
-npm run setup:api
-npm run dev
+1. Open https://www.tervik.in.
+2. Sign in: choose **Connection settings** (bottom left), paste the administrator token into **Administrator token**, and choose **Save connection**. The token is the `TERVIK_ADMIN_TOKEN` variable of the API service on Railway. It lasts until you close the tab.
+3. Choose **Create your first project** and name it.
+4. Open **Connect agent**. It shows the project ID and the endpoint, `https://api.tervik.in`.
+5. Connect an agent: see [Connect your agent](#connect-your-agent).
+
+## Run it on your computer
+
+### 1. Install the requirements (once)
+
+You need Node.js 22.12 or newer and Python 3.11 or newer. On a Mac with [Homebrew](https://brew.sh):
+
+```bash
+brew install node python@3.14 ollama
 ```
 
-Open [the dashboard](http://127.0.0.1:5173). Create a project to start with an empty workspace, or choose **Load sample workspace** for clearly labeled sample conversations. The local API runs at `http://127.0.0.1:8000`; its database is persisted under `.data/` and ignored by Git. API documentation is available at `http://127.0.0.1:8000/docs`.
+macOS's own `python3` is 3.9, which is too old for the API. Check what you have:
 
-Local developer mode has no account login and binds to loopback. To protect dashboard routes, set `TERVIK_ADMIN_TOKEN` in `.env` and enter it in the dashboard's access settings. A project ingestion key cannot authorize dashboard routes. Do not expose developer mode to the internet.
-
-## Connect an agent
-
-In the dashboard's **Integration** page, retrieve the project key and endpoint. Set `TERVIK_API_KEY` and `TERVIK_ENDPOINT` in the monitored application's server environment. Install the skill:
-
-```sh
-npx skills add dhanvin-ai/tervik --skill tervik
+```bash
+node --version && python3 --version
 ```
 
-Then ask your coding agent:
+### 2. Get the code and set up the API (once)
 
-> Use the tervik skill to add Tervik analytics to this agent.
-
-The repository is currently private, so GitHub installation requires authenticated access to `dhanvin-ai/tervik`. The dashboard also offers a self-contained skill ZIP. Extract its `tervik` folder into your coding agent's skill directory. The skill includes portable Node.js and Python clients; it does not depend on an unpublished npm package. `@tervik/sdk` is a buildable workspace package, not yet published to npm.
-
-Instrumentation runs in your application's server process after setup. It records real turns and tool calls, uses stable event IDs across delivery retries, and reports dropped telemetry. Queues are bounded and held in memory; flushing on an existing shutdown path is important. Common-secret filtering is best effort. Configure application-specific redaction before sending sensitive content.
-
-## Run containers
-
-The container setup runs the web app, FastAPI, PostgreSQL, and a ClickHouse event mirror. It binds its published ports to loopback and requires an administrator token.
-
-```sh
-python3 scripts/configure_docker.py
-docker compose --env-file .env.docker up --build -d
+```bash
+git clone https://github.com/dhanvin-ai/tervik.git ~/Projects/tervik
 ```
 
-Open `http://127.0.0.1:4173`. Enter `TERVIK_ADMIN_TOKEN` from the ignored `.env.docker` file in the dashboard access dialog. API access is at `http://127.0.0.1:8001`; the web app also proxies ingestion at `/v1/events`. Demo loading is disabled by default in this setup. To enable it deliberately, set `TERVIK_DEMO_ENABLED=true` in `.env.docker` and recreate the API container.
-
-```sh
-docker compose --env-file .env.docker down
+```bash
+cd ~/Projects/tervik && git checkout ui-maritime-theme && npm ci
 ```
 
-Stopping containers preserves data volumes. SQLite is the development adapter; PostgreSQL stores the same foundation records in containers. ClickHouse mirrors accepted events asynchronously on a best-effort basis. Dashboard queries still use the SQL database. A durable mirror outbox, background analysis workers, and analytical queries in ClickHouse belong to the next infrastructure milestone.
-
-## Verify
-
-```sh
-npm run check
+```bash
+cd ~/Projects/tervik && python3.14 scripts/setup_api.py
 ```
 
-This runs TypeScript checks, the web/SDK build, SDK tests, API tests, and an end-to-end SDK → API test with isolated temporary storage. The smoke test also restarts the API to verify persistence, checks key separation, and confirms project-scoped deduplication. CI runs these checks on pushes and pull requests.
+`setup_api.py` creates the API's Python environment in `apps/api/.venv`. If `python3 --version` already shows 3.11 or newer, `npm run setup:api` does the same.
 
-With the container stack already running, `npm run test:containers` verifies PostgreSQL and the ClickHouse mirror and removes only the records it creates.
+### 3. Start Tervik
 
-## Phase boundaries
+```bash
+cd ~/Projects/tervik && npm run dev
+```
 
-See [Phase 1 acceptance](docs/phase-1.md), [the architecture](docs/architecture.md), and [the API contract](docs/api-contract.md).
+This starts the API at http://127.0.0.1:8000 and the dashboard at http://127.0.0.1:5173. Open the dashboard, then choose **Create your first project**, or **Explore sample workspace** for labelled sample conversations. Press Ctrl+C to stop.
 
-The rules detect explicit corrections, frustration phrases, repeated requests, unsupported action claims, reported tool errors and timeouts, tools called with made-up values such as `[customer email]`, consequential actions (cancel, refund, delete, send, book, pay) that the user never asked for, and replies that are a raw tool call instead of an answer. They are triage signals that require review. Intent and policy findings come from an LLM reviewer that must cite the messages behind each finding; without `ANTHROPIC_API_KEY`, intents use example matching and policies are not checked. Resolving a group changes its review status; it does not edit or deploy the customer's agent. Payment-provider billing is not connected: plans are set by the operator.
+The local database is `.data/tervik.db`, which Git ignores. API documentation is at http://127.0.0.1:8000/docs. Local mode has no sign-in; don't expose it to the internet. To require a token, put `TERVIK_ADMIN_TOKEN=a-long-random-value` in `.env` and enter it in **Connection settings**.
+
+### 4. Start a local model (for Chat and the example agents)
+
+```bash
+brew services start ollama && ollama pull llama3.2
+```
+
+`ollama pull` downloads about 2 GB once. Check that it's running:
+
+```bash
+ollama list
+```
+
+## Try it without writing code
+
+Each of these sends conversations to Tervik, and the problems show up in the dashboard within seconds.
+
+| Way | How | Needs |
+| - | - | - |
+| **Chat page** | In the dashboard, choose **Chat** and talk to the assistant. Problems appear under each reply and on the overview. | Ollama, or `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` on the API |
+| **Demo agent** in the terminal | `npm run demo:agent` (a shop support agent), or `npm run demo:agent -- --persona general` (a ChatGPT-style assistant). Type `/problems` to list what Tervik found. | Ollama |
+| **Scripted conversations** | `npm run try:agent` sends a set of good and bad conversations, then prints a summary. | Nothing |
+| **Recipe agent**, already connected | See [examples/recipe-agent](examples/recipe-agent). | Ollama |
+| **Your Codex sessions** | `npm run import:codex -- --watch` sends each Codex turn as it finishes. | Codex on this computer |
+| **Your ChatGPT history** | In ChatGPT, choose **Settings → Data controls → Export data**, then `npm run import:chatgpt -- ~/Downloads/YOUR_EXPORT.zip`. | The export zip |
+
+Run the terminal commands from `~/Projects/tervik` while `npm run dev` is running.
+
+**Against the hosted API.** The scripts read `TERVIK_ENDPOINT` and `TERVIK_ADMIN_TOKEN`. To keep the token out of your shell history, read it at a prompt:
+
+```bash
+read -rs "TERVIK_ADMIN_TOKEN?Admin token: " && export TERVIK_ADMIN_TOKEN TERVIK_ENDPOINT=https://api.tervik.in
+```
+
+```bash
+cd ~/Projects/tervik && npm run demo:agent -- --persona general
+```
+
+## Connect your agent
+
+The Tervik skill gives a coding agent (Claude Code, Codex, or Cursor) instructions to add Tervik to your agent's code. The **Connect agent** page walks through the same four steps. To practise on a small agent first, follow [examples/starter-agent](examples/starter-agent).
+
+1. **Install the skill** in your agent's folder:
+
+   ```bash
+   cd ~/Projects/YOUR_AGENT && npx skills add https://github.com/dhanvin-ai/tervik/tree/ui-maritime-theme/skills/tervik -a claude-code -a codex -a cursor -y
+   ```
+
+   The shorter `npx skills add dhanvin-ai/tervik --skill tervik` shown on the Connect page reads the `main` branch, which has an older version of the skill until this branch is merged.
+
+2. **Run the prompt.** Copy the prompt from step 02 of the Connect page. It includes your project ID and endpoint. Open your agent's folder in your coding agent and paste it. The skill copies a one-file client into the project, starts it once at start-up, wraps each message and tool call, and marks each change with a `tervik.instrumented` comment. Review the changes.
+
+3. **Run your agent** with the details from step 03 of the Connect page:
+
+   ```bash
+   cd ~/Projects/YOUR_AGENT && TERVIK_PROJECT_ID=PASTE_PROJECT_ID TERVIK_ENDPOINT=https://api.tervik.in python3 agent.py
+   ```
+
+   Use `TERVIK_ENDPOINT=http://127.0.0.1:8000` for the local Tervik. If your agent starts with a different command, use that command after the two variables.
+
+4. **Check the connection.** Send your agent a message. Step 04 of the Connect page changes from "Waiting for your agent's first event…" to **Connected**, and the conversation appears under **Conversations**.
+
+The project ID can only add events to its project; it can't read anything. To use a secret key instead, open **Prefer a secret key?** on the Connect page and set `TERVIK_API_KEY` in place of `TERVIK_PROJECT_ID`. Without a coding agent, see **Prefer to add it by hand?** on the same page, or call the capture API directly ([docs/api.md](docs/api.md)).
+
+Instrumentation runs in your agent's server process. It uses stable event IDs across retries, keeps a bounded queue in memory, and reports dropped events. Call its shutdown on exit so queued events are sent. Common secrets are filtered on a best-effort basis; add your own redaction before sending sensitive content.
+
+## Put it online
+
+The dashboard runs on Vercel and the API and its Postgres database on Railway, under your own domain. [docs/deploy.md](docs/deploy.md) has every step.
+
+## Run in containers
+
+This runs the dashboard, the API, PostgreSQL, and a ClickHouse event mirror, with ports bound to this computer and an administrator token required.
+
+```bash
+cd ~/Projects/tervik && python3 scripts/configure_docker.py && docker compose --env-file .env.docker up --build -d
+```
+
+Open http://127.0.0.1:4173 and enter `TERVIK_ADMIN_TOKEN` from the generated `.env.docker` in **Connection settings**. The API is at http://127.0.0.1:8001. Sample data is off; set `TERVIK_DEMO_ENABLED=true` in `.env.docker` and recreate the API container to allow it. To stop, keeping the data:
+
+```bash
+cd ~/Projects/tervik && docker compose --env-file .env.docker down
+```
+
+## Check your changes
+
+```bash
+cd ~/Projects/tervik && npm run check
+```
+
+This runs the TypeScript checks, the builds, the SDK, client, API, and schema tests, and an end-to-end test from the SDK to the API with temporary storage. CI runs the same checks on every push and pull request. With the containers running, `npm run test:containers` checks PostgreSQL and the ClickHouse mirror.
+
+## Troubleshooting
+
+| You see | Fix |
+| - | - |
+| `zsh: no such file or directory: project` | A placeholder such as `<project ID>` was left in the command. Replace it with the real value, without `<` `>`. |
+| `Tervik needs Python 3.11 or newer.` | Run the setup with a newer Python: `python3.14 scripts/setup_api.py`. |
+| `npm run dev` fails with a `dyld` or missing-Python error | Homebrew upgraded Python under the API's environment. Recreate it: `rm -rf apps/api/.venv && python3.14 scripts/setup_api.py`. |
+| "API offline" in the dashboard | Locally, start `npm run dev`. Hosted, open https://api.tervik.in/api/health; it should return `"status":"ok"`. |
+| "Access denied. Sign in or add your administrator token" | Paste the token into **Administrator token**, not **Account session**, in **Connection settings**. Paste it again in each new tab. |
+| Chat says Ollama is not running | `brew services start ollama`, then `ollama pull llama3.2`. On the hosted API, Chat needs `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` instead. |
+| **Explore sample workspace** fails on the hosted dashboard | Set `TERVIK_DEMO_ENABLED=true` on the Railway API service. |
+
+## What Tervik detects
+
+Rules flag explicit corrections, frustration, repeated requests, unsupported action claims, tool errors and timeouts, tools called with made-up values such as `[customer email]`, consequential actions (cancel, refund, delete, send, book, pay) the user never asked for, and replies that are a raw tool call instead of an answer. They are triage signals to review. Intent and policy findings come from an LLM reviewer that must cite the messages behind each finding. Without `ANTHROPIC_API_KEY`, intents use example matching and policies aren't checked. Resolving a group changes its review status; it doesn't change your agent. Billing isn't connected: plans are set by the operator.
+
+See also [the architecture](docs/architecture.md), [the API contract](docs/api-contract.md), and [Phase 1 acceptance](docs/phase-1.md).

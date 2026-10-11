@@ -68,6 +68,20 @@ CUSTOMERS = [
 ]
 
 
+# What Tervik's detectors mean, in the words shown after each reply.
+FLAG_LABELS = {
+    "correction": "You corrected the agent",
+    "frustration": "You sounded frustrated",
+    "repetition": "You repeated a request",
+    "unresolved": "You said the problem isn't solved",
+    "tool_error": "A tool call failed",
+    "tool_timeout": "A tool call timed out",
+    "unsupported_claim": "The agent claimed an action no tool performed",
+    "rule_violation": "A behavior rule was broken",
+    "policy_violation": "A policy was broken",
+}
+
+
 class ToolFailure(Exception):
     pass
 
@@ -185,6 +199,44 @@ def answer(model, history, text, user_id, conversation_id, rng):
         raise
 
 
+def fetch(api, path):
+    """GET from Tervik, or None. Live checks must never stop the chat."""
+    try:
+        with urllib.request.urlopen(api + path, timeout=10) as response:
+            return json.load(response)
+    except (urllib.error.URLError, ValueError, OSError):
+        return None
+
+
+def new_flags(api, project_id, conversation_id, seen):
+    """Send what the SDK has queued, then return Tervik's signals for this
+    conversation that have not been shown yet."""
+    tervik.flush()
+    internal = str(uuid.uuid5(uuid.UUID(project_id), conversation_id))
+    detail = fetch(api, f"/api/conversations/{internal}") or {}
+    fresh = [s for s in detail.get("signals", []) if s["id"] not in seen]
+    seen.update(s["id"] for s in fresh)
+    return fresh
+
+
+def show_flags(flags):
+    for flag in flags:
+        print(f"    ⚑ Tervik: {FLAG_LABELS.get(flag['kind'], flag['kind'])}. {flag['reason']}")
+
+
+def list_problems(api, project_id, user_id):
+    rows = fetch(api, f"/api/conversations?project_id={project_id}&range=30d&flagged=true") or []
+    mine = [r for r in rows if r.get("user_id") == user_id]
+    if not mine:
+        print("No flagged conversations for you yet.\n")
+        return
+    print(f"Your flagged conversations ({len(mine)}):")
+    for row in mine:
+        labels = ", ".join(FLAG_LABELS.get(tag, tag) for tag in row["tags"])
+        print(f"  - \"{row['preview'][:70]}\" ({row['message_count']} messages): {labels}")
+    print("In the dashboard: Conversations, then turn on \"Problems only\".\n")
+
+
 def demo_project(api):
     existing = next((p for p in api_call(api, "GET", "/api/projects") if p["name"] == "Demo agent"), None)
     if existing:
@@ -227,15 +279,18 @@ def main():
     try:
         if args.auto:
             for index, messages in enumerate(CUSTOMERS, 1):
-                conversation_id, history = str(uuid.uuid4()), []
+                conversation_id, history, seen = str(uuid.uuid4()), [], set()
                 print(f"--- Customer {index} ---")
                 for text in messages:
                     print(f"Customer: {text}")
                     print(f"Agent:    {answer(model, history, text, f'customer-{index}', conversation_id, rng)}")
+                    show_flags(new_flags(api, project_id, conversation_id, seen))
                 print()
         else:
-            print("Chat with the shop assistant. Try order 1001, 1002, or 1003. Commands: /new, /quit\n")
-            conversation_id, history = str(uuid.uuid4()), []
+            print("Chat with the shop assistant. Orders 1001 (shipped), 1002 (processing), and 1003 (delivered)")
+            print("exist. Tervik's findings appear under each reply.")
+            print("Commands: /new starts a new conversation, /problems lists your flagged ones, /quit ends.\n")
+            conversation_id, history, seen = str(uuid.uuid4()), [], set()
             while True:
                 try:
                     text = input("You: ").strip()
@@ -245,11 +300,17 @@ def main():
                 if text in ("/quit", "/exit"):
                     break
                 if text == "/new":
-                    conversation_id, history = str(uuid.uuid4()), []
+                    conversation_id, history, seen = str(uuid.uuid4()), [], set()
                     print("(new conversation)\n")
                     continue
+                if text == "/problems":
+                    tervik.flush()
+                    list_problems(api, project_id, args.user)
+                    continue
                 if text:
-                    print(f"Agent: {answer(model, history, text, args.user, conversation_id, rng)}\n")
+                    print(f"Agent: {answer(model, history, text, args.user, conversation_id, rng)}")
+                    show_flags(new_flags(api, project_id, conversation_id, seen))
+                    print()
     except RuntimeError as error:
         hint = "Is Ollama running? Start the Ollama app, or run: ollama serve" if args.provider == "ollama" else ""
         print(f"\nThe model call failed: {error}. {hint}".rstrip())

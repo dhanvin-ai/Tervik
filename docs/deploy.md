@@ -60,7 +60,7 @@ This example puts the dashboard on `tervik.in` and the API on `api.tervik.in`, w
 
    Leave the NS, SOA, and `_domainconnect` records alone. Changes usually apply within minutes, but can take a few hours. Both hosts then issue HTTPS certificates on their own.
 4. **Point the parts at each other.**
-   - On Railway, set `TERVIK_CORS_ORIGINS=https://tervik.in,https://www.tervik.in` and `TERVIK_DASHBOARD_URL=https://tervik.in`.
+   - On Railway, set `TERVIK_CORS_ORIGINS=https://www.tervik.in,https://tervik.in` and `TERVIK_DASHBOARD_URL` to whichever address Vercel serves. Vercel makes `www.tervik.in` the main one and redirects `tervik.in` to it, so use `https://www.tervik.in`.
    - On Vercel, set `VITE_API_URL=https://api.tervik.in`, then redeploy.
 
 ## 4. Connect an agent to the hosted API

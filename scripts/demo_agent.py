@@ -8,10 +8,10 @@ Two personas:
   backend (some refunds are refused, the carrier API sometimes times out).
 
 Each runs on a free local model through Ollama, or the OpenAI or Anthropic
-API. Every turn and tool call is sent to Tervik, and Tervik's findings for the
-conversation are shown under each reply.
+API. Every turn and tool call is sent to Tervik with the SDK, and Tervik's
+findings for the conversation are shown under each reply. To chat in the
+browser instead, open Chat in the dashboard.
 
-    npm run chat                                   # ChatGPT-style page in the browser (general)
     npm run demo:agent                             # chat in the terminal (shop)
     npm run demo:agent -- --persona general        # chat in the terminal (general)
     npm run demo:agent -- --auto                   # scripted shop customers, then a report
@@ -26,13 +26,10 @@ import os
 import random
 import re
 import sys
-import threading
 import urllib.error
 import urllib.request
 import uuid
-import webbrowser
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -110,6 +107,8 @@ ARITHMETIC = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.m
 def calculate(expression):
     """Arithmetic only: numbers, + - * / // % ** and parentheses."""
     text = str(expression).replace("×", "*").replace("÷", "/").replace("^", "**").replace(",", "")
+    # "18%" means 18/100; "10 % 3" stays modulo.
+    text = re.sub(r"(\d+(?:\.\d+)?)\s*%(?!\s*[\d(])", r"(\1/100)", text)
 
     def walk(node):
         if isinstance(node, ast.Expression):
@@ -431,113 +430,11 @@ def run_terminal(agent, api, project_id, args):
             print()
 
 
-# ---- browser chat ----
-
-class Chats:
-    """Conversations for the browser page, kept in memory while it runs."""
-
-    def __init__(self):
-        self.lock = threading.Lock()
-        self.items = {}
-
-    def get(self, conversation_id):
-        return self.items.setdefault(conversation_id, {"id": conversation_id, "title": "New chat", "history": [],
-                                                        "messages": [], "seen": set(), "updated": datetime.now().isoformat()})
-
-    def listing(self):
-        rows = [c for c in self.items.values() if c["messages"]]
-        return [{"id": c["id"], "title": c["title"], "updated": c["updated"]}
-                for c in sorted(rows, key=lambda c: c["updated"], reverse=True)]
-
-
-def run_web(agent, api, project_id, args):
-    page = (ROOT / "scripts" / "chat_page.html").read_text(encoding="utf-8")
-    chats = Chats()
-    config = {"model": agent.model.model, "persona": args.persona, "project": PERSONAS[args.persona]["project"],
-              "dashboard": "http://127.0.0.1:5173/#conversations"}
-
-    class Handler(BaseHTTPRequestHandler):
-        def reply(self, status, payload, content_type="application/json"):
-            data = payload.encode() if isinstance(payload, str) else json.dumps(payload).encode()
-            self.send_response(status)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(data)
-
-        def do_GET(self):
-            if self.path in ("/", "/index.html"):
-                return self.reply(200, page.replace("__CONFIG__", json.dumps(config)), "text/html; charset=utf-8")
-            if self.path == "/api/chats":
-                with chats.lock:
-                    return self.reply(200, chats.listing())
-            if self.path.startswith("/api/chats/"):
-                with chats.lock:
-                    chat = chats.items.get(self.path.rsplit("/", 1)[1])
-                    if chat is None:
-                        return self.reply(404, {"error": "Chat not found"})
-                    return self.reply(200, {"id": chat["id"], "title": chat["title"], "messages": chat["messages"]})
-            self.reply(404, {"error": "Not found"})
-
-        def do_POST(self):
-            if self.path != "/api/chat":
-                return self.reply(404, {"error": "Not found"})
-            try:
-                length = int(self.headers.get("Content-Length") or 0)
-                body = json.loads(self.rfile.read(min(length, 65536)) or b"{}")
-            except ValueError:
-                return self.reply(400, {"error": "Invalid JSON"})
-            text = str(body.get("message") or "").strip()[:4000]
-            if not text:
-                return self.reply(400, {"error": "Type a message first"})
-            conversation_id = str(body.get("chat_id") or uuid.uuid4())[:64]
-            with chats.lock:  # one model call at a time, like a single chat window
-                chat = chats.get(conversation_id)
-                if not chat["messages"]:
-                    chat["title"] = text[:48] + ("…" if len(text) > 48 else "")
-                chat["messages"].append({"role": "user", "content": text})
-                try:
-                    answer, used = agent.answer(chat["history"], text, args.user, conversation_id, log=lambda _: None)
-                except RuntimeError as error:
-                    chat["messages"].pop()
-                    hint = " Is Ollama running? Try: brew services start ollama" if args.provider == "ollama" else ""
-                    return self.reply(502, {"error": f"The model call failed: {error}.{hint}"})
-                flags = new_flags(api, project_id, conversation_id, chat["seen"])
-                message = {"role": "assistant", "content": answer, "tools": used, "flags": flags}
-                chat["messages"].append(message)
-                chat["updated"] = datetime.now().isoformat()
-                return self.reply(200, {"chat_id": conversation_id, "title": chat["title"], "message": message})
-
-        def log_message(self, *_args):
-            pass
-
-    try:
-        server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-    except OSError:
-        raise SystemExit(f"Port {args.port} is in use. Pick another with --port.")
-    url = f"http://127.0.0.1:{args.port}"
-    print(f"Chat page:  {url}")
-    print(f"Tervik:     http://127.0.0.1:5173/#conversations  (project \"{config['project']}\")")
-    print("Press Ctrl+C to stop.\n")
-    if not args.no_open:
-        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nStopped the chat page.")
-    finally:
-        server.server_close()
-
-
 def main():
     sys.stdout.reconfigure(line_buffering=True)
     parser = argparse.ArgumentParser(description="Chat with a Tervik-instrumented demo agent")
-    parser.add_argument("--persona", choices=sorted(PERSONAS), default=None,
-                        help="general (ChatGPT-style) or shop (support agent); default shop, or general with --web")
-    parser.add_argument("--web", action="store_true", help="Serve a ChatGPT-style chat page in the browser")
-    parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--no-open", action="store_true", help="Do not open the browser")
+    parser.add_argument("--persona", choices=sorted(PERSONAS), default="shop",
+                        help="general (answers anything) or shop (support agent)")
     parser.add_argument("--provider", choices=sorted(PROVIDERS), default=os.getenv("DEMO_PROVIDER", "ollama"))
     parser.add_argument("--model", default=None, help="Model name (defaults depend on the provider)")
     parser.add_argument("--base-url", default=None, help="Another OpenAI-compatible server, such as LM Studio")
@@ -546,7 +443,6 @@ def main():
     parser.add_argument("--user", default=getpass.getuser())
     parser.add_argument("--seed", type=int, default=None, help="Make tool failures repeatable")
     args = parser.parse_args()
-    args.persona = args.persona or ("general" if args.web else "shop")
     if args.auto:
         args.persona = "shop"
     preset = PROVIDERS[args.provider]
@@ -562,10 +458,7 @@ def main():
     tervik.init(project_id, endpoint=api, flush_interval=1.0)
     print(f"Agent model: {model.model} via {args.provider}. Tervik project: {PERSONAS[args.persona]['project']}.\n")
     try:
-        if args.web:
-            run_web(agent, api, project_id, args)
-        else:
-            run_terminal(agent, api, project_id, args)
+        run_terminal(agent, api, project_id, args)
     except RuntimeError as error:
         hint = "Is Ollama running? Start it with: brew services start ollama" if args.provider == "ollama" else ""
         print(f"\nThe model call failed: {error}. {hint}".rstrip())

@@ -8,6 +8,8 @@ import {
   Zap, type LucideIcon,
 } from 'lucide-react';
 import { query, request } from './api';
+import { ChatPage } from './ChatPage';
+import { failureLabel } from './labels';
 import { DitherCanvas } from './components/DitherCanvas';
 import { DitherText } from './components/DitherText';
 import { PixelIcon, type PixelIconName } from './components/PixelIcon';
@@ -24,7 +26,7 @@ const INSTALL_PROMPT = 'Use the tervik skill to add Tervik analytics to this age
 const rangeLabels: Record<Range, string> = { '24h': 'Last 24 hours', '7d': 'Last 7 days', '30d': 'Last 30 days' };
 const titles: Record<Page, string> = {
   overview: 'Overview', failures: 'Problems', discovery: 'Topics',
-  conversations: 'Conversations',
+  conversations: 'Conversations', chat: 'Chat',
   integration: 'Connect your agent', welcome: 'Welcome',
 };
 
@@ -33,6 +35,7 @@ const PAGE_INTRO: Record<Exclude<Page, 'welcome'>, [string, string]> = {
   failures: ['Find what is going wrong.', 'Each row is one kind of problem. Open it to see the real messages behind it.'],
   discovery: ['Discover what people ask about.', 'Conversations about the same thing are grouped into topics automatically.'],
   conversations: ['Read every conversation.', 'Follow real chats between your users and your agent, step by step.'],
+  chat: ['Chat with your agent.', 'Talk to a model on your Mac about anything. Tervik flags problems under each reply.'],
   integration: ['Connect your agent.', 'Three short steps to send your agent’s conversations here.'],
 };
 
@@ -67,21 +70,6 @@ const PLAIN_PROBLEMS: Record<string, string> = {
   unrequested_action: 'The agent did something nobody asked for, like cancelling or refunding.',
 };
 function plainProblem(kind: string, fallback: string) { return PLAIN_PROBLEMS[kind] || fallback; }
-// Short names for what went wrong, shown on rows, banners, and messages.
-const FAILURE_LABELS: Record<string, string> = {
-  correction: 'User corrected the agent',
-  frustration: 'User was frustrated',
-  repetition: 'User repeated a request',
-  unresolved: 'User said it is not solved',
-  tool_error: 'Tool call failed',
-  tool_timeout: 'Tool call timed out',
-  unsupported_claim: 'Claimed an action without a tool',
-  rule_violation: 'Broke a behavior rule',
-  policy_violation: 'Broke a policy',
-  tool_bad_input: 'Made-up tool values',
-  unrequested_action: 'Action nobody asked for',
-};
-function failureLabel(kind: string) { return FAILURE_LABELS[kind] || friendlyKind(kind); }
 const LIVE_INTERVAL_MS = 5000;
 function friendlyKind(value: string) { return value.replaceAll('_', ' ').replace(/^./, c => c.toUpperCase()); }
 function shortId(value: string) { return value.length > 20 ? `${value.slice(0, 9)}…${value.slice(-5)}` : value; }
@@ -1050,7 +1038,7 @@ export default function App() {
   };
   const modalClose = () => { setCreateOpen(false); setProjectName(''); setCreateError(''); };
   const noProject = <div className="panel no-project-panel"><EmptyState icon={Layers3} title="A clearer view of your agents starts here." description="Create your first project to connect an agent, or explore a sample workspace to see how Tervik works."><button className="button button-primary" onClick={() => setCreateOpen(true)}><Plus size={16} />Create your first project</button><button className="button button-secondary" disabled={demoBusy} onClick={seedDemo}>{demoBusy ? <LoaderCircle size={15} className="spin" /> : <Layers3 size={16} />}Explore sample workspace</button></EmptyState></div>;
-  const navItems: { page: Page; icon: PixelIconName; label: string }[] = [{ page: 'overview', icon: 'overview', label: 'Overview' }, { page: 'failures', icon: 'detect', label: 'Problems' }, { page: 'discovery', icon: 'cluster', label: 'Topics' }, { page: 'conversations', icon: 'chat', label: 'Conversations' }];
+  const navItems: { page: Page; icon: PixelIconName; label: string }[] = [{ page: 'overview', icon: 'overview', label: 'Overview' }, { page: 'failures', icon: 'detect', label: 'Problems' }, { page: 'discovery', icon: 'cluster', label: 'Topics' }, { page: 'conversations', icon: 'chat', label: 'Conversations' }, { page: 'chat', icon: 'prompt', label: 'Chat' }];
   return <>
     {page === 'welcome' ? <><Welcome onStart={() => navigate('overview')} onDemo={seedDemo} demoBusy={demoBusy} />{actionError && <div className="welcome-error"><ErrorState message={actionError} onRetry={seedDemo} /></div>}</> : <div className="app-shell">
       {mobileOpen && <button className="sidebar-scrim" onClick={() => setMobileOpen(false)} aria-label="Close navigation" />}
@@ -1058,11 +1046,11 @@ export default function App() {
         <nav className="main-nav" aria-label="Main navigation">{navItems.map(({ page: navPage, icon, label }, index) => <a href={`#${navPage}`} key={navPage} className={page === navPage ? 'active' : ''} aria-current={page === navPage ? 'page' : undefined}>{page === navPage && <DitherCanvas className="nav-dither" vignette={0} intensity={0.75} seed={index} />}<span className="nav-icon"><PixelIcon name={icon} size={2} /></span><span>{label}</span>{navPage === 'failures' && !!overview.data?.top_clusters.length && <span className="nav-count">{overview.data.top_clusters.length}</span>}</a>)}</nav><div className="nav-divider" /><nav className="secondary-nav"><a href="#integration" className={page === 'integration' ? 'active' : ''}>{page === 'integration' && <DitherCanvas className="nav-dither" vignette={0} intensity={0.75} seed={5} />}<span className="nav-icon"><PixelIcon name="code" size={2} /></span><span>Connect agent</span></a><a href="#welcome"><span className="nav-icon"><PixelIcon name="guide" size={2} /></span><span>Product tour</span><ArrowUpRight size={14} /></a></nav>
         <div className="sidebar-bottom"><button className="sidebar-link" onClick={() => setGuideOpen(true)}><span className="nav-icon"><PixelIcon name="guide" size={2} /></span><span>Quick guide</span></button><button className="settings-button" onClick={() => { setAdminToken(sessionStorage.getItem('tervik_admin_token') || ''); setSessionToken(sessionStorage.getItem('tervik_session') || ''); setSettingsOpen(true); }}><Settings2 size={17} /><span>Connection settings</span></button><div className="workspace-footer"><span className="user-avatar">T</span><span><strong>Local workspace</strong><small>Development foundation</small></span><span className="local-dot" /></div></div>
       </aside>
-      <div className="main-shell"><header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Open navigation"><Menu size={20} /></button><h1 className="topbar-title">{titles[page]}</h1>{project?.is_demo && <span className="demo-badge">SAMPLE DATA</span>}{page !== 'integration' && project && <label className="date-range"><Clock3 size={14} /><select aria-label="Date range" value={range} onChange={event => setRange(event.target.value as Range)}>{Object.entries(rangeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><ChevronDown size={13} /></label>}<button className="icon-button topbar-refresh" onClick={() => setRefresh(value => value + 1)} aria-label="Refresh data" title="Refresh data"><RotateCcw size={15} /></button><button className={`live-toggle ${live ? 'is-live' : ''}`} onClick={() => setLive(value => !value)} aria-pressed={live} title={live ? `Updating every ${LIVE_INTERVAL_MS / 1000} seconds. Select to pause.` : 'Paused. Select to update live.'}><span />{live ? 'Live' : 'Paused'}</button></div><div className="topbar-right"><button className="topbar-guide" onClick={() => setGuideOpen(true)}><CircleHelp size={15} />Guide</button><span className={`api-health ${health.data ? 'connected' : ''}`}><span />{health.data ? 'API connected' : health.loading ? 'Connecting' : 'API offline'}</span></div></header>
+      <div className="main-shell"><header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Open navigation"><Menu size={20} /></button><h1 className="topbar-title">{titles[page]}</h1>{project?.is_demo && <span className="demo-badge">SAMPLE DATA</span>}{page !== 'integration' && page !== 'chat' && project && <label className="date-range"><Clock3 size={14} /><select aria-label="Date range" value={range} onChange={event => setRange(event.target.value as Range)}>{Object.entries(rangeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><ChevronDown size={13} /></label>}<button className="icon-button topbar-refresh" onClick={() => setRefresh(value => value + 1)} aria-label="Refresh data" title="Refresh data"><RotateCcw size={15} /></button><button className={`live-toggle ${live ? 'is-live' : ''}`} onClick={() => setLive(value => !value)} aria-pressed={live} title={live ? `Updating every ${LIVE_INTERVAL_MS / 1000} seconds. Select to pause.` : 'Paused. Select to update live.'}><span />{live ? 'Live' : 'Paused'}</button></div><div className="topbar-right"><button className="topbar-guide" onClick={() => setGuideOpen(true)}><CircleHelp size={15} />Guide</button><span className={`api-health ${health.data ? 'connected' : ''}`}><span />{health.data ? 'API connected' : health.loading ? 'Connecting' : 'API offline'}</span></div></header>
         <div className="page-intro"><DitherCanvas className="intro-dither" vignette={0} intensity={0.6} seed={6} /><div><strong>{PAGE_INTRO[page][0]}</strong><span>{PAGE_INTRO[page][1]}</span></div>{page !== 'integration' && <button className="intro-cta" onClick={() => project ? navigate('integration') : setCreateOpen(true)}>{project ? 'Connect your agent' : 'Create a project'}<ArrowRight size={15} /></button>}</div>
         <main className="main-content">
           {actionError && <div className="action-error"><TriangleAlert size={16} /><span>{actionError}</span><button className="icon-button" onClick={() => setActionError('')} aria-label="Dismiss error"><X size={15} /></button></div>}
-          {projects.loading ? <Loading /> : projects.error ? <ErrorState message={projects.error} onRetry={projects.retry} /> : !project ? noProject : page === 'overview' ? <OverviewPage {...overview} range={range} onPage={navigate} onCluster={setClusterId} onConversation={selectConversation} onDemo={seedDemo} demoBusy={demoBusy} onGuide={() => setGuideOpen(true)} /> : page === 'failures' ? <FailuresPage projectId={project.id} range={range} refresh={liveRefresh} onSelect={setClusterId} /> : page === 'discovery' ? <DiscoveryPage projectId={project.id} range={range} refresh={refresh} onConversation={selectConversation} /> : page === 'conversations' ? <ConversationsPage projectId={project.id} range={range} refresh={liveRefresh} onSelect={selectConversation} /> : <IntegrationPage key={project.id} project={project} refresh={refresh} />}
+          {projects.loading ? <Loading /> : projects.error ? <ErrorState message={projects.error} onRetry={projects.retry} /> : !project ? noProject : page === 'overview' ? <OverviewPage {...overview} range={range} onPage={navigate} onCluster={setClusterId} onConversation={selectConversation} onDemo={seedDemo} demoBusy={demoBusy} onGuide={() => setGuideOpen(true)} /> : page === 'failures' ? <FailuresPage projectId={project.id} range={range} refresh={liveRefresh} onSelect={setClusterId} /> : page === 'discovery' ? <DiscoveryPage projectId={project.id} range={range} refresh={refresh} onConversation={selectConversation} /> : page === 'conversations' ? <ConversationsPage projectId={project.id} range={range} refresh={liveRefresh} onSelect={selectConversation} /> : page === 'chat' ? <ChatPage projectId={project.id} refresh={liveRefresh} onConversation={selectConversation} /> : <IntegrationPage key={project.id} project={project} refresh={refresh} />}
           <footer className="dashboard-footer"><span>Tervik<span className="footer-separator">/</span>Find failures. Build better agents.</span><span><span className="pulse-dot" />Rule-based analysis</span></footer>
         </main>
       </div>

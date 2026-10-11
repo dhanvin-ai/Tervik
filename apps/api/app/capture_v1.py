@@ -229,7 +229,9 @@ def to_events(body: EventCapture, session_row: ConversationSession, trace_id: st
     shared = {"conversation_id": session_row.id, "user_id": session_row.user_id, "trace_id": trace_id}
     common_meta = {**metadata, "capture_event_id": body.event_id, "primitive_name": body.primitive_name}
     if body.parent_id:
-        return [EventInput(id=body.event_id, role="tool", content=body.result, timestamp=at,
+        # A tool call that starts in the millisecond its turn did still follows
+        # the user's message, which carries the turn's whole-millisecond start.
+        return [EventInput(id=body.event_id, role="tool", content=body.result, timestamp=at + timedelta(microseconds=1),
                            span_id=body.event_id, parent_span_id=body.parent_id, name=body.primitive_name,
                            status=status, latency_ms=latency, tokens=tokens, cost_usd=cost,
                            model=model[:200] if model else None,
@@ -240,8 +242,9 @@ def to_events(body: EventCapture, session_row: ConversationSession, trace_id: st
     # in the millisecond this one ended (timestamps arrive in whole milliseconds).
     # Clients that already stamp the end time would push it into the future, so
     # it is capped at now.
+    # A turn shorter than a millisecond ends after its tool calls (at +1µs).
     whole = int(latency or 0)
-    ended = at + timedelta(milliseconds=whole) - (timedelta(microseconds=1) if whole else timedelta(0))
+    ended = at + timedelta(milliseconds=whole) - timedelta(microseconds=1) if whole else at + timedelta(microseconds=2)
     ended = max(at, min(ended, utc_now()))
     events = []
     if body.args:

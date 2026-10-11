@@ -1,5 +1,5 @@
 export type Range = '24h' | '7d' | '30d';
-export type Page = 'overview' | 'failures' | 'discovery' | 'conversations' | 'integration' | 'welcome';
+export type Page = 'overview' | 'failures' | 'discovery' | 'conversations' | 'chat' | 'integration' | 'welcome';
 export interface Project {
   id: string;
   name: string;
@@ -62,6 +62,10 @@ export interface Event {
   model?: string;
   latency_ms?: number;
   tokens?: number;
+  trace_id?: string | null;
+  span_id?: string | null;
+  parent_span_id?: string | null;
+  metadata?: Record<string, unknown>;
 }
 export interface Signal {
   id: string;
@@ -228,3 +232,9 @@ export interface Overview {
   recent_conversations: Conversation[];
   analysis_mode: string;
 }
+
+export interface ChatModelOption { id: string; provider: string; name: string; label: string }
+export interface ChatPersona { id: string; name: string; description: string; ideas: string[] }
+export interface PlaygroundStatus { models: ChatModelOption[]; default_model: string | null; note: string | null; personas: ChatPersona[] }
+export interface PlaygroundChat { session_id: string; conversation_id: string; title: string; persona: string; problems: string[]; updated_at: string }
+export interface PlaygroundReply { session_id: string; conversation_id: string; reply: string; model: string }

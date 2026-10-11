@@ -186,6 +186,29 @@ keys, change settings, or reach other projects. List keys with
   from recent opening messages. `POST /api/projects/{id}/intents/enrich`
   writes a description and examples for one intent.
 
+## Dashboard chat
+
+**Chat** in the dashboard lets you talk to a model and watch Tervik check each turn as it happens.
+
+**Models.** The chat uses your local Ollama models (`OLLAMA_HOST_URL`, default `http://127.0.0.1:11434`). It also uses Anthropic when `ANTHROPIC_API_KEY` is set, and OpenAI when `OPENAI_API_KEY` is set.
+
+**Agents.** There are two:
+
+- **Assistant** answers anything, and uses a calculator and a clock for math and the time.
+- **Shop support** is a store agent whose tools can fail.
+
+**How turns are recorded.** Every turn goes through the capture pipeline like real traffic. Each user message and reply is stored as a turn pair, with its tool calls nested under it. The conversation, its problems, and the overview therefore update at once.
+
+**Endpoints.**
+
+| Endpoint | What it does |
+| - | - |
+| `GET /api/playground/status` | Lists the available models and agents |
+| `GET /api/projects/{id}/playground/chats` | Lists the project's chats and their problems |
+| `POST /api/projects/{id}/playground/chat` | Sends `{"message", "session_id", "persona", "model"}` and returns the reply and the conversation ID |
+
+**Errors.** If the model can't be reached, you get HTTP 424 with the reason, and nothing is recorded. Read API keys can't chat.
+
 ## Alerts
 
 `POST /api/projects/{id}/alerts` creates a rule. Every rule has a `kind`, a

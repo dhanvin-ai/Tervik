@@ -28,6 +28,7 @@ from . import capture_v1 as capture_mod
 from . import insights as insights_mod
 from . import classify as classify_mod
 from . import llm as llm_mod
+from . import playground as playground_mod
 from .auth import (API_KEY_PREFIX, ROLES, SESSION_PREFIX, add_membership, create_organization, new_api_key,
                    create_session, credential_for_token, hash_password, is_ingest_token,
                    new_ingest_key, normalize_email, project_role, require_project_role,
@@ -502,13 +503,6 @@ def create_app(settings: Settings | None = None):
 
     # ---- Session and event capture API ----
 
-    def capture_after_commit(project_id, background_tasks):
-        if settings.inline_process:
-            with sessions.begin() as session:
-                queue_mod.process_pending(session, engine, settings, project_id=project_id)
-            if settings.clickhouse_url:
-                background_tasks.add_task(retry_mirrors_task, project_id)
-
     @app.post("/api/v1/capture-session")
     def capture_session(body: capture_mod.SessionCapture, request: Request):
         with sessions.begin() as session:
@@ -516,22 +510,37 @@ def create_app(settings: Settings | None = None):
             capture_mod.upsert_session(session, project.id, body)
         return {"session_id": body.session_id}
 
+    def record_event(session, project, environment, body):
+        """Store one captured operation. Returns its trace id; call
+        finish_event after the transaction commits."""
+        check_quota(session, project)
+        row = capture_mod.implicit_session(session, project.id, body.session_id,
+                                           capture_mod.from_millis(body.timestamp))
+        trace_id = capture_mod.resolve_trace(session, project.id, body.parent_id, body.event_id)
+        try:
+            events = capture_mod.to_events(body, row, trace_id)
+        except ValueError as error:
+            raise HTTPException(422, str(error).splitlines()[0])
+        queue_mod.enqueue_events(session, engine, project, events, environment=environment)
+        return trace_id
+
+    def finish_events(project_id, recorded, background_tasks=None):
+        """Process the queued events, then move early children onto their parent's trace."""
+        if settings.inline_process:
+            with sessions.begin() as session:
+                queue_mod.process_pending(session, engine, settings, project_id=project_id)
+        if settings.clickhouse_url and background_tasks is not None:
+            background_tasks.add_task(retry_mirrors_task, project_id)
+        with sessions.begin() as session:
+            for event_id, trace_id in recorded:
+                capture_mod.reroot_children(session, project_id, event_id, trace_id)
+
     @app.post("/api/v1/capture-event")
     def capture_event(body: capture_mod.EventCapture, request: Request, background_tasks: BackgroundTasks):
         with sessions.begin() as session:
             project, environment = resolve_capture(request, session)
-            check_quota(session, project)
-            row = capture_mod.implicit_session(session, project.id, body.session_id,
-                                               capture_mod.from_millis(body.timestamp))
-            trace_id = capture_mod.resolve_trace(session, project.id, body.parent_id, body.event_id)
-            try:
-                events = capture_mod.to_events(body, row, trace_id)
-            except ValueError as error:
-                raise HTTPException(422, str(error).splitlines()[0])
-            queue_mod.enqueue_events(session, engine, project, events, environment=environment)
-        capture_after_commit(project.id, background_tasks)
-        with sessions.begin() as session:
-            capture_mod.reroot_children(session, project.id, body.event_id, trace_id)
+            trace_id = record_event(session, project, environment, body)
+        finish_events(project.id, [(body.event_id, trace_id)], background_tasks)
         return {"event_id": body.event_id}
 
     @app.get("/api/overview")
@@ -1150,6 +1159,11 @@ def create_app(settings: Settings | None = None):
             key.revoked_at = key.revoked_at or utc_now()
             project_audit(session, project, "api_key.revoke", key.id, account_id)
             return api_key_dict(key)
+
+    playground_mod.register(app, sessions=sessions, settings=settings, write_project=write_project,
+                            read_project=lambda request, db_session, project_id: intent_project(request, db_session, project_id, "viewer"),
+                            project_signals=lambda db_session, project_id: project_analysis(db_session, project_id)[:2],
+                            record_event=record_event, finish_events=finish_events)
 
     classify_mod.register(app, sessions=sessions,
                           read_project=lambda request, db_session, project_id: intent_project(request, db_session, project_id, "viewer"),

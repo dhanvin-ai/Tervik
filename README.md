@@ -12,7 +12,7 @@ Tervik works like [Agnost AI](https://agnost.ai/). Send sessions and events (age
 - alerts you by Slack, email, or webhook,
 - answers questions from MCP clients.
 
-See [the API reference](docs/api.md).
+See [the API reference](docs/api.md). To put it online, see [Deploy: dashboard on Vercel, API on Railway](docs/deploy.md).
 
 ## Start locally
 

@@ -1,3 +1,8 @@
+// Where the Tervik API lives. Empty means the dashboard's own origin: locally the
+// dev server forwards /api to it. Set VITE_API_URL when building a dashboard that
+// is hosted apart from the API (for example on Vercel, with the API on Railway).
+export const API_URL = (import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '');
+
 export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const session = sessionStorage.getItem('tervik_session');
   const token = session || sessionStorage.getItem('tervik_admin_token');
@@ -6,7 +11,7 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
   if (token) headers.set('Authorization', `Bearer ${token}`);
   let response: Response;
   try {
-    response = await fetch(path, { ...options, headers });
+    response = await fetch(API_URL + path, { ...options, headers });
   } catch {
     throw new Error('Cannot reach Tervik. Start the API service and try again.');
   }

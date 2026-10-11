@@ -7,7 +7,7 @@ import {
   RotateCcw, Search, Settings2, ShieldCheck, Sparkles, Terminal, TriangleAlert, Users, X,
   Zap, type LucideIcon,
 } from 'lucide-react';
-import { query, request } from './api';
+import { API_URL, query, request } from './api';
 import { ChatPage } from './ChatPage';
 import { failureLabel } from './labels';
 import { DitherCanvas } from './components/DitherCanvas';
@@ -835,7 +835,7 @@ function IntegrationPage({ project, refresh, live, onConversation }: { project: 
   const [keyError, setKeyError] = useState('');
   const [language, setLanguage] = useState('python');
   // The dashboard's dev server proxies ingestion, but agents should talk to the API directly.
-  const [endpoint, setEndpoint] = useState(import.meta.env.VITE_INGEST_ENDPOINT || (window.location.port === '5173' ? 'http://127.0.0.1:8000' : window.location.origin));
+  const [endpoint, setEndpoint] = useState(import.meta.env.VITE_INGEST_ENDPOINT || API_URL || (window.location.port === '5173' ? 'http://127.0.0.1:8000' : window.location.origin));
   const endpointBase = endpoint.trim().replace(/\/$/, '');
   useEffect(() => { setKey(''); setShowKey(false); setKeyError(''); }, [project.id, refresh]);
   const shownKey = key && showKey ? key : 'tvk_••••••••••••••••••••••••';

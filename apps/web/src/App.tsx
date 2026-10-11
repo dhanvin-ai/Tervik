@@ -68,6 +68,7 @@ const PLAIN_PROBLEMS: Record<string, string> = {
   policy_violation: 'The agent did not follow one of your policies.',
   tool_bad_input: 'The agent called a tool with a made-up value, like [customer email], instead of real data.',
   unrequested_action: 'The agent did something nobody asked for, like cancelling or refunding.',
+  malformed_reply: 'The agent sent a raw tool call, like {"name": ...}, instead of an answer.',
 };
 function plainProblem(kind: string, fallback: string) { return PLAIN_PROBLEMS[kind] || fallback; }
 const LIVE_INTERVAL_MS = 5000;
@@ -832,47 +833,80 @@ function ConversationDrawer({ id, refresh, onClose }: { id: string; refresh: num
   </Modal>;
 }
 
-function SetupStatusCard({ project, refresh }: { project: Project; refresh: number }) {
-  const resource = useResource<SetupStatus>(`/api/projects/${encodeURIComponent(project.id)}/setup`, refresh);
-  return <section className="setup-step panel"><div className="step-heading"><span className="step-number">04</span><div><h3>Verify traffic arrives</h3><p>Connection status, received events, and ingestion diagnostics for this project.</p></div></div>
-    {resource.loading ? <Loading label="Checking connection" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : resource.data && <div className="connection-details setup-grid">
-      <span>Ingest key<strong>{resource.data.key_configured ? 'Configured' : 'Missing'}</strong></span>
-      <span>Events received<strong>{formatNumber(resource.data.events_received)}</strong></span>
-      <span>Conversations<strong>{formatNumber(resource.data.conversations)}</strong></span>
-      <span>Last event<strong>{resource.data.last_event_at ? dateTime(resource.data.last_event_at) : '—'}</strong></span>
-      <span>Pending jobs<strong>{formatNumber(resource.data.jobs.pending + resource.data.jobs.failed)}</strong></span>
-      <span>Dead jobs<strong>{formatNumber(resource.data.jobs.dead)}</strong></span>
-    </div>}
-    {resource.data && (resource.data.jobs.failed > 0 || resource.data.jobs.dead > 0) && <p className="inline-error">Some events need attention. Inspect pending/failed work via GET /api/jobs?project_id={shortId(project.id)}.</p>}
+function ago(value: string, now: number) {
+  const seconds = Math.max(0, Math.round((now - new Date(value).getTime()) / 1000));
+  if (seconds < 60) return seconds < 5 ? 'just now' : `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`;
+  return dateTime(value);
+}
+
+/** Live connection check: waits for the first event, then shows when traffic last arrived. */
+function ConnectionCheck({ project, live, onConversation }: { project: Project; live: number; onConversation: (id: string) => void }) {
+  const resource = useResource<SetupStatus>(`/api/projects/${encodeURIComponent(project.id)}/setup`, live);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
+  const data = resource.data;
+  const connected = Boolean(data?.events_received);
+  const recent = Boolean(data?.last_received_at && now - new Date(data.last_received_at).getTime() < 5 * 60 * 1000);
+  return <section className="setup-step panel connection-check"><div className="step-heading"><span className="step-number">04</span><div><h3>Check the connection</h3><p>Run your agent and send it one ordinary message. This updates on its own.</p></div></div>
+    {resource.loading ? <Loading label="Checking connection" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : data && <>
+      <div className={`connection-state ${connected ? 'is-connected' : 'is-waiting'}`}>
+        <span className="connection-dot" />
+        <div><strong>{connected ? (recent ? 'Connected. Events are arriving.' : 'Connected') : 'Waiting for your agent’s first event…'}</strong>
+          <span>{connected ? `Last event received ${ago(data.last_received_at!, now)} · ${formatNumber(data.events_received)} ${data.events_received === 1 ? 'event' : 'events'} in ${formatNumber(data.conversations)} ${data.conversations === 1 ? 'conversation' : 'conversations'}` : 'Nothing has arrived for this project yet. Once your agent sends a message, it appears here within seconds.'}</span></div>
+        {connected && data.latest_conversation_id && <button className="button button-secondary" onClick={() => onConversation(data.latest_conversation_id!)}>Open the latest conversation<ArrowRight size={14} /></button>}
+      </div>
+      {(data.jobs.failed > 0 || data.jobs.dead > 0) && <p className="inline-error">{formatNumber(data.jobs.failed + data.jobs.dead)} events could not be processed. Inspect them with GET /api/jobs?project_id={shortId(project.id)}.</p>}
+      {!data.capture.public_ingest && <p className="inline-error">Sending with the project ID is turned off for this project. Use the secret ingest key below.</p>}
+    </>}
   </section>;
 }
 
-function IntegrationPage({ project, refresh }: { project: Project; refresh: number }) {
+function IntegrationPage({ project, refresh, live, onConversation }: { project: Project; refresh: number; live: number; onConversation: (id: string) => void }) {
   const [showKey, setShowKey] = useState(false);
   const [key, setKey] = useState('');
   const [keyBusy, setKeyBusy] = useState(false);
   const [keyError, setKeyError] = useState('');
-  const [language, setLanguage] = useState('typescript');
-  const [endpoint, setEndpoint] = useState(import.meta.env.VITE_INGEST_ENDPOINT || window.location.origin);
+  const [language, setLanguage] = useState('python');
+  // The dashboard's dev server proxies ingestion, but agents should talk to the API directly.
+  const [endpoint, setEndpoint] = useState(import.meta.env.VITE_INGEST_ENDPOINT || (window.location.port === '5173' ? 'http://127.0.0.1:8000' : window.location.origin));
   const endpointBase = endpoint.trim().replace(/\/$/, '');
   useEffect(() => { setKey(''); setShowKey(false); setKeyError(''); }, [project.id, refresh]);
   const shownKey = key && showKey ? key : 'tvk_••••••••••••••••••••••••';
-  const code = language === 'typescript' ? `import { Tervik } from '@tervik/sdk';\n\nconst tervik = new Tervik({\n  apiKey: process.env.TERVIK_API_KEY!,\n  endpoint: ${JSON.stringify(endpointBase)},\n});\n\ntervik.capture({\n  conversation_id: 'conversation-123',\n  user_id: 'user-456',\n  role: 'user',\n  content: 'Can you help me with my order?',\n});\n\nawait tervik.flush();` : `curl -X POST "${endpointBase}/v1/events" \\\n  -H "Authorization: Bearer $TERVIK_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"events": [{\n    "conversation_id": "conversation-123",\n    "user_id": "user-456",\n    "role": "user",\n    "content": "Can you help me with my order?"\n  }]}'`;
-  return <div className="integration-layout"><div className="integration-main">    <section className="setup-step panel"><div className="step-heading"><span className="step-number">01</span><div><h3>Download the skill</h3><p>Add Tervik’s integration instructions to your coding agent.</p></div></div><div className="command-box"><code>{INSTALL_COMMAND}</code><CopyButton text={INSTALL_COMMAND} /></div><div className="step-footer"><span>Works with agents that support skills</span><a href="/tervik-skill.zip" download className="text-button"><Download size={14} />Download ZIP</a></div></section>
-    <section className="setup-step panel"><div className="step-heading"><span className="step-number">02</span><div><h3>Run this prompt</h3><p>Your agent will read the skill and implement the integration.</p></div></div><div className="command-box prompt-box"><code>{INSTALL_PROMPT}</code><CopyButton text={INSTALL_PROMPT} /></div><div className="step-footer"><span>Review your agent’s code changes before running them.</span></div></section>
-    <section className="setup-step panel"><div className="step-heading"><span className="step-number">03</span><div><h3>Set your project key</h3><p>Store this key in your application’s server environment.</p></div></div><label className="field-label">TERVIK_API_KEY</label><div className="key-box"><code>{shownKey}</code><button className="icon-button" title={showKey ? 'Hide API key' : 'Reveal API key'} aria-label={showKey ? 'Hide API key' : 'Reveal API key'} disabled={keyBusy} onClick={async () => {
-      if (showKey) { setShowKey(false); return; }
-      if (key) { setShowKey(true); return; }
-      setKeyBusy(true); setKeyError('');
-      try { const result = await request<{ api_key: string }>(`/api/projects/${encodeURIComponent(project.id)}/key`); setKey(result.api_key); setShowKey(true); }
-      catch (cause) { setKeyError((cause as Error).message); } finally { setKeyBusy(false); }
-    }}>{keyBusy ? <LoaderCircle size={16} className="spin" /> : showKey ? <EyeOff size={17} /> : <Eye size={17} />}</button>{key && showKey && <CopyButton text={key} compact label="Copy API key" />}</div>{keyError && <p className="inline-error">{keyError}</p>}<div className="key-note"><ShieldCheck size={14} />Keep your project key on the server, outside prompts and browser code.</div><label className="field-label endpoint-label" htmlFor="ingestion-endpoint">Ingestion endpoint</label><input id="ingestion-endpoint" className="text-field" type="url" value={endpoint} onChange={event => setEndpoint(event.target.value)} /><p className="endpoint-note">Use a URL reachable from your agent’s server. The local dashboard proxies ingestion to the API.</p></section>
-    <section className="code-section panel"><div className="panel-heading"><div><h3>Prefer a direct integration?</h3><p>Send conversation events from your server.</p></div><Code2 size={20} /></div><div className="code-tabs"><div>{[['typescript', 'TypeScript'], ['curl', 'HTTP / cURL']].map(([value, label]) => <button key={value} onClick={() => setLanguage(value)} className={language === value ? 'active' : ''}>{label}</button>)}</div><CopyButton text={code} label="Copy code" /></div><pre className="code-block"><code>{code}</code></pre><div className="code-note">{language === 'typescript' ? 'The SDK is included in this repository as @tervik/sdk. Build it locally; package registry publishing is pending.' : 'Use your project key in the TERVIK_API_KEY environment variable. Ingestion requires a project key.'}</div></section>
-    <SetupStatusCard project={project} refresh={refresh} />
-  </div><aside className="integration-aside"><div className="setup-project-card"><span className="aside-label">CURRENT PROJECT</span><span className="project-cube"><Layers3 size={23} /></span><h3>{project.name}</h3><p>{project.is_demo ? 'Sample workspace' : 'Your agent workspace'}</p><div><span>Project ID</span><code>{shortId(project.id)}</code><CopyButton text={project.id} compact label="Copy project ID" /></div></div><div className="what-gets-tracked"><h3>A little context goes a long way.</h3>{[[MessageSquare, 'Messages & conversations', 'Group interactions by conversation and user.'], [GitBranch, 'Tools & traces', 'Explore reported tool execution and failures.'], [Clock3, 'Latency & cost', 'Understand the performance you report.']].map(([Icon, title, text]) => {
+  const prompt = `${INSTALL_PROMPT} Project ID: ${project.id}. Endpoint: ${endpointBase}.`;
+  const env = `TERVIK_PROJECT_ID=${project.id}\nTERVIK_ENDPOINT=${endpointBase}`;
+  const code = language === 'python'
+    ? `# Copy scripts/tervik_client.py from the skill into your server code.\nimport os\nimport tervik_client as tervik\n\ntervik.init(os.environ["TERVIK_PROJECT_ID"], endpoint=os.environ["TERVIK_ENDPOINT"])\n\n# For each message your agent handles:\nturn = tervik.begin(user_id="user-123", agent_name="my-agent",\n                    input=user_message, conversation_id=conversation_id)\nwith turn.tool("lookup_order", {"order_id": "1042"}) as call:\n    call.output = lookup_order("1042")\nturn.end(output=reply)\n\ntervik.shutdown()  # when the server stops`
+    : language === 'typescript'
+      ? `// Copy scripts/tervik-client.mjs from the skill into your server code.\nimport * as tervik from './tervik-client.mjs';\n\ntervik.init(process.env.TERVIK_PROJECT_ID, { endpoint: process.env.TERVIK_ENDPOINT });\n\n// For each message your agent handles:\nconst turn = tervik.begin({ userId: 'user-123', agentName: 'my-agent', input: userMessage, conversationId });\nconst order = await turn.tool('lookup_order', { orderId: '1042' }).run(() => lookupOrder('1042'));\nturn.end(reply);\n\nawait tervik.shutdown(); // when the server stops`
+      : `curl -X POST "${endpointBase}/api/v1/capture-session" \\\n  -H "x-org-id: ${project.id}" -H "Content-Type: application/json" \\\n  -d '{"session_id": "conv-123", "user_data": {"user_id": "user-123"}}'\n\ncurl -X POST "${endpointBase}/api/v1/capture-event" \\\n  -H "x-org-id: ${project.id}" -H "Content-Type: application/json" \\\n  -d '{"event_id": "'"$(uuidgen)"'", "session_id": "conv-123", "primitive_name": "my-agent",\n       "args": "Where is my order?", "result": "It ships tomorrow.", "latency": 1200}'`;
+  return <div className="integration-layout"><div className="integration-main">
+    <section className="setup-step panel"><div className="step-heading"><span className="step-number">01</span><div><h3>Add the Tervik skill</h3><p>Give your coding agent (Claude Code, Codex, Cursor, …) Tervik’s integration instructions.</p></div></div><div className="command-box"><code>{INSTALL_COMMAND}</code><CopyButton text={INSTALL_COMMAND} /></div><div className="step-footer"><span>Works with agents that support skills</span><a href="/tervik-skill.zip" download className="text-button"><Download size={14} />Download ZIP</a></div></section>
+    <section className="setup-step panel"><div className="step-heading"><span className="step-number">02</span><div><h3>Run this prompt in your agent’s project</h3><p>It finds your agent’s message handler and tools and adds Tervik around them.</p></div></div><div className="command-box prompt-box"><code>{prompt}</code><CopyButton text={prompt} /></div><div className="step-footer"><span>Review the code changes before you run them.</span></div></section>
+    <section className="setup-step panel"><div className="step-heading"><span className="step-number">03</span><div><h3>Your connection details</h3><p>Put these in your agent server’s environment. The prompt above already includes them.</p></div></div>
+      <label className="field-label">Project ID</label><div className="key-box"><code>{project.id}</code><CopyButton text={project.id} compact label="Copy project ID" /></div>
+      <label className="field-label endpoint-label" htmlFor="ingestion-endpoint">Endpoint</label><input id="ingestion-endpoint" className="text-field" type="url" value={endpoint} onChange={event => setEndpoint(event.target.value)} />
+      <p className="endpoint-note">The address your agent’s server uses to reach Tervik. Locally that is the API at port 8000.</p>
+      <label className="field-label">Environment</label><div className="command-box env-box"><code>{env}</code><CopyButton text={env} /></div>
+      <div className="key-note"><ShieldCheck size={14} />The project ID can only add events to this project. It cannot read anything.</div>
+      <details className="secret-key"><summary>Prefer a secret key? Use TERVIK_API_KEY instead</summary>
+        <div className="key-box"><code>{shownKey}</code><button className="icon-button" title={showKey ? 'Hide key' : 'Reveal key'} aria-label={showKey ? 'Hide key' : 'Reveal key'} disabled={keyBusy} onClick={async () => {
+          if (showKey) { setShowKey(false); return; }
+          if (key) { setShowKey(true); return; }
+          setKeyBusy(true); setKeyError('');
+          try { const result = await request<{ api_key: string }>(`/api/projects/${encodeURIComponent(project.id)}/key`); setKey(result.api_key); setShowKey(true); }
+          catch (cause) { setKeyError((cause as Error).message); } finally { setKeyBusy(false); }
+        }}>{keyBusy ? <LoaderCircle size={16} className="spin" /> : showKey ? <EyeOff size={17} /> : <Eye size={17} />}</button>{key && showKey && <CopyButton text={key} compact label="Copy key" />}</div>{keyError && <p className="inline-error">{keyError}</p>}
+        <p className="endpoint-note">Keep this key on the server, out of prompts, source control, and browser code. Pass it as <code>api_key</code> / <code>apiKey</code> instead of the project ID.</p>
+      </details>
+    </section>
+    <ConnectionCheck project={project} live={live} onConversation={onConversation} />
+    <section className="code-section panel"><div className="panel-heading"><div><h3>Prefer to add it by hand?</h3><p>Wrap each message your agent handles; nest its tool calls under it.</p></div><Code2 size={20} /></div><div className="code-tabs"><div>{[['python', 'Python'], ['typescript', 'TypeScript'], ['curl', 'HTTP / cURL']].map(([value, label]) => <button key={value} onClick={() => setLanguage(value)} className={language === value ? 'active' : ''}>{label}</button>)}</div><CopyButton text={code} label="Copy code" /></div><pre className="code-block"><code>{code}</code></pre><div className="code-note">{language === 'curl' ? 'Send the conversation once, then one event per turn. Tool calls add "parent_id" with the turn’s event_id.' : 'The client is one file with no dependencies, in the skill’s scripts/ folder. Nothing it does can break or slow your agent.'}</div></section>
+  </div><aside className="integration-aside"><div className="setup-project-card"><span className="aside-label">CURRENT PROJECT</span><span className="project-cube"><Layers3 size={23} /></span><h3>{project.name}</h3><p>{project.is_demo ? 'Sample workspace' : 'Your agent workspace'}</p><div><span>Project ID</span><code>{shortId(project.id)}</code><CopyButton text={project.id} compact label="Copy project ID" /></div></div><div className="what-gets-tracked"><h3>What Tervik records</h3>{[[MessageSquare, 'Every turn', 'Each user message with the reply your agent gave.'], [GitBranch, 'Every tool call', 'Inputs, outputs, failures, and timing, nested under the turn.'], [Clock3, 'Latency, tokens & cost', 'Whatever your agent reports about each step.']].map(([Icon, title, text]) => {
     const ItemIcon = Icon as LucideIcon;
     return <div key={title as string}><ItemIcon size={19} /><span><strong>{title as string}</strong><p>{text as string}</p></span></div>;
-  })}</div><div className="foundation-note"><span className="pulse-dot" /><strong>Local foundation</strong><p>This version runs on your machine. Signals use transparent rules; hosted access, semantic clustering, and automated fixes are future milestones.</p></div></aside></div>;
+  })}</div><div className="foundation-note"><span className="pulse-dot" /><strong>Runs on your machine</strong><p>Rules flag problems the moment events arrive. Set ANTHROPIC_API_KEY on the API to also check intents and policies with an LLM.</p></div></aside></div>;
 }
 
 function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: () => void; demoBusy: boolean }) {
@@ -1050,7 +1084,7 @@ export default function App() {
         <div className="page-intro"><DitherCanvas className="intro-dither" vignette={0} intensity={0.6} seed={6} /><div><strong>{PAGE_INTRO[page][0]}</strong><span>{PAGE_INTRO[page][1]}</span></div>{page !== 'integration' && <button className="intro-cta" onClick={() => project ? navigate('integration') : setCreateOpen(true)}>{project ? 'Connect your agent' : 'Create a project'}<ArrowRight size={15} /></button>}</div>
         <main className="main-content">
           {actionError && <div className="action-error"><TriangleAlert size={16} /><span>{actionError}</span><button className="icon-button" onClick={() => setActionError('')} aria-label="Dismiss error"><X size={15} /></button></div>}
-          {projects.loading ? <Loading /> : projects.error ? <ErrorState message={projects.error} onRetry={projects.retry} /> : !project ? noProject : page === 'overview' ? <OverviewPage {...overview} range={range} onPage={navigate} onCluster={setClusterId} onConversation={selectConversation} onDemo={seedDemo} demoBusy={demoBusy} onGuide={() => setGuideOpen(true)} /> : page === 'failures' ? <FailuresPage projectId={project.id} range={range} refresh={liveRefresh} onSelect={setClusterId} /> : page === 'discovery' ? <DiscoveryPage projectId={project.id} range={range} refresh={refresh} onConversation={selectConversation} /> : page === 'conversations' ? <ConversationsPage projectId={project.id} range={range} refresh={liveRefresh} onSelect={selectConversation} /> : page === 'chat' ? <ChatPage projectId={project.id} refresh={liveRefresh} onConversation={selectConversation} /> : <IntegrationPage key={project.id} project={project} refresh={refresh} />}
+          {projects.loading ? <Loading /> : projects.error ? <ErrorState message={projects.error} onRetry={projects.retry} /> : !project ? noProject : page === 'overview' ? <OverviewPage {...overview} range={range} onPage={navigate} onCluster={setClusterId} onConversation={selectConversation} onDemo={seedDemo} demoBusy={demoBusy} onGuide={() => setGuideOpen(true)} /> : page === 'failures' ? <FailuresPage projectId={project.id} range={range} refresh={liveRefresh} onSelect={setClusterId} /> : page === 'discovery' ? <DiscoveryPage projectId={project.id} range={range} refresh={refresh} onConversation={selectConversation} /> : page === 'conversations' ? <ConversationsPage projectId={project.id} range={range} refresh={liveRefresh} onSelect={selectConversation} /> : page === 'chat' ? <ChatPage projectId={project.id} refresh={liveRefresh} onConversation={selectConversation} /> : <IntegrationPage key={project.id} project={project} refresh={refresh} live={liveRefresh} onConversation={selectConversation} />}
           <footer className="dashboard-footer"><span>Tervik<span className="footer-separator">/</span>Find failures. Build better agents.</span><span><span className="pulse-dot" />Rule-based analysis</span></footer>
         </main>
       </div>

@@ -1,52 +1,62 @@
 # Python
 
-Copy `scripts/tervik_client.py` into the application's server module folder. It uses only Python's standard library and HTTP ingestion. Set server-side `TERVIK_API_KEY` and base `TERVIK_ENDPOINT`. Do not install a guessed package from PyPI. (The repository also builds the `tervik` pip package in `packages/sdk-python`; use it only when the customer project already depends on it.)
+Copy `scripts/tervik_client.py` into the application's server package (for example `app/telemetry/tervik_client.py`). It uses only Python's standard library (3.9+). Do not install a guessed package from PyPI; use the `tervik` package from `packages/sdk-python` only when the project already depends on it (`import tervik` exposes the same functions).
 
-For OpenAI-based agents, prefer `tervik.integrations.instrument_openai` over manual capture: it wraps `chat.completions.create` (including streams) and records turns, usage, and requested tool calls without changing responses. For LangChain/LangGraph agents, add `tervik.integrations.TervikCallbackHandler` to the run callbacks. Both are duck-typed, idempotent, and covered by the compatibility matrix in `docs/compatibility.md`.
+Configure the server environment:
 
-Create one `Tervik` instance per process. Its background exporter uses a bounded queue and finite retries. `capture()` returns a stable event ID or `None`, `flush()` returns counts, and `shutdown()` stops the background exporter and flushes remaining events. Add `on_drop` to existing metrics; the default reports only reason/count.
+```text
+TERVIK_PROJECT_ID=<project ID from the Connect your agent page>
+TERVIK_ENDPOINT=http://127.0.0.1:8000
+```
 
-Adapt the actual application handler, keeping its async and streaming behavior:
+## Instrument the handler
+
+Initialize once per process, then wrap the real handler. `existing_agent`, `existing_tools`, and the request fields below stand for the application's own code.
 
 ```python
-from .telemetry.tervik_client import Tervik
+import os
+from .telemetry import tervik_client as tervik
 
 # tervik.instrumented
-analytics = Tervik()
+tervik.init(os.environ["TERVIK_PROJECT_ID"], endpoint=os.environ.get("TERVIK_ENDPOINT"))
 
-async def handle_conversation(request):
-    context = {
-        "conversation_id": request.conversation_id,
-        "user_id": request.pseudonymous_user_id,
-    }
-    async def run_turn(trace):
-        async def lookup(query):
-            # The span context works around an await without blocking it.
-            with analytics.span(trace, "tool", "lookup", {"query": query}) as span:
-                result = await existing_tools.lookup(query)
-                span.output = result
-                return result
-        return await existing_agent.respond(request.message, lookup=lookup)
-    return await analytics.with_turn(
-        context, request.message, run_turn, output=lambda response: response.text
+def handle_message(request):
+    turn = tervik.begin(
+        user_id=request.pseudonymous_user_id,      # stable, not an email address
+        agent_name="support-agent",
+        input=request.message,
+        conversation_id=request.conversation_id,   # the same ID for every turn of a conversation
     )
+    try:
+        def lookup_order(order_id):
+            with turn.tool("lookup_order", {"order_id": order_id}) as call:
+                call.output = existing_tools.lookup_order(order_id)   # exceptions are recorded as failures and re-raised
+                return call.output
 
-# Call from the application's existing shutdown path. In an async service:
-# await asyncio.to_thread(analytics.shutdown)
+        reply = existing_agent.respond(request.message, tools={"lookup_order": lookup_order})
+        turn.set_property("model", reply.model)          # optional: model, tokens, cost, or any string property
+        turn.end(output=reply.text)
+        return reply
+    except Exception as error:
+        turn.end(output=f"Error: {error}", success=False)
+        raise
+
+# In the application's existing shutdown hook:
+tervik.shutdown()
 ```
 
-Do not synchronously call network `flush()` on an async handler's response path. During a controlled verification, flush outside that path or use `asyncio.to_thread`. Add a domain-specific `redact` callback for PII and nested tool payloads: the built-in filter only covers common credential forms. Preserve the application's original errors; error spans record those actual failures.
+- `turn.tool(name, input)` nests a tool call under the turn; nest further with `call.tool(...)`. Use it as a context manager, or call `call.end(output, success=False)` yourself. Record the tool's real input and output: Tervik flags made-up values such as `[customer email]` and consequential actions (cancel, refund, delete, send, book, pay) the user never asked for.
+- When a turn is finished elsewhere (a callback or another function), pass `interaction_id="..."` to `begin()` and later call `tervik.get_interaction("...").end(...)`.
+- `tervik.track(user_id=..., input=..., output=..., conversation_id=...)` records a finished turn in one call.
+- `tervik.identify(user_id, {"plan": "pro"})` attaches traits; they appear in the dashboard's users and cohort views.
+- Async handlers can use the same calls: `begin`, `tool`, and `end` never block on the network. Call `flush()`/`shutdown()` outside the response path (for example `await asyncio.to_thread(tervik.shutdown)`).
+- For streaming, keep the existing iterator untouched, accumulate the text as chunks pass through, and call `turn.end(output=full_text)` when the stream finishes (or `success=False` if it fails or is cancelled).
+- Pass `redact=lambda body: body` to `init()` to rewrite or drop event bodies before they are queued (return `None` to drop).
 
-For a streaming handler, wrap the actual iterator with `stream_turn` (sync) or `astream_turn` (async): chunks pass through untouched while permitted text accumulates for one assistant event. Early termination records a partial outcome; errors record the actual failure.
+Use the secret ingest key instead of the project ID with `tervik.init(api_key=os.environ["TERVIK_API_KEY"], endpoint=...)`.
 
-```python
-# tervik.instrumented
-def handle_streaming_conversation(request, chunks):
-    context = {
-        "conversation_id": request.conversation_id,
-        "user_id": request.pseudonymous_user_id,
-    }
-    yield from analytics.stream_turn(context, request.message, chunks)
-```
+## Frameworks
 
-Obtain the project credential through the dashboard session flow (`POST /api/auth/login`, then `POST /api/projects/{id}/credentials`); the ingest secret is returned once and stored server-side. Re-running the skill must detect the `tervik.instrumented` marker and existing client before editing.
+For OpenAI-based agents, `tervik.integrations.instrument_openai` wraps `chat.completions.create` (including streams) and records turns, usage, and requested tool calls; for LangChain/LangGraph, add `tervik.integrations.TervikCallbackHandler` to the run callbacks. These come with the `tervik` package and use the older message-level exporter (`Tervik` class, `TERVIK_API_KEY`), which the portable client also includes (`Tervik`, `span`, `with_turn`, `stream_turn`).
+
+Re-running the skill must detect the `tervik.instrumented` marker and the existing client before editing.

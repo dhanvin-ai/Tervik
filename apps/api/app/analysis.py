@@ -20,6 +20,7 @@ RULE_VERSIONS = {
     "policy_violation": "1.0.0",
     "tool_bad_input": "1.0.0",
     "unrequested_action": "1.0.0",
+    "malformed_reply": "1.0.0",
 }
 RULES = {
     "correction": {
@@ -76,6 +77,12 @@ RULES = {
         "severity": "high",
         "suggested_fix": "Require an explicit request or confirmation before state-changing tools run, and test the turn that triggered this call.",
     },
+    "malformed_reply": {
+        "title": "Agent replies with a raw tool call",
+        "description": "Instead of answering, the agent sent the user what looks like an unparsed tool call, such as {\"name\": \"search\", ...}. Small models do this when a tool call comes out malformed.",
+        "severity": "high",
+        "suggested_fix": "Validate replies before sending them: when a reply is a tool call the framework did not parse, retry the turn or ask the model again without tools.",
+    },
     "policy_violation": {
         "title": "A policy was not followed",
         "description": "A reviewer read the conversation and found the agent did not follow one of your policies. This is a classified finding: read the cited messages before acting on it.",
@@ -123,6 +130,9 @@ ACTION_WORDS = {
     "submit": ("submit", "send", "file"),
 }
 AFFIRM = re.compile(r"^(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please(?: do)?|go ahead|do it|confirm(?:ed)?|that's right|correct)\b", re.I)
+# A reply that is an unparsed tool call: {"name": ...}, {"parameters": ...}, {},
+# or a model's raw tool-call tags.
+TOOL_STUB = re.compile(r'^\s*(?:```(?:json)?\s*)?(?:\{\s*(?:\}|"(?:name|function|tool|tool_name|parameters|arguments)"\s*:)|<tool_call>|<\|python_tag\|>)', re.I)
 # Kinds whose problems are grouped per tool.
 TOOL_KINDS = ("tool_error", "tool_timeout", "tool_bad_input", "unrequested_action")
 ACTION_CLAIM = re.compile(r"\b(?:i['’]?(?:ve| have) (?:sent|booked|created|deleted|updated|fixed|deployed|emailed|scheduled|cancelled|refunded|processed)|sent the|booking is confirmed|refund(?:ed|s)? (?:issued|processed)|order (?:is |has been )?(?:placed|cancelled)|email (?:has been )?sent|i['’]?ll have (?:sent|booked)|all done|taken care of)\b", re.I)
@@ -231,7 +241,11 @@ def analyze(events, rules=None):
                 found.append(("unrequested_action", f'The agent called "{name}" although the user never asked to {verb} anything or agreed to it.'))
         elif event.role == "assistant":
             content = event.content.replace("’", "'")
+            asked_for_json = any(role == "user" and "json" in text.lower() for role, text in said[event.conversation_id][-1:])
             said[event.conversation_id].append(("assistant", content))
+            if TOOL_STUB.match(content) and not asked_for_json:
+                shown = " ".join(content.split())[:60]
+                found.append(("malformed_reply", f'The agent replied with what looks like a raw tool call ("{shown}") instead of an answer.'))
             match = ACTION_CLAIM.search(content)
             if match:
                 outcome = check_claim_support(event, ordered, successful_tools)

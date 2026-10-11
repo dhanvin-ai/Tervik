@@ -2,6 +2,7 @@
 
 from hashlib import sha256
 from pathlib import Path
+import re
 import zipfile
 
 root = Path(__file__).resolve().parents[1]
@@ -9,6 +10,21 @@ source = root / "skills" / "tervik"
 target = root / "apps" / "web" / "public" / "tervik-skill.zip"
 if not (source / "SKILL.md").exists():
     raise SystemExit("The Tervik skill must exist before building its download.")
+
+
+def portable_python_client():
+    """One standard-library file with the Python SDK's exporter and its
+    interaction API, so a customer project can copy it without installing."""
+    sdk = root / "packages" / "sdk-python" / "src" / "tervik"
+    client = (sdk / "client.py").read_text().replace('CLIENT_NAME = "tervik"', 'CLIENT_NAME = "tervik-python"', 1)
+    interactions = (sdk / "interactions.py").read_text()
+    body = interactions.split('"""', 2)[2]  # drop the module docstring
+    body = re.sub(r"^from \.client import [^\n]+\n", "", body, count=1, flags=re.M)
+    header = ("# Generated from packages/sdk-python by scripts/bundle_skill.py. Edit those files instead.\n")
+    return header + client.rstrip() + "\n\n\n# ---- Interaction tracking ----\n" + body.lstrip("\n")
+
+
+(source / "scripts" / "tervik_client.py").write_text(portable_python_client())
 target.parent.mkdir(parents=True, exist_ok=True)
 with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
     for path in sorted(source.rglob("*")):

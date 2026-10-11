@@ -1,60 +1,57 @@
 # Node.js / TypeScript
 
-Requires Node 18+ for native `fetch`. Copy `scripts/tervik-client.mjs` and its `scripts/tervik-client.d.mts` declaration from this skill into an appropriate server module folder. It is a dependency-free ES module. Import `Tervik` from the copied file using the project's build conventions. The repository also includes the typed workspace package `@tervik/sdk`; it is not assumed to be published.
+Requires Node 18+ for native `fetch`. Copy `scripts/tervik-client.mjs` and its declaration file `scripts/tervik-client.d.mts` into a server module folder (for example `src/telemetry/`). It is a dependency-free ES module. Use the `@tervik/sdk` workspace package only when the project already depends on it; it exports the same functions.
 
-Configure real server-side environment values:
+Configure the server environment:
 
 ```text
+TERVIK_PROJECT_ID=<project ID from the Connect your agent page>
 TERVIK_ENDPOINT=http://127.0.0.1:8000
-TERVIK_API_KEY=<key from your Tervik project setup>
 ```
 
-Adapt this pattern around the customer's existing handler. `agent`, `tools`, and the request ID below are existing application components, not sample traffic to create. Mark the instrumented handler with `// tervik.instrumented` so re-running the skill finds it instead of adding a second wrapper:
+## Instrument the handler
+
+Initialize once per process, then wrap the real handler. `agent`, `tools`, and the request fields stand for the application's own code. Mark the instrumented code with `// tervik.instrumented`.
 
 ```javascript
-import { Tervik } from './telemetry/tervik-client.mjs';
+import * as tervik from './telemetry/tervik-client.mjs';
 
 // tervik.instrumented
-const analytics = new Tervik({
-  redact(event) {
-    // Replace this with the project's actual PII/credential policy.
-    return JSON.parse(JSON.stringify(event).replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, '[EMAIL]'));
-  },
-  onDrop({ reason, count }) {
-    appMetrics.increment('tervik.dropped', count, { reason });
-  }
-});
+tervik.init(process.env.TERVIK_PROJECT_ID, { endpoint: process.env.TERVIK_ENDPOINT });
 
-export async function handleConversation(request) {
-  const context = {
-    conversation_id: request.conversationId,
-    user_id: request.pseudonymousUserId
-  };
-  return analytics.withTurn(context, request.message, async trace => {
-    return agent.respond(request.message, {
-      lookup: query => analytics.withTool(trace, 'lookup', { query }, () => tools.lookup(query))
+export async function handleMessage(request) {
+  const turn = tervik.begin({
+    userId: request.pseudonymousUserId,       // stable, not an email address
+    agentName: 'support-agent',
+    input: request.message,
+    conversationId: request.conversationId,   // the same ID for every turn of a conversation
+  });
+  try {
+    const reply = await agent.respond(request.message, {
+      // run() records the result, or the error, and returns or rethrows it unchanged.
+      lookupOrder: orderId => turn.tool('lookup_order', { orderId }).run(() => tools.lookupOrder(orderId)),
     });
-  }, { output: response => response.text });
+    turn.setProperty('model', reply.model);   // optional: model, tokens, cost, or any property
+    turn.end(reply.text);
+    return reply;
+  } catch (error) {
+    turn.end(`Error: ${error.message}`, false);
+    throw error;
+  }
 }
 
 // Await this from the existing graceful shutdown hook.
-export async function flushTelemetryAtShutdown() {
-  return analytics.shutdown();
-}
+export const flushTelemetry = () => tervik.shutdown();
 ```
 
-`capture(event)` is synchronous and returns an event ID or `null` if dropped. `flush()` returns `{accepted, duplicates, dropped, pending}`. `inspect()` exposes exporter counters without payloads or credentials. A singleton per server process avoids creating an interval per request. Custom diagnostic callbacks are isolated from agent execution.
+- `turn.tool(name, input)` returns a tool call: use `.run(fn)`, or call `.end(output, success)` yourself; nest further with `call.tool(...)`. Record the real input and output: Tervik flags made-up values such as `[customer email]` and consequential actions (cancel, refund, delete, send, book, pay) the user never asked for.
+- To finish a turn elsewhere, pass `interactionId` to `begin()` and later call `tervik.getInteraction(id)?.end(...)`.
+- `tervik.track({ userId, input, output, conversationId })` records a finished turn in one call; `tervik.identify(userId, { plan: 'pro' })` attaches user traits.
+- For streaming, pass the chunks through untouched, accumulate the text, and call `turn.end(fullText)` when the stream completes (`turn.end(partial, false)` if it errors or is aborted).
+- `init()` options: `apiKey` (a secret ingest key from `TERVIK_API_KEY`, used instead of the project ID), `redact(body)` (rewrite or return `null` to drop), `debug`, `flushIntervalMs`.
 
-For streaming, preserve the existing iterator/stream. Wrap the actual stream with `withStream`: chunks are yielded untouched while permitted text accumulates for one assistant event. Early termination records a partial outcome; errors record the actual failure. Do not wrap a stream with `withTurn` if the promise resolves before the stream finishes: that would record the iterator rather than the response. Keep trace and parent IDs scoped to each request and pass them explicitly to tool wrappers.
+Nothing here throws into agent code, and sending happens on an unreferenced timer, so it does not keep the process alive. For serverless runtimes, call `tervik.flush()` through the platform's wait-until mechanism; no exporter can deliver after the runtime freezes.
 
-```javascript
-// tervik.instrumented
-export async function* handleStreamingConversation(request, stream) {
-  const context = { conversation_id: request.conversationId, user_id: request.pseudonymousUserId };
-  yield* analytics.withStream(context, request.message, stream);
-}
-```
+The module also exports the older message-level exporter (`new Tervik({ apiKey })` with `capture`, `withTurn`, `withTool`, `withStream`) for projects that already use it.
 
-Obtain the project credential through the dashboard session flow (`POST /api/auth/login`, then `POST /api/projects/{id}/credentials`); the ingest secret is returned once and stored server-side. Re-running the skill must detect the `tervik.instrumented` marker and existing client before editing.
-
-For serverless runtimes, use the platform's existing background/wait-until mechanism for `flush()` where supported. An unreferenced interval does not keep a Node process alive, and no exporter can guarantee delivery after the runtime freezes. Document that limit rather than delaying every customer response without agreement.
+Re-running the skill must detect the `tervik.instrumented` marker and the existing client before editing.

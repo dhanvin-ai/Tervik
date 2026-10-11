@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / "apps" / "api"))
 from app.analysis import RULES, analyze  # noqa: E402
 
 CATEGORIES = ["correction", "frustration", "repetition", "tool_error", "tool_timeout",
-              "unresolved", "unsupported_claim", "rule_violation", "tool_bad_input", "unrequested_action"]
+              "unresolved", "unsupported_claim", "rule_violation", "tool_bad_input", "unrequested_action", "malformed_reply"]
 MIN_PRECISION = 0.90
 MIN_RECALL = 0.70
 

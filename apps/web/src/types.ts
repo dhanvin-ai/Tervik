@@ -15,9 +15,11 @@ export interface SetupStatus {
   events_received: number;
   conversations: number;
   last_event_at: string | null;
+  last_received_at: string | null;
+  latest_conversation_id: string | null;
   jobs: { pending: number; processed: number; failed: number; dead: number; expired: number };
   usage_events: number;
-  capture: { capture_content: boolean; retention_days: number };
+  capture: { capture_content: boolean; retention_days: number; public_ingest: boolean };
 }
 export interface Cluster {
   id: string;

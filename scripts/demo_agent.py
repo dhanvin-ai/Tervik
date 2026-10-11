@@ -58,6 +58,7 @@ FLAG_LABELS = {
     "policy_violation": "A policy was broken",
     "tool_bad_input": "A tool was called with made-up values",
     "unrequested_action": "The agent did something nobody asked for",
+    "malformed_reply": "The agent replied with a raw tool call",
 }
 
 

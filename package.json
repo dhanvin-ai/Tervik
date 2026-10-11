@@ -29,6 +29,7 @@
     "try:agent": "python3 scripts/try_agent.py",
     "import:codex": "python3 scripts/import_chats.py codex",
     "import:chatgpt": "python3 scripts/import_chats.py chatgpt",
-    "demo:agent": "python3 scripts/demo_agent.py"
+    "demo:agent": "python3 scripts/demo_agent.py",
+    "example:recipe": "python3 examples/recipe-agent/agent.py"
   }
 }

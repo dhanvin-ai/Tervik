@@ -1,34 +1,45 @@
 # Tervik HTTP ingestion contract
 
-`POST <TERVIK_ENDPOINT>/v1/events`
+Use this from any server language. Send the project ID in `x-org-id` (public and write-only), or a secret ingest key as `Authorization: Bearer <key>` or `x-api-key`. Send `Content-Type: application/json`.
 
-Headers: `Authorization: Bearer <project_key>` and `Content-Type: application/json`.
+## 1. Start a conversation: `POST <TERVIK_ENDPOINT>/api/v1/capture-session`
 
-Body: `{ "events": [event] }`. Maximum 100 events per batch. Successful response: `{ "accepted": 1, "duplicates": 0 }`. The project key determines project ownership. Stable event IDs make retries idempotent within that project. Malformed batches are rejected atomically.
+```json
+{"session_id": "conv-123", "user_data": {"user_id": "user-anon-42", "plan": "pro"}, "metadata": {"surface": "web"}}
+```
 
-An event has:
+Send once per conversation (sending again merges traits and metadata). `user_data.user_id` is required: use a stable pseudonymous ID. Other `user_data` keys are user traits; `metadata` describes the conversation. Values are strings. Optional: `timestamp` (Unix milliseconds) and `client_config`.
 
-| Field | Meaning |
-|---|---|
-| `id` | Stable UUID, generated before first send and preserved on retries |
-| `conversation_id` | Required nonempty stable application conversation ID |
-| `user_id` | Optional pseudonymous user ID |
-| `role` | Required `user`, `assistant`, `tool`, or `system` |
-| `content` | Required string, maximum 32,000 characters; redact before export |
-| `timestamp` | ISO 8601 UTC |
-| `trace_id` | Shared by one turn and its related tools |
-| `span_id` | Unique operation ID |
-| `parent_span_id` | Parent operation ID for nested tools |
-| `name` | Operation name |
-| `status` | `success` or `error` |
-| `latency_ms`, `tokens`, `cost_usd` | Optional nonnegative measurements; `tokens` must be an integer; omit unknown values |
-| `model` | Optional actual model name |
-| `metadata` | Optional object; can contain redacted span `input` and `output` |
+## 2. Record each turn and tool call: `POST <TERVIK_ENDPOINT>/api/v1/capture-event`
 
-Identifier, user, trace, span, name, and model strings have a 200-character maximum. Timestamps require a timezone and cannot be more than five minutes in the future. Metadata must contain finite JSON values. Additional top-level event fields are rejected; application-specific attributes belong in metadata. Clients reject invalid events locally so they cannot invalidate a batch of valid events.
+A turn (the user's message and the agent's reply):
 
-The portable clients use a 256 KiB maximum batch, a bounded 1,000-event/5 MiB in-memory queue, stable IDs, finite transient retries, and drop reports. Authentication failures disable export until the client is recreated with the correct key. A process crash can lose queued events; this exporter does not promise durable delivery.
+```json
+{"event_id": "8b1c...", "session_id": "conv-123", "primitive_name": "support-agent",
+ "args": "Where is my order 1042?", "result": "It ships tomorrow.", "success": true,
+ "latency": 1200, "timestamp": 1714867201000, "metadata": {"model": "gpt-4.1", "tokens": "150"}}
+```
 
-Dashboard verification is separate from ingestion. Check `GET /api/projects/{id}/setup` for received events and pending/failed jobs. Then list `GET /api/conversations?project_id=<project_id>&range=24h` using dashboard/session authorization when enabled. Identify the interaction by user, time, and content, then use the returned internal `id` in `GET /api/conversations/{id}`. That dashboard ID differs from the application's source `conversation_id`; do not substitute the source ID into this route.
+A tool call made during that turn sets `parent_id` to the turn's `event_id`; `primitive_name` is the tool name and `args`/`result` are its JSON-encoded input and output:
 
-Stacks that already emit OpenTelemetry can send OTLP TracesData JSON to `POST /v1/otlp/traces` with the same ingest key (maximum 100 spans per batch). Span identity is preserved, so nested and out-of-order spans keep their relationships. This foundation does not implement a hosted OAuth MCP interface or automatic framework adapters.
+```json
+{"event_id": "c52f...", "session_id": "conv-123", "parent_id": "8b1c...", "primitive_name": "lookup_order",
+ "args": "{\"order_id\": \"1042\"}", "result": "{\"status\": \"shipped\"}", "success": true, "latency": 300,
+ "timestamp": 1714867201200}
+```
+
+- Generate `event_id` (a UUID) before the first send and keep it on retries: events are idempotent per project.
+- `timestamp` is when the operation started and `latency` its duration, both in milliseconds. Timestamps cannot be more than five minutes in the future.
+- Use `success: false` for failures and put the real error in `result`.
+- A tool call may arrive before its turn, and an event before its session; Tervik links them when the rest arrives.
+- `args` and `result` hold at most 32,000 characters; metadata at most 50 string values. The metadata keys `model`, `tokens`, and `cost` fill in those columns.
+- Successful responses are `{"session_id": ...}` and `{"event_id": ...}`. HTTP 401 means an unknown project ID or key, 422 an invalid body, and 429 that the plan's event allowance is used up.
+
+## Verify
+
+`GET <endpoint>/api/projects/{project_id}/setup` reports `events_received` and `last_received_at`. `GET /api/conversations?project_id={project_id}&range=24h` lists conversations; open one with its returned internal `id` at `GET /api/conversations/{id}` (it differs from your `session_id`). When the dashboard is protected, these reads need a dashboard session or a read API key (`x-api-key: tervik_...`), never the project ID or ingest key.
+
+## Other ingestion paths
+
+- `POST /v1/events` accepts message-level events (`{"events": [{"id", "conversation_id", "role", "content", ...}]}`, up to 100 per batch) with a secret ingest key. The older portable exporter uses it.
+- Stacks that already emit OpenTelemetry can send OTLP TracesData JSON to `POST /v1/otlp/traces` with a secret ingest key (up to 100 spans per batch); span identity is preserved, so nested and out-of-order spans keep their relationships.

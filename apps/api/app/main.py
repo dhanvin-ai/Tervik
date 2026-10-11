@@ -53,7 +53,7 @@ Range = Literal["24h", "7d", "30d"]
 
 # Read API keys reach one project's analytics, never its secrets or settings.
 API_KEY_PROJECT_PATH = re.compile(r"^/api/projects/(?P<id>[^/]+)/(?P<rest>.+)$")
-API_KEY_READABLE = re.compile(r"^(summary|tools|events|events/export|events/[^/]+|errors|metadata|users|groups|search|"
+API_KEY_READABLE = re.compile(r"^(setup|summary|tools|events|events/export|events/[^/]+|errors|metadata|users|groups|search|"
                               r"violations|intent-stats|evidence|classify/status|policies|intents|discovery|rules)$")
 API_KEY_PROJECT_QUERY = {"/api/overview", "/api/clusters", "/api/conversations"}
 API_KEY_RESOURCE = re.compile(r"^/api/(conversations|clusters)/[^/]+$")
@@ -910,6 +910,9 @@ def create_app(settings: Settings | None = None):
                 Event.project_id == project.id)).scalar_one()
             last = session.scalars(select(Event).where(Event.project_id == project.id).order_by(
                 Event.timestamp.desc()).limit(1)).first()
+            # Arrival time, not the event's own timestamp: imports can carry old timestamps.
+            received = session.scalars(select(Event).where(Event.project_id == project.id).order_by(
+                Event.ingested_at.desc(), Event.id.desc()).limit(1)).first()
             stats = queue_mod.job_stats(session, project.id)
             settings_summary = project_settings(project)
             return {
@@ -919,10 +922,13 @@ def create_app(settings: Settings | None = None):
                 "events_received": event_count,
                 "conversations": conv_count,
                 "last_event_at": iso(last.timestamp) if last else None,
+                "last_received_at": iso(received.ingested_at) if received else None,
+                "latest_conversation_id": received.conversation_id if received else None,
                 "jobs": stats["jobs"],
                 "usage_events": stats["usage_events"],
                 "capture": {"capture_content": settings_summary.get("capture_content", True),
-                            "retention_days": settings_summary.get("retention_days", 90)},
+                            "retention_days": settings_summary.get("retention_days", 90),
+                            "public_ingest": settings_summary.get("public_ingest", True)},
             }
 
     @app.get("/api/orgs/{id}/audit")

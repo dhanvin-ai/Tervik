@@ -11,6 +11,7 @@ const FAILURE_LABELS: Record<string, string> = {
   policy_violation: 'Broke a policy',
   tool_bad_input: 'Made-up tool values',
   unrequested_action: 'Action nobody asked for',
+  malformed_reply: 'Replied with a raw tool call',
 };
 
 export function failureLabel(kind: string) {

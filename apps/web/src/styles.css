@@ -3007,3 +3007,19 @@ body:has(.m-page) { min-width: 320px; }
   .chat-open { margin-left: 0; }
   .chat-user p { max-width: 88%; }
 }
+
+/* ===== Connect: live connection check ===== */
+.connection-state { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 16px 18px; border: 1px solid rgba(255, 255, 255, .12); border-radius: 4px; background: #0a0a0a; }
+.connection-state > div { flex: 1; min-width: 220px; }
+.connection-state strong { display: block; color: #fff; font-size: 14.5px; font-weight: 500; }
+.connection-state span:not(.connection-dot) { display: block; margin-top: 4px; color: #8a8a8a; font-size: 13px; line-height: 1.5; }
+.connection-dot { width: 10px; height: 10px; flex: none; border-radius: 50%; background: #8a8a8a; animation: live-pulse 1.4s ease-in-out infinite; }
+.connection-state.is-connected { border-color: rgba(94, 234, 212, .35); }
+.connection-state.is-connected .connection-dot { background: #5eead4; animation: none; box-shadow: 0 0 0 4px rgba(94, 234, 212, .15); }
+.env-box code { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.secret-key { margin-top: 16px; }
+.secret-key summary { color: #a3a3a3; font-size: 13px; cursor: pointer; }
+.secret-key summary:hover { color: #fff; }
+.secret-key[open] summary { margin-bottom: 10px; }
+.secret-key .endpoint-note code { font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { .connection-dot { animation: none; } }

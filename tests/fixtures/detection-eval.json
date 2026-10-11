@@ -2734,6 +2734,218 @@
      "content": "The refund went through."
     }
    ]
+  },
+  {
+   "id": "malformed-01",
+   "expect": [
+    "malformed_reply"
+   ],
+   "events": [
+    {
+     "role": "user",
+     "content": "What can I cook with tomato?"
+    },
+    {
+     "role": "assistant",
+     "content": "{\"name\":\"search_recipes\",\"parameters>{\"ingredient\":\"tomato\"}}"
+    }
+   ]
+  },
+  {
+   "id": "malformed-02",
+   "expect": [
+    "malformed_reply"
+   ],
+   "events": [
+    {
+     "role": "user",
+     "content": "hi"
+    },
+    {
+     "role": "assistant",
+     "content": "{}"
+    }
+   ]
+  },
+  {
+   "id": "malformed-03",
+   "expect": [
+    "malformed_reply"
+   ],
+   "events": [
+    {
+     "role": "user",
+     "content": "Tell me a joke"
+    },
+    {
+     "role": "assistant",
+     "content": "{\"name\": \"\", \"parameters\": {}}"
+    }
+   ]
+  },
+  {
+   "id": "malformed-04",
+   "expect": [
+    "malformed_reply"
+   ],
+   "events": [
+    {
+     "role": "user",
+     "content": "Weather in Pune?"
+    },
+    {
+     "role": "assistant",
+     "content": "{\"function\": \"get_weather\", \"arguments\": {\"city\": \"Pune\"}}"
+    }
+   ]
+  },
+  {
+   "id": "malformed-05",
+   "expect": [
+    "malformed_reply"
+   ],
+   "events": [
+    {
+     "role": "user",
+     "content": "Book a table"
+    },
+    {
+     "role": "assistant",
+     "content": "```json\n{\"name\": \"book_table\", \"parameters\": {\"time\": \"7pm\"}}\n```"
+    }
+   ]
+  },
+  {
+   "id": "malformed-06",
+   "expect": [
+    "malformed_reply"
+   ],
+   "events": [
+    {
+     "role": "user",
+     "content": "Track my order"
+    },
+    {
+     "role": "assistant",
+     "content": "<tool_call>{\"name\": \"track\", \"arguments\": {}}</tool_call>"
+    }
+   ]
+  },
+  {
+   "id": "malformed-07",
+   "expect": [
+    "malformed_reply"
+   ],
+   "events": [
+    {
+     "role": "user",
+     "content": "What time is it?"
+    },
+    {
+     "role": "assistant",
+     "content": "<|python_tag|>get_current_time(timezone=\"UTC\")"
+    }
+   ]
+  },
+  {
+   "id": "malformed-08",
+   "expect": [
+    "malformed_reply"
+   ],
+   "events": [
+    {
+     "role": "user",
+     "content": "Explain black holes"
+    },
+    {
+     "role": "assistant",
+     "content": "{\"parameters\": {\"topic\": \"black holes\"}}"
+    }
+   ]
+  },
+  {
+   "id": "malformed-neg-01",
+   "expect": [],
+   "events": [
+    {
+     "role": "user",
+     "content": "Give me a JSON object with name and age"
+    },
+    {
+     "role": "assistant",
+     "content": "{\"name\": \"Sam\", \"age\": 31}"
+    }
+   ]
+  },
+  {
+   "id": "malformed-neg-02",
+   "expect": [],
+   "events": [
+    {
+     "role": "user",
+     "content": "What can I cook with tomato?"
+    },
+    {
+     "role": "assistant",
+     "content": "Try tomato basil pasta or shakshuka."
+    }
+   ]
+  },
+  {
+   "id": "malformed-neg-03",
+   "expect": [],
+   "events": [
+    {
+     "role": "user",
+     "content": "Show the config"
+    },
+    {
+     "role": "assistant",
+     "content": "Here it is: {\"name\": \"app\", \"port\": 8080}"
+    }
+   ]
+  },
+  {
+   "id": "malformed-neg-04",
+   "expect": [],
+   "events": [
+    {
+     "role": "user",
+     "content": "Format that as json please"
+    },
+    {
+     "role": "assistant",
+     "content": "```json\n{\"name\": \"Lee\", \"plan\": \"pro\"}\n```"
+    }
+   ]
+  },
+  {
+   "id": "malformed-neg-05",
+   "expect": [],
+   "events": [
+    {
+     "role": "user",
+     "content": "What does a tool call look like?"
+    },
+    {
+     "role": "assistant",
+     "content": "A tool call usually has a name and arguments, for example search(query=\"x\")."
+    }
+   ]
+  },
+  {
+   "id": "malformed-neg-06",
+   "expect": [],
+   "events": [
+    {
+     "role": "user",
+     "content": "hi"
+    },
+    {
+     "role": "assistant",
+     "content": "{curly braces} are used in Python sets and dicts."
+    }
+   ]
   }
  ]
 }

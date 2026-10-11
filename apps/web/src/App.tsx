@@ -63,6 +63,8 @@ const PLAIN_PROBLEMS: Record<string, string> = {
   unsupported_claim: 'The agent said it did something, but no tool actually did it.',
   rule_violation: 'A reply broke one of the rules you set.',
   policy_violation: 'The agent did not follow one of your policies.',
+  tool_bad_input: 'The agent called a tool with a made-up value, like [customer email], instead of real data.',
+  unrequested_action: 'The agent did something nobody asked for, like cancelling or refunding.',
 };
 function plainProblem(kind: string, fallback: string) { return PLAIN_PROBLEMS[kind] || fallback; }
 // Short names for what went wrong, shown on rows, banners, and messages.
@@ -76,6 +78,8 @@ const FAILURE_LABELS: Record<string, string> = {
   unsupported_claim: 'Claimed an action without a tool',
   rule_violation: 'Broke a behavior rule',
   policy_violation: 'Broke a policy',
+  tool_bad_input: 'Made-up tool values',
+  unrequested_action: 'Action nobody asked for',
 };
 function failureLabel(kind: string) { return FAILURE_LABELS[kind] || friendlyKind(kind); }
 const LIVE_INTERVAL_MS = 5000;

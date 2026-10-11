@@ -1,5 +1,6 @@
 """Evidence-backed heuristics, deliberately not a machine learning classifier."""
 from collections import defaultdict
+import json
 from datetime import timedelta
 import re
 from uuid import NAMESPACE_URL, uuid5
@@ -17,6 +18,8 @@ RULE_VERSIONS = {
     "unsupported_claim": "5.0.0",
     "rule_violation": "5.0.0",
     "policy_violation": "1.0.0",
+    "tool_bad_input": "1.0.0",
+    "unrequested_action": "1.0.0",
 }
 RULES = {
     "correction": {
@@ -61,6 +64,18 @@ RULES = {
         "severity": "high",
         "suggested_fix": "Check whether any tool actually performed the claimed action. Require tool confirmation before the agent reports completion.",
     },
+    "tool_bad_input": {
+        "title": "Tools are called with made-up values",
+        "description": "A tool call's input contains a placeholder such as [customer email] or <user_id> instead of real data. The agent filled in a value it did not have.",
+        "severity": "high",
+        "suggested_fix": "Have the agent ask the user for missing details before calling the tool, and validate tool inputs before acting on them.",
+    },
+    "unrequested_action": {
+        "title": "Agent takes actions nobody asked for",
+        "description": "The agent called a tool that changes something (cancel, refund, delete, send, and so on) although the user never asked for that kind of action or agreed to it.",
+        "severity": "high",
+        "suggested_fix": "Require an explicit request or confirmation before state-changing tools run, and test the turn that triggered this call.",
+    },
     "policy_violation": {
         "title": "A policy was not followed",
         "description": "A reviewer read the conversation and found the agent did not follow one of your policies. This is a classified finding: read the cited messages before acting on it.",
@@ -78,7 +93,68 @@ CORRECTION = re.compile(r"\b(?:that(?:'s| is) (?:wrong|incorrect|not what i)|you
 FRUSTRATION = re.compile(r"\b(?:frustrat(?:ing|ed)|useless|this (?:doesn't|does not) work|this is not working|still (?:doesn't|does not) work|stop (?:ignoring|repeating)|waste of (?:my )?time|you keep (?:ignoring|getting it wrong))\b", re.I)
 TIMEOUT = re.compile(r"\b(?:timed?\s?out|timeout|deadline\s+exceeded|ETIMEDOUT|exceeded.*deadline)\b", re.I)
 UNRESOLVED = re.compile(r"\b(?:that (?:didn't|did not|didnt) work|still (?:broken|failing|not working)|you (?:didn't|did not|didnt) (?:fix|answer|resolve)|not (?:fixed|resolved|answered)|same problem|still (?:having|have) (?:this|the) (?:issue|problem)|issue (?:persists|remains)|(?:didn'?t|did not|didnt) (?:help|solve))\b", re.I)
+# Values a model writes when it does not have the real one: [customer email],
+# <user_id>, {email}, your_email, XXXX.
+FIELD = r"(?:e-?mail|name|id|number|address|phone|customer|user|account|order|card)"
+PLACEHOLDER = re.compile(
+    r"\[[^\[\]\d\n]{0,40}\b" + FIELD + r"[^\[\]\d\n]{0,40}\]"
+    r"|<[^<>\d\n]{0,40}\b" + FIELD + r"[^<>\d\n]{0,40}>"
+    r"|\{\{?\s*\w*" + FIELD + r"\w*\s*\}\}?"
+    r"|:\s*\"(?:your|customer|user)[_ -](?:e-?mail|name|id|phone|address|account)\""
+    r"|\bplaceholder\b|\bx{3,}\b|\bTBD\b", re.I)
+# Tools with consequences a user would have to ask for, by the verb in their
+# name, and the words a user would use to ask. Everyday steps such as create,
+# update, or edit are left out: agents take them on the way to a task.
+ACTION_WORDS = {
+    "cancel": ("cancel", "unsubscribe", "stop", "terminate"),
+    "refund": ("refund", "money back", "reimburse", "return"),
+    "delete": ("delete", "remove", "erase", "clear"),
+    "remove": ("delete", "remove", "erase", "clear"),
+    "send": ("send", "email", "mail", "message", "notify", "forward", "text"),
+    "email": ("send", "email", "mail", "notify"),
+    "book": ("book", "reserve", "reservation", "schedule", "appointment", "meeting", "call"),
+    "reserve": ("book", "reserve", "reservation", "schedule", "appointment", "meeting", "call"),
+    "schedule": ("book", "reserve", "reservation", "schedule", "appointment", "meeting", "call"),
+    "charge": ("charge", "pay", "bill", "buy", "purchase"),
+    "pay": ("pay", "charge", "buy", "purchase"),
+    "purchase": ("buy", "purchase", "order", "pay"),
+    "buy": ("buy", "purchase", "order", "pay"),
+    "transfer": ("transfer", "send", "move"),
+    "submit": ("submit", "send", "file"),
+}
+AFFIRM = re.compile(r"^(?:yes|yeah|yep|yup|sure|ok(?:ay)?|please(?: do)?|go ahead|do it|confirm(?:ed)?|that's right|correct)\b", re.I)
+# Kinds whose problems are grouped per tool.
+TOOL_KINDS = ("tool_error", "tool_timeout", "tool_bad_input", "unrequested_action")
 ACTION_CLAIM = re.compile(r"\b(?:i['’]?(?:ve| have) (?:sent|booked|created|deleted|updated|fixed|deployed|emailed|scheduled|cancelled|refunded|processed)|sent the|booking is confirmed|refund(?:ed|s)? (?:issued|processed)|order (?:is |has been )?(?:placed|cancelled)|email (?:has been )?sent|i['’]?ll have (?:sent|booked)|all done|taken care of)\b", re.I)
+
+
+def tool_input(event):
+    value = (event.event_metadata or {}).get("input")
+    if value is None:
+        return ""
+    return (value if isinstance(value, str) else json.dumps(value, default=str))[:4000]
+
+
+def action_verb(tool_name):
+    """The state-changing verb in a tool's name, or None for read-only tools."""
+    words = re.findall(r"[a-z]+", re.sub(r"([a-z])([A-Z])", r"\1 \2", tool_name or "").lower())
+    return next((word for word in words if word in ACTION_WORDS), None)
+
+
+def unrequested(tool_name, earlier):
+    """The verb of an action no earlier user message asked for, or None. A user
+    who says yes after the agent offers the action has agreed to it."""
+    verb = action_verb(tool_name)
+    if verb is None or not any(role == "user" for role, _ in earlier):
+        return None  # read-only tool, or no user message recorded: abstain
+    asked = re.compile(r"\b(?:" + "|".join(re.escape(word) for word in ACTION_WORDS[verb]) + r")", re.I)
+    offered = False
+    for role, text in earlier:
+        if role == "user" and (asked.search(text) or (offered and AFFIRM.match(text.strip()))):
+            return None
+        if role == "assistant" and asked.search(text):
+            offered = True
+    return verb
 
 
 def cluster_id(project_id, kind, tool_name=""):
@@ -118,6 +194,7 @@ def analyze(events, rules=None):
             "event": event,
         })
 
+    said = defaultdict(list)  # (role, text) so far, per conversation
     successful_tools = defaultdict(list)
     for event in ordered:
         if event.role == "tool" and event.status != "error":
@@ -136,14 +213,25 @@ def analyze(events, rules=None):
             if len(normalized) >= 8 and normalized in seen[event.conversation_id]:
                 found.append(("repetition", "This normalized user request appeared earlier in the same conversation."))
             seen[event.conversation_id].add(normalized)
-        elif event.role == "tool" and event.status == "error":
-            text = f"{event.name or ''} {event.content}".replace("’", "'")
-            if TIMEOUT.search(text):
-                found.append(("tool_timeout", f'Tool "{event.name or "unnamed tool"}" explicitly reported a timeout.'))
-            else:
-                found.append(("tool_error", f'Tool "{event.name or "unnamed tool"}" explicitly reported status=error.'))
+            said[event.conversation_id].append(("user", content))
+        elif event.role == "tool":
+            name = event.name or "unnamed tool"
+            if event.status == "error":
+                text = f"{event.name or ''} {event.content}".replace("’", "'")
+                if TIMEOUT.search(text):
+                    found.append(("tool_timeout", f'Tool "{name}" explicitly reported a timeout.'))
+                else:
+                    found.append(("tool_error", f'Tool "{name}" explicitly reported status=error.'))
+            placeholder = PLACEHOLDER.search(tool_input(event))
+            if placeholder:
+                value = re.sub(r'^:\s*"|"$', "", placeholder.group(0))
+                found.append(("tool_bad_input", f'Tool "{name}" was called with the placeholder "{value}" instead of real data.'))
+            verb = unrequested(event.name, said[event.conversation_id])
+            if verb:
+                found.append(("unrequested_action", f'The agent called "{name}" although the user never asked to {verb} anything or agreed to it.'))
         elif event.role == "assistant":
             content = event.content.replace("’", "'")
+            said[event.conversation_id].append(("assistant", content))
             match = ACTION_CLAIM.search(content)
             if match:
                 outcome = check_claim_support(event, ordered, successful_tools)
@@ -153,7 +241,7 @@ def analyze(events, rules=None):
                 # "unattributable" abstains: the claim cannot be tied to a turn,
                 # so silence about evidence proves nothing either way.
         for kind, reason in found:
-            tool_name = (event.name or "unnamed tool") if kind in ("tool_error", "tool_timeout") else ""
+            tool_name = (event.name or "unnamed tool") if kind in TOOL_KINDS else ""
             emit(event, kind, reason, tool_name)
 
     for rule in rules or []:
@@ -277,7 +365,7 @@ def clusters(project_id, all_events, all_signals, states, start, end):
         historical = [s for s in all_signals if s["cluster_id"] == id and utc(s["event"].timestamp) <= end]
         rows.append({
             "id": id, "project_id": project_id, "title": rule["title"] +
-            (f' · {evidence[0]["tool_name"]}' if kind in ("tool_error", "tool_timeout", "policy_violation") else ""),
+            (f' · {evidence[0]["tool_name"]}' if kind in TOOL_KINDS + ("policy_violation",) else ""),
             "description": rule["description"], "severity": evidence[0].get("severity", rule["severity"]), "kind": kind,
             "detector_version": DETECTOR_VERSION, "rule_version": RULE_VERSIONS[kind],
             "status": states.get(id, "open"), "count": count,

@@ -246,7 +246,7 @@ def daily_summary(session, project, now, dashboard_url=""):
     problems = {}
     for signal in signals:
         title = analysis.RULES[signal["kind"]]["title"]
-        if signal["kind"] in ("tool_error", "tool_timeout", "policy_violation"):
+        if signal["kind"] in analysis.TOOL_KINDS + ("policy_violation",):
             title += f' · {signal["tool_name"]}'
         problems.setdefault(title, set()).add(signal["conversation_id"])
     tools = insights.tool_stats(events, start, now)["tools"]

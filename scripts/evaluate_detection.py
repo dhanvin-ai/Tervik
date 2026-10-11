@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / "apps" / "api"))
 from app.analysis import RULES, analyze  # noqa: E402
 
 CATEGORIES = ["correction", "frustration", "repetition", "tool_error", "tool_timeout",
-              "unresolved", "unsupported_claim", "rule_violation"]
+              "unresolved", "unsupported_claim", "rule_violation", "tool_bad_input", "unrequested_action"]
 MIN_PRECISION = 0.90
 MIN_RECALL = 0.70
 
@@ -34,7 +34,7 @@ def make_event(raw, index, base):
         timestamp=timestamp, trace_id=raw.get("trace_id"), span_id=raw.get("span_id"),
         parent_span_id=raw.get("parent_span_id"), name=raw.get("name"),
         status=raw.get("status", "success"), latency_ms=raw.get("latency_ms"),
-        tokens=None, cost_usd=None, model=None, event_metadata={},
+        tokens=None, cost_usd=None, model=None, event_metadata=raw.get("metadata", {}),
     )
 
 

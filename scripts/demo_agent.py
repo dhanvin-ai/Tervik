@@ -59,6 +59,8 @@ FLAG_LABELS = {
     "unsupported_claim": "The agent claimed an action no tool performed",
     "rule_violation": "A behavior rule was broken",
     "policy_violation": "A policy was broken",
+    "tool_bad_input": "A tool was called with made-up values",
+    "unrequested_action": "The agent did something nobody asked for",
 }
 
 

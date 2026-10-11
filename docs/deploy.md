@@ -43,7 +43,27 @@ The dashboard calls the API at the address in `VITE_API_URL`, which is set when 
 3. **Redeploy.** Open **Deployments**, then **Redeploy** the latest deployment of that branch. `VITE_API_URL` is read when the dashboard is built, so changing it always needs a redeploy.
 4. **Sign in.** Open the dashboard, choose **Connection settings**, and paste the `TERVIK_ADMIN_TOKEN` value.
 
-## 3. Connect an agent to the hosted API
+## 3. Your own domain
+
+This example puts the dashboard on `tervik.in` and the API on `api.tervik.in`, with DNS records at the domain's registrar (here, GoDaddy).
+
+1. **API domain (Railway).** Under the API service's **Settings → Networking → Custom Domain**, add `api.tervik.in` with port `8000`. Railway shows a CNAME target, and sometimes a TXT record to verify ownership.
+2. **Dashboard domains (Vercel).** Under **Domains**, add `tervik.in` and `www.tervik.in`. Vercel shows an A record for `tervik.in` and a CNAME for `www`.
+3. **DNS records (registrar).** At the registrar's DNS records:
+
+   | Type | Name | Value |
+   | - | - | - |
+   | A | `@` | The IP Vercel shows. It replaces the "Parked" record. |
+   | CNAME | `www` | The target Vercel shows. It replaces `tervik.in.` |
+   | CNAME | `api` | The target Railway shows |
+   | TXT | The name Railway shows | The value Railway shows, if it asks |
+
+   Leave the NS, SOA, and `_domainconnect` records alone. Changes usually apply within minutes, but can take a few hours. Both hosts then issue HTTPS certificates on their own.
+4. **Point the parts at each other.**
+   - On Railway, set `TERVIK_CORS_ORIGINS=https://tervik.in,https://www.tervik.in` and `TERVIK_DASHBOARD_URL=https://tervik.in`.
+   - On Vercel, set `VITE_API_URL=https://api.tervik.in`, then redeploy.
+
+## 4. Connect an agent to the hosted API
 
 On **Connect your agent**, the endpoint is the Railway domain. Agents send events there with the project ID:
 

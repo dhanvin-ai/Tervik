@@ -314,8 +314,9 @@ class Agent:
 
 def fetch(api, path):
     """GET from Tervik, or None. Live checks must never stop the chat."""
+    headers = {"Authorization": "Bearer " + os.environ["TERVIK_ADMIN_TOKEN"]} if os.getenv("TERVIK_ADMIN_TOKEN") else {}
     try:
-        with urllib.request.urlopen(api + path, timeout=10) as response:
+        with urllib.request.urlopen(urllib.request.Request(api + path, headers=headers), timeout=10) as response:
             return json.load(response)
     except (urllib.error.URLError, ValueError, OSError):
         return None

@@ -134,6 +134,18 @@ def test_turn_pair_and_tool_call_map_to_one_conversation(client):
     assert spans["tool-1"]["parent_id"] == "turn-1"
 
 
+def test_back_to_back_turns_stay_in_order(client):
+    p = project(client)
+    start_session(client, p)
+    first = ms(timedelta(minutes=2))
+    # The second turn starts in the millisecond the first one ended; the first
+    # turn's latency has a fraction of a millisecond the timestamps lack.
+    capture(client, p, "turn-1", args="Refund order 1002", result="It has not shipped.", timestamp=first, latency=1297.031)
+    capture(client, p, "turn-2", args="This is frustrating", result="Sorry about that.", timestamp=first + 1297, latency=800)
+    _, detail = conversation_of(client, p)
+    assert [m["id"] for m in detail["messages"]] == ["turn-1:input", "turn-1:output", "turn-2:input", "turn-2:output"]
+
+
 def test_capture_is_idempotent_and_backfills_late_sessions(client):
     p = project(client)
     capture(client, p, "turn-1", session_id="late", args="Hello there", result="Hi!")

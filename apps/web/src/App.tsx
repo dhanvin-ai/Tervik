@@ -62,8 +62,23 @@ const PLAIN_PROBLEMS: Record<string, string> = {
   unresolved: 'People said their issue still was not solved.',
   unsupported_claim: 'The agent said it did something, but no tool actually did it.',
   rule_violation: 'A reply broke one of the rules you set.',
+  policy_violation: 'The agent did not follow one of your policies.',
 };
 function plainProblem(kind: string, fallback: string) { return PLAIN_PROBLEMS[kind] || fallback; }
+// Short names for what went wrong, shown on rows, banners, and messages.
+const FAILURE_LABELS: Record<string, string> = {
+  correction: 'User corrected the agent',
+  frustration: 'User was frustrated',
+  repetition: 'User repeated a request',
+  unresolved: 'User said it is not solved',
+  tool_error: 'Tool call failed',
+  tool_timeout: 'Tool call timed out',
+  unsupported_claim: 'Claimed an action without a tool',
+  rule_violation: 'Broke a behavior rule',
+  policy_violation: 'Broke a policy',
+};
+function failureLabel(kind: string) { return FAILURE_LABELS[kind] || friendlyKind(kind); }
+const LIVE_INTERVAL_MS = 5000;
 function friendlyKind(value: string) { return value.replaceAll('_', ' ').replace(/^./, c => c.toUpperCase()); }
 function shortId(value: string) { return value.length > 20 ? `${value.slice(0, 9)}…${value.slice(-5)}` : value; }
 
@@ -72,12 +87,16 @@ function useResource<T>(url: string | null, refresh = 0) {
   const [loading, setLoading] = useState(Boolean(url));
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
+  const shown = useRef<string | null>(null);
   useEffect(() => {
     let alive = true;
-    if (!url) { setData(null); setLoading(false); setError(''); return; }
-    setLoading(true); setError(''); setData(null);
-    request<T>(url).then(result => { if (alive) setData(result); })
-      .catch(cause => { if (alive) setError(cause.message); })
+    if (!url) { shown.current = null; setData(null); setLoading(false); setError(''); return; }
+    // Refreshing the view already on screen swaps the data in place, without a
+    // spinner; a failed background refresh keeps the last good data.
+    const silent = shown.current === url;
+    if (!silent) { setLoading(true); setError(''); setData(null); }
+    request<T>(url).then(result => { if (alive) { shown.current = url; setData(result); setError(''); } })
+      .catch(cause => { if (alive && !silent) setError(cause.message); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [url, refresh, retry]);
@@ -190,7 +209,7 @@ function TrendChart({ trend, range }: { trend: Overview['trend']; range: Range }
 function ClusterRow({ cluster, onClick, compact = false }: { cluster: Cluster; onClick: () => void; compact?: boolean }) {
   return <button className={`cluster-row ${compact ? 'cluster-row-compact' : ''}`} onClick={onClick}>
     <span className={`cluster-icon kind-${cluster.kind}`}><TriangleAlert size={17} /></span>
-    <span className="cluster-summary"><strong>{cluster.title}</strong><span>{compact ? `${formatNumber(cluster.affected_users)} people affected · ${friendlyKind(cluster.kind)}` : plainProblem(cluster.kind, cluster.description)}</span></span>
+    <span className="cluster-summary"><strong>{cluster.title}</strong><span>{compact ? `${formatNumber(cluster.affected_users)} people affected · ${failureLabel(cluster.kind)}` : plainProblem(cluster.kind, cluster.description)}</span></span>
     <span className="cluster-severity"><Severity severity={cluster.severity} /></span>
     <span className="cluster-count"><strong>{formatNumber(cluster.count)}</strong><small>conversations</small></span>
     {!compact && <span className="cluster-share"><span className="dash-meter" style={{ '--fill': `${Math.min(100, cluster.share)}%` } as CSSProperties} /><em>{cluster.share.toFixed(1)}%</em></span>}
@@ -208,7 +227,7 @@ function ConversationRow({ conversation, onClick, compact = false }: { conversat
       <strong>{conversation.preview || 'Untitled agent conversation'}</strong>
       <span>
         {shortId(conversation.id)}<i>·</i>{conversation.user_id || 'Anonymous user'}
-        {conversation.tags?.length > 0 && <small style={{ marginLeft: 6, color: '#f43f5e' }}>· {conversation.tags.map(friendlyKind).join(', ')}</small>}
+        {conversation.tags?.length > 0 && <span className="failure-chips">{(compact ? conversation.tags.slice(0, 1) : conversation.tags).map(tag => <em key={tag} className="failure-chip">{failureLabel(tag)}</em>)}{compact && conversation.tags.length > 1 && <em className="failure-chip">+{conversation.tags.length - 1}</em>}</span>}
       </span>
     </span>
     {!compact && <span className="conversation-model">{conversation.model || 'Default'}</span>}
@@ -676,11 +695,22 @@ function ClusterDrawer({ id, range, onClose, onConversation, onChanged }: { id: 
   </Modal>;
 }
 
-function ConversationDrawer({ id, onClose }: { id: string; onClose: () => void }) {
-  const resource = useResource<ConversationDetail>(`/api/conversations/${encodeURIComponent(id)}`);
-  const [tab, setTab] = useState<'story' | 'messages' | 'waterfall'>('story');
+function ConversationDrawer({ id, refresh, onClose }: { id: string; refresh: number; onClose: () => void }) {
+  const resource = useResource<ConversationDetail>(`/api/conversations/${encodeURIComponent(id)}`, refresh);
+  const [chosenTab, setTab] = useState<'story' | 'messages' | 'waterfall' | null>(null);
   const [spanId, setSpanId] = useState<string | null>(null);
+  const [focus, setFocus] = useState<string | null>(null);
   const conversation = resource.data;
+  // Conversations with problems open on their messages, where each problem is marked.
+  const tab = chosenTab ?? (conversation?.signals.length ? 'messages' : 'story');
+  const problemGroups = Array.from((conversation?.signals || []).reduce((groups, signal) => groups.set(signal.kind, [...(groups.get(signal.kind) || []), signal]), new Map<string, ConversationDetail['signals']>()));
+  const jumpTo = (eventId: string) => { setTab('messages'); setFocus(eventId); };
+  useEffect(() => {
+    if (!focus || tab !== 'messages') return;
+    document.getElementById(`message-${focus}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const timer = window.setTimeout(() => setFocus(null), 1800);
+    return () => window.clearTimeout(timer);
+  }, [focus, tab]);
   const selectedSpan = conversation?.spans.find(span => span.id === spanId);
   const maxSpanDuration = Math.max(1, ...(conversation?.spans.map(s => s.duration_ms || 0) || [100]));
 
@@ -688,7 +718,7 @@ function ConversationDrawer({ id, onClose }: { id: string; onClose: () => void }
     {resource.loading ? <Loading label="Loading trajectory" /> : resource.error ? <ErrorState message={resource.error} onRetry={resource.retry} /> : conversation && <div className="drawer-content conversation-drawer">
       <div className="drawer-eyebrow"><Status status={conversation.status} /><span>{dateTime(conversation.started_at)}</span></div><div className="conversation-id"><h2>{shortId(conversation.id)}</h2><CopyButton text={conversation.id} compact label="Copy conversation ID" /></div>
       <div className="conversation-metadata"><span><Users size={14} />{conversation.user_id || 'Anonymous user'}</span><span><Bot size={14} />{conversation.model || 'Model not reported'}</span><span><Clock3 size={14} />{latency(conversation.latency_ms)}</span><span>{money(conversation.cost_usd)}</span></div>
-      {conversation.signals.length > 0 && <div className="signal-summary"><TriangleAlert size={17} /><div><strong>{conversation.signals.length} {conversation.signals.length === 1 ? 'problem' : 'problems'} found</strong><span>{Array.from(new Set(conversation.signals.map(signal => friendlyKind(signal.kind)))).join(' · ')}</span></div></div>}
+      {conversation.signals.length > 0 && <div className="signal-summary"><TriangleAlert size={17} /><div><strong>{conversation.signals.length} {conversation.signals.length === 1 ? 'problem' : 'problems'} found</strong><span className="signal-jumps">{problemGroups.map(([kind, signals]) => <button key={kind} onClick={() => jumpTo(signals[0].event_id)} title="Show where it happened">{failureLabel(kind)}{signals.length > 1 ? ` ×${signals.length}` : ''}</button>)}</span></div></div>}
       
       <div className="drawer-tabs">
         <button className={tab === 'story' ? 'active' : ''} onClick={() => setTab('story')}><Activity size={15} />Summary</button>
@@ -737,7 +767,7 @@ function ConversationDrawer({ id, onClose }: { id: string; onClose: () => void }
           <div className="exec-flow-head">
             <span className="exec-flow-tag" style={{ color: '#f43f5e' }}>
               <TriangleAlert size={12} />
-              Problem found: {friendlyKind(signal.kind)}
+              Problem found: {failureLabel(signal.kind)}
             </span>
             <span className={`severity severity-${signal.severity}`}><span />{signal.severity}</span>
           </div>
@@ -768,7 +798,7 @@ function ConversationDrawer({ id, onClose }: { id: string; onClose: () => void }
 
       {tab === 'messages' && <div className="message-timeline">{conversation.messages.map(message => {
         const signals = conversation.signals.filter(signal => signal.event_id === message.id);
-        return <div key={message.id} className={`message-entry role-${message.role} ${signals.length ? 'message-flagged' : ''}`}><span className="message-avatar">{message.role === 'assistant' ? <Bot size={16} /> : message.role === 'user' ? <Users size={15} /> : <Terminal size={15} />}</span><div className="message-body"><div className="message-heading"><strong>{message.role === 'assistant' ? 'Agent' : friendlyKind(message.role)}{message.name && <small>{message.name}</small>}</strong><span>{new Date(message.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span></div><p>{message.content}</p>{signals.map(signal => <div key={signal.id} className="message-signal" title={`Detector ${signal.detector_version} · rule ${signal.rule_version}`}><TriangleAlert size={13} /><span>{signal.reason}</span></div>)}{message.status === 'error' && !signals.length && <div className="message-signal"><TriangleAlert size={13} />Reported error</div>}</div></div>;
+        return <div key={message.id} id={`message-${message.id}`} className={`message-entry role-${message.role} ${signals.length ? 'message-flagged' : ''} ${focus === message.id ? 'message-focus' : ''}`}><span className="message-avatar">{message.role === 'assistant' ? <Bot size={16} /> : message.role === 'user' ? <Users size={15} /> : <Terminal size={15} />}</span><div className="message-body"><div className="message-heading"><strong>{message.role === 'assistant' ? 'Agent' : friendlyKind(message.role)}{message.name && <small>{message.name}</small>}</strong><span>{new Date(message.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span></div><p>{message.content}</p>{signals.map(signal => <div key={signal.id} className="message-signal" title={`Detector ${signal.detector_version} · rule ${signal.rule_version}`}><TriangleAlert size={13} /><span><strong>{failureLabel(signal.kind)}.</strong> {signal.reason}</span></div>)}{message.status === 'error' && !signals.length && <div className="message-signal"><TriangleAlert size={13} />Reported error</div>}</div></div>;
       })}</div>}
 
       {tab === 'waterfall' && <div className="waterfall-container">
@@ -965,6 +995,8 @@ export default function App() {
   const [projectId, setProjectId] = useState(localStorage.getItem('tervik_project') || '');
   const [range, setRange] = useState<Range>('7d');
   const [refresh, setRefresh] = useState(0);
+  const [live, setLive] = useState(true);
+  const [tick, setTick] = useState(0);
   const [clusterId, setClusterId] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -979,10 +1011,18 @@ export default function App() {
   const [adminToken, setAdminToken] = useState(sessionStorage.getItem('tervik_admin_token') || '');
   const [sessionToken, setSessionToken] = useState(sessionStorage.getItem('tervik_session') || '');
   const pendingProject = useRef<string | null>(null);
-  const projects = useResource<Project[]>('/api/projects', refresh);
-  const health = useResource<{ status: string; storage: string; analysis_mode: string }>('/api/health', refresh);
+  // Live mode refetches what is on screen every few seconds, so conversations
+  // and problems from a running agent appear without pressing refresh.
+  useEffect(() => {
+    if (!live) return;
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') setTick(value => value + 1); }, LIVE_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [live]);
+  const liveRefresh = refresh + tick;
+  const projects = useResource<Project[]>('/api/projects', liveRefresh);
+  const health = useResource<{ status: string; storage: string; analysis_mode: string }>('/api/health', liveRefresh);
   const project = projects.data?.find(item => item.id === projectId) || (pendingProject.current ? undefined : projects.data?.[0]);
-  const overview = useResource<Overview>(project ? `/api/overview${query({ project_id: project.id, range })}` : null, refresh);
+  const overview = useResource<Overview>(project ? `/api/overview${query({ project_id: project.id, range })}` : null, liveRefresh);
   useEffect(() => {
     const change = () => { setPage(currentPage()); setMobileOpen(false); };
     window.addEventListener('hashchange', change);
@@ -1014,17 +1054,17 @@ export default function App() {
         <nav className="main-nav" aria-label="Main navigation">{navItems.map(({ page: navPage, icon, label }, index) => <a href={`#${navPage}`} key={navPage} className={page === navPage ? 'active' : ''} aria-current={page === navPage ? 'page' : undefined}>{page === navPage && <DitherCanvas className="nav-dither" vignette={0} intensity={0.75} seed={index} />}<span className="nav-icon"><PixelIcon name={icon} size={2} /></span><span>{label}</span>{navPage === 'failures' && !!overview.data?.top_clusters.length && <span className="nav-count">{overview.data.top_clusters.length}</span>}</a>)}</nav><div className="nav-divider" /><nav className="secondary-nav"><a href="#integration" className={page === 'integration' ? 'active' : ''}>{page === 'integration' && <DitherCanvas className="nav-dither" vignette={0} intensity={0.75} seed={5} />}<span className="nav-icon"><PixelIcon name="code" size={2} /></span><span>Connect agent</span></a><a href="#welcome"><span className="nav-icon"><PixelIcon name="guide" size={2} /></span><span>Product tour</span><ArrowUpRight size={14} /></a></nav>
         <div className="sidebar-bottom"><button className="sidebar-link" onClick={() => setGuideOpen(true)}><span className="nav-icon"><PixelIcon name="guide" size={2} /></span><span>Quick guide</span></button><button className="settings-button" onClick={() => { setAdminToken(sessionStorage.getItem('tervik_admin_token') || ''); setSessionToken(sessionStorage.getItem('tervik_session') || ''); setSettingsOpen(true); }}><Settings2 size={17} /><span>Connection settings</span></button><div className="workspace-footer"><span className="user-avatar">T</span><span><strong>Local workspace</strong><small>Development foundation</small></span><span className="local-dot" /></div></div>
       </aside>
-      <div className="main-shell"><header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Open navigation"><Menu size={20} /></button><h1 className="topbar-title">{titles[page]}</h1>{project?.is_demo && <span className="demo-badge">SAMPLE DATA</span>}{page !== 'integration' && project && <label className="date-range"><Clock3 size={14} /><select aria-label="Date range" value={range} onChange={event => setRange(event.target.value as Range)}>{Object.entries(rangeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><ChevronDown size={13} /></label>}<button className="icon-button topbar-refresh" onClick={() => setRefresh(value => value + 1)} aria-label="Refresh data" title="Refresh data"><RotateCcw size={15} /></button></div><div className="topbar-right"><button className="topbar-guide" onClick={() => setGuideOpen(true)}><CircleHelp size={15} />Guide</button><span className={`api-health ${health.data ? 'connected' : ''}`}><span />{health.data ? 'API connected' : health.loading ? 'Connecting' : 'API offline'}</span></div></header>
+      <div className="main-shell"><header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Open navigation"><Menu size={20} /></button><h1 className="topbar-title">{titles[page]}</h1>{project?.is_demo && <span className="demo-badge">SAMPLE DATA</span>}{page !== 'integration' && project && <label className="date-range"><Clock3 size={14} /><select aria-label="Date range" value={range} onChange={event => setRange(event.target.value as Range)}>{Object.entries(rangeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><ChevronDown size={13} /></label>}<button className="icon-button topbar-refresh" onClick={() => setRefresh(value => value + 1)} aria-label="Refresh data" title="Refresh data"><RotateCcw size={15} /></button><button className={`live-toggle ${live ? 'is-live' : ''}`} onClick={() => setLive(value => !value)} aria-pressed={live} title={live ? `Updating every ${LIVE_INTERVAL_MS / 1000} seconds. Select to pause.` : 'Paused. Select to update live.'}><span />{live ? 'Live' : 'Paused'}</button></div><div className="topbar-right"><button className="topbar-guide" onClick={() => setGuideOpen(true)}><CircleHelp size={15} />Guide</button><span className={`api-health ${health.data ? 'connected' : ''}`}><span />{health.data ? 'API connected' : health.loading ? 'Connecting' : 'API offline'}</span></div></header>
         <div className="page-intro"><DitherCanvas className="intro-dither" vignette={0} intensity={0.6} seed={6} /><div><strong>{PAGE_INTRO[page][0]}</strong><span>{PAGE_INTRO[page][1]}</span></div>{page !== 'integration' && <button className="intro-cta" onClick={() => project ? navigate('integration') : setCreateOpen(true)}>{project ? 'Connect your agent' : 'Create a project'}<ArrowRight size={15} /></button>}</div>
         <main className="main-content">
           {actionError && <div className="action-error"><TriangleAlert size={16} /><span>{actionError}</span><button className="icon-button" onClick={() => setActionError('')} aria-label="Dismiss error"><X size={15} /></button></div>}
-          {projects.loading ? <Loading /> : projects.error ? <ErrorState message={projects.error} onRetry={projects.retry} /> : !project ? noProject : page === 'overview' ? <OverviewPage {...overview} range={range} onPage={navigate} onCluster={setClusterId} onConversation={selectConversation} onDemo={seedDemo} demoBusy={demoBusy} onGuide={() => setGuideOpen(true)} /> : page === 'failures' ? <FailuresPage projectId={project.id} range={range} refresh={refresh} onSelect={setClusterId} /> : page === 'discovery' ? <DiscoveryPage projectId={project.id} range={range} refresh={refresh} onConversation={selectConversation} /> : page === 'conversations' ? <ConversationsPage projectId={project.id} range={range} refresh={refresh} onSelect={selectConversation} /> : <IntegrationPage key={project.id} project={project} refresh={refresh} />}
+          {projects.loading ? <Loading /> : projects.error ? <ErrorState message={projects.error} onRetry={projects.retry} /> : !project ? noProject : page === 'overview' ? <OverviewPage {...overview} range={range} onPage={navigate} onCluster={setClusterId} onConversation={selectConversation} onDemo={seedDemo} demoBusy={demoBusy} onGuide={() => setGuideOpen(true)} /> : page === 'failures' ? <FailuresPage projectId={project.id} range={range} refresh={liveRefresh} onSelect={setClusterId} /> : page === 'discovery' ? <DiscoveryPage projectId={project.id} range={range} refresh={refresh} onConversation={selectConversation} /> : page === 'conversations' ? <ConversationsPage projectId={project.id} range={range} refresh={liveRefresh} onSelect={selectConversation} /> : <IntegrationPage key={project.id} project={project} refresh={refresh} />}
           <footer className="dashboard-footer"><span>Tervik<span className="footer-separator">/</span>Find failures. Build better agents.</span><span><span className="pulse-dot" />Rule-based analysis</span></footer>
         </main>
       </div>
     </div>}
     {clusterId && <ClusterDrawer key={clusterId} id={clusterId} range={range} onClose={() => setClusterId(null)} onConversation={selectConversation} onChanged={() => setRefresh(value => value + 1)} />}
-    {conversationId && <ConversationDrawer key={conversationId} id={conversationId} onClose={() => setConversationId(null)} />}
+    {conversationId && <ConversationDrawer key={conversationId} id={conversationId} refresh={liveRefresh} onClose={() => setConversationId(null)} />}
     {createOpen && <Modal title="Create a project" onClose={modalClose}><form className="modal-body" onSubmit={async event => {
       event.preventDefault(); if (!projectName.trim()) return;
       setCreateBusy(true); setCreateError('');

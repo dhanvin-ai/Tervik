@@ -2909,3 +2909,28 @@ body:has(.m-page) { min-width: 320px; }
   :is(.app-shell, .modal-backdrop) .cluster-table-head { grid-template-columns: minmax(0, 1fr) auto; }
   :is(.app-shell, .modal-backdrop) .cluster-table-head > span:is(:nth-child(2), :nth-child(4), :nth-child(5), :nth-child(6)) { display: none; }
 }
+
+/* ===== Failures at a glance and live updates ===== */
+.failure-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 8px; vertical-align: middle; }
+.failure-chip { padding: 1px 6px; border: 1px solid rgba(248, 113, 113, .32); border-radius: 2px; background: rgba(248, 113, 113, .08); color: #fca5a5; font: normal 500 11px/1.5 var(--font-sans); white-space: nowrap; }
+.signal-jumps { display: flex !important; flex-wrap: wrap; gap: 6px; margin-top: 8px !important; }
+.signal-jumps button { padding: 3px 8px; border: 1px solid rgba(248, 113, 113, .32); border-radius: 2px; background: rgba(248, 113, 113, .08); color: #fca5a5; font: 500 12px var(--font-sans); transition: background .15s ease, border-color .15s ease; }
+.signal-jumps button:hover { border-color: rgba(248, 113, 113, .6); background: rgba(248, 113, 113, .16); }
+:is(.app-shell, .modal-backdrop) .signal-summary strong { font-size: 13.5px; }
+.message-signal strong { color: #fecaca; font-weight: 600; }
+.message-entry { scroll-margin: 80px; transition: box-shadow .3s ease, background .3s ease; }
+.message-entry.message-focus { background: rgba(255, 255, 255, .04); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3); }
+.live-toggle { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px; border: 1px solid rgba(255, 255, 255, .14); border-radius: 4px; color: #8a8a8a; font: 12px var(--font-mono); transition: border-color .15s ease, color .15s ease; }
+.live-toggle:hover { border-color: rgba(255, 255, 255, .3); color: #fff; }
+.live-toggle > span { width: 6px; height: 6px; border-radius: 50%; background: #555; }
+.live-toggle.is-live { color: #e5e5e5; }
+.live-toggle.is-live > span { background: #fff; animation: live-pulse 1.6s ease-in-out infinite; }
+@keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .live-toggle.is-live > span { animation: none; } }
+@media (max-width: 640px) {
+  .live-toggle { padding: 0 8px; font-size: 0; gap: 0; }
+  .live-toggle > span { margin: 0; }
+  /* The ID, the person, and the failure labels wrap as whole pieces. */
+  .conversation-summary > span:has(.failure-chips) { display: flex; flex-wrap: wrap; align-items: center; }
+  .failure-chips { flex-basis: 100%; margin-left: 0; margin-top: 5px; }
+}

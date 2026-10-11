@@ -235,9 +235,14 @@ def to_events(body: EventCapture, session_row: ConversationSession, trace_id: st
                            model=model[:200] if model else None,
                            metadata={**common_meta, "event_type": "tool_call",
                                      "input": body.args, "output": body.result}, **shared)]
-    # The reply lands when the turn finishes, after any tool calls it made.
-    # Clients that stamp the end time already would push it into the future.
-    ended = max(at, min(at + timedelta(milliseconds=latency or 0), utc_now()))
+    # The reply lands when the turn finishes, after any tool calls it made. Whole
+    # milliseconds less one microsecond keep it ahead of a next turn that starts
+    # in the millisecond this one ended (timestamps arrive in whole milliseconds).
+    # Clients that already stamp the end time would push it into the future, so
+    # it is capped at now.
+    whole = int(latency or 0)
+    ended = at + timedelta(milliseconds=whole) - (timedelta(microseconds=1) if whole else timedelta(0))
+    ended = max(at, min(ended, utc_now()))
     events = []
     if body.args:
         events.append(EventInput(id=f"{body.event_id}:input", role="user", content=body.args, timestamp=at,

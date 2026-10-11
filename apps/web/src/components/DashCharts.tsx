@@ -12,36 +12,53 @@ function niceStep(rough: number) {
   return (scaled <= 1 ? 1 : scaled <= 2 ? 2 : scaled <= 2.5 ? 2.5 : scaled <= 5 ? 5 : 10) * power;
 }
 
-/** Daily problem rate. Days without conversations have no rate, so they get no point. */
+/** Daily problem rate across every day of the range. A day without conversations
+ * has no rate: it sits on the baseline as a faint point joined by a dashed line,
+ * so the line spans the whole range without passing those days off as 0%. */
 export function RateChart({ trend, summary }: { trend: Day[]; summary: string }) {
   const [active, setActive] = useState<number | null>(null);
   const width = 520, height = 230, left = 44, right = 20, top = 12, bottom = 30;
-  const points = trend.flatMap((day, index) => day.conversations ? [{ index, date: day.date, rate: (100 * day.failures) / day.conversations }] : []);
-  const step = Math.min(50, niceStep(Math.max(...points.map(point => point.rate), 10) / 3));
-  const maximum = Math.min(100, Math.ceil(Math.max(...points.map(point => point.rate), step) / step) * step);
+  const days = trend.map((day, index) => ({ ...day, index, rate: day.conversations ? (100 * day.failures) / day.conversations : null }));
+  const rates = days.flatMap(day => day.rate === null ? [] : [day.rate]);
+  const step = Math.min(50, niceStep(Math.max(...rates, 10) / 3));
+  const maximum = Math.min(100, Math.ceil(Math.max(...rates, step) / step) * step);
   const ticks = Array.from({ length: Math.round(maximum / step) + 1 }, (_, i) => i * step);
-  const band = (width - left - right) / Math.max(1, trend.length - 1);
+  const band = (width - left - right) / Math.max(1, days.length - 1);
   const x = (index: number) => left + index * band;
-  const y = (rate: number) => top + (1 - rate / maximum) * (height - top - bottom);
-  const line = points.map((point, i) => `${i ? 'L' : 'M'}${x(point.index).toFixed(1)},${y(point.rate).toFixed(1)}`).join(' ');
-  const labelEvery = Math.max(1, Math.ceil(trend.length / 5));
-  const labels = trend.map((day, index) => ({ index, date: day.date }))
-    .filter(({ index }) => index % labelEvery === 0 || (index === trend.length - 1 && index % labelEvery >= labelEvery / 2));
-  const hovered = active !== null ? points.find(point => point.index === active) : undefined;
+  const y = (rate: number | null) => top + (1 - (rate ?? 0) / maximum) * (height - top - bottom);
+  // Labels spread evenly from the first day to the last; at most eight fit.
+  const stride = Math.max(1, Math.ceil((days.length - 1) / 7));
+  const labelled: number[] = [];
+  for (let index = 0; index < days.length; index += stride) labelled.push(index);
+  const last = days.length - 1;
+  if (last > 0 && labelled[labelled.length - 1] !== last) {
+    if (last - labelled[labelled.length - 1] < stride / 2) labelled[labelled.length - 1] = last;
+    else labelled.push(last);
+  }
+  const hovered = active !== null ? days[active] : undefined;
   return (
     <figure className="dash-rate" onMouseLeave={() => setActive(null)}>
       <figcaption className="dash-rate-title">{summary}</figcaption>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={points.length ? `Daily problem rate, from ${points[0].rate.toFixed(0)} to ${points[points.length - 1].rate.toFixed(0)} percent` : 'No daily data yet'}>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={rates.length ? `Daily problem rate over ${days.length} days, from ${rates[0].toFixed(0)} to ${rates[rates.length - 1].toFixed(0)} percent` : 'No conversations in this period'}>
         {ticks.map(tick => <g key={tick}>
           <line x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} className="dash-rate-grid" />
           <text x={4} y={y(tick) + 4} className="dash-rate-axis">{Number.isInteger(tick) ? tick : tick.toFixed(1)}%</text>
         </g>)}
-        {labels.map(({ index, date }) => <text key={date} x={x(index)} y={height - 6} textAnchor="middle" className="dash-rate-axis">{shortDate(date)}</text>)}
-        {points.length > 0 && <path d={line} className="dash-rate-line" />}
-        {points.map(point => <circle key={point.date} cx={x(point.index)} cy={y(point.rate)} r={active === point.index ? 5 : 3.5} className="dash-rate-point" />)}
-        {trend.map((day, index) => <rect key={day.date} x={x(index) - band / 2} y={top} width={band} height={height - top - bottom} fill="transparent" onMouseEnter={() => setActive(index)} />)}
+        {labelled.map(index => <text key={days[index].date} x={x(index)} y={height - 6} textAnchor="middle" className="dash-rate-axis">{shortDate(days[index].date)}</text>)}
+        {days.slice(1).map((day, i) => {
+          const previous = days[i];
+          const measured = previous.rate !== null && day.rate !== null;
+          return <path key={day.date} d={`M${x(previous.index).toFixed(1)},${y(previous.rate).toFixed(1)} L${x(day.index).toFixed(1)},${y(day.rate).toFixed(1)}`}
+            className={measured ? 'dash-rate-line' : 'dash-rate-gap'} />;
+        })}
+        {days.map(day => day.rate === null
+          ? <circle key={day.date} cx={x(day.index)} cy={y(null)} r={active === day.index ? 3.5 : 2.2} className="dash-rate-empty" />
+          : <circle key={day.date} cx={x(day.index)} cy={y(day.rate)} r={active === day.index ? 5 : 3.5} className="dash-rate-point" />)}
+        {days.map(day => <rect key={day.date} x={x(day.index) - band / 2} y={top} width={band} height={height - top - bottom} fill="transparent" onMouseEnter={() => setActive(day.index)} />)}
         {hovered && (() => {
-          const label = `${shortDate(hovered.date)} · ${hovered.rate.toFixed(0)}%`;
+          const label = hovered.rate === null
+            ? `${shortDate(hovered.date)} · No conversations`
+            : `${shortDate(hovered.date)} · ${hovered.rate.toFixed(0)}% (${hovered.failures} of ${hovered.conversations})`;
           const boxWidth = label.length * 7 + 16;
           const boxX = Math.min(Math.max(x(hovered.index) - boxWidth / 2, left), width - right - boxWidth);
           const boxY = Math.max(y(hovered.rate) - 34, 0);

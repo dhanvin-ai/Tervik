@@ -39,7 +39,7 @@ The dashboard calls the API at the address in `VITE_API_URL`, which is set when 
 ## 2. The dashboard on Vercel
 
 1. **Production branch.** Under **Settings → Git → Production Branch**, choose the branch to deploy, such as `ui-maritime-theme`.
-2. **API address.** Under **Settings → Environment Variables**, add `VITE_API_URL` with the Railway domain from step 5, such as `https://tervik-api-production.up.railway.app`, for **Production** and **Preview**.
+2. **API address.** Under **Settings → Environment Variables**, add `VITE_API_URL` with the Railway domain from step 5, such as `https://tervik-api-production.up.railway.app`, for **Production** and **Preview**. Choose **Config**, not **Secret**: the dashboard runs in the browser, so the API address is public by design, and Vercel refuses a `VITE_` variable marked secret.
 3. **Redeploy.** Open **Deployments**, then **Redeploy** the latest deployment of that branch. `VITE_API_URL` is read when the dashboard is built, so changing it always needs a redeploy.
 4. **Sign in.** Open the dashboard, choose **Connection settings**, and paste the `TERVIK_ADMIN_TOKEN` value.
 

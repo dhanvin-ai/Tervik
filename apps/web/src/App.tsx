@@ -3,11 +3,11 @@ import {
   Activity, ArrowDownLeft, ArrowRight, ArrowUpRight, Bot, Check,
   CheckCheck, ChevronDown, ChevronRight, CircleHelp, Clock3, Code2, Copy,
   Download, Eye, EyeOff, Filter, FolderPlus, GitBranch,
-  Layers3, LoaderCircle, Menu, MessageSquare, Play, Plus,
+  Layers3, LoaderCircle, LogIn, LogOut, Menu, MessageSquare, Play, Plus,
   RotateCcw, Search, Settings2, ShieldCheck, Sparkles, Terminal, TriangleAlert, Users, X,
   Zap, type LucideIcon,
 } from 'lucide-react';
-import { API_URL, query, request } from './api';
+import { API_URL, authenticate, clearSession, getSession, query, request, saveSession } from './api';
 import { ChatPage } from './ChatPage';
 import { failureLabel } from './labels';
 import { DitherCanvas } from './components/DitherCanvas';
@@ -874,7 +874,51 @@ function IntegrationPage({ project, refresh, live, onConversation }: { project: 
   })}</div><div className="foundation-note"><span className="pulse-dot" /><strong>Runs on your machine</strong><p>Rules flag problems the moment events arrive. Set ANTHROPIC_API_KEY on the API to also check intents and policies with an LLM.</p></div></aside></div>;
 }
 
-function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: () => void; demoBusy: boolean }) {
+type AuthMode = 'login' | 'signup';
+
+/** Log in or sign up with an email and a password. Signing up creates the
+ * account's own workspace; its projects stay private to it. */
+function AuthDialog({ mode, onMode, onClose, onDone, onAdminToken }: {
+  mode: AuthMode; onMode: (mode: AuthMode) => void; onClose: () => void; onDone: () => void; onAdminToken: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const signup = mode === 'signup';
+  const submit = async () => {
+    setBusy(true); setError('');
+    try {
+      saveSession(await authenticate(mode, { email: email.trim(), password, ...(signup && name.trim() ? { name: name.trim() } : {}) }));
+      onDone();
+    } catch (cause) { setError((cause as Error).message); } finally { setBusy(false); }
+  };
+  const switchTo = (next: AuthMode) => { setError(''); onMode(next); };
+  return <Modal title={signup ? 'Sign up' : 'Log in'} onClose={onClose}>
+    <form className="modal-body auth-form" onSubmit={event => { event.preventDefault(); void submit(); }}>
+      <span className="modal-feature-icon">{signup ? <Users size={25} /> : <LogIn size={25} />}</span>
+      <h2>{signup ? 'Create your account.' : 'Welcome back.'}</h2>
+      <p>{signup ? 'You get your own workspace. The projects you create, and their conversations, stay private to it.' : 'Log in to open your workspace.'}</p>
+      {signup && <><label className="field-label" htmlFor="auth-name">Workspace name <span className="field-optional">optional</span></label>
+        <input id="auth-name" className="text-field" value={name} onChange={event => setName(event.target.value)} placeholder="Acme support team" autoComplete="organization" maxLength={120} /></>}
+      <label className="field-label" htmlFor="auth-email">Email</label>
+      <input id="auth-email" className="text-field" type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@company.com" autoComplete="email" required autoFocus />
+      <label className="field-label" htmlFor="auth-password">Password</label>
+      <input id="auth-password" className="text-field" type="password" value={password} onChange={event => setPassword(event.target.value)} placeholder={signup ? 'At least 8 characters' : ''} autoComplete={signup ? 'new-password' : 'current-password'} minLength={signup ? 8 : 1} required />
+      {error && <p className="inline-error" role="alert">{error}</p>}
+      <div className="modal-actions"><button type="submit" className="button button-primary auth-submit" disabled={busy}>{busy ? <LoaderCircle size={16} className="spin" /> : null}{signup ? 'Create account' : 'Log in'}</button></div>
+      <p className="auth-switch">{signup
+        ? <>Already have an account? <button type="button" onClick={() => switchTo('login')}>Log in</button></>
+        : <>New to Tervik? <button type="button" onClick={() => switchTo('signup')}>Create an account</button></>}</p>
+      {!signup && <p className="auth-switch">Running Tervik yourself? <button type="button" onClick={onAdminToken}>Use the administrator token</button></p>}
+    </form>
+  </Modal>;
+}
+
+function Welcome({ onStart, onDemo, demoBusy, signedIn, onAuth }: {
+  onStart: () => void; onDemo: () => void; demoBusy: boolean; signedIn: boolean; onAuth: (mode: AuthMode) => void;
+}) {
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [copyError, setCopyError] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -916,14 +960,16 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
         </div>
 
         <div className="m-nav-actions">
-          <button className="m-nav-ghost-btn" disabled={demoBusy} onClick={onDemo}>
-            {demoBusy ? <LoaderCircle size={13} className="spin" /> : <Layers3 size={13} />}
-            <span>Sample Data</span>
-          </button>
-          <button className="m-nav-primary-btn" onClick={onStart}>
+          {signedIn ? <button className="m-nav-primary-btn" onClick={onStart}>
             <span>Dashboard</span>
             <ChevronRight size={13} />
-          </button>
+          </button> : <>
+            <button className="m-nav-ghost-btn" onClick={() => onAuth('login')}><span>Log in</span></button>
+            <button className="m-nav-primary-btn" onClick={() => onAuth('signup')}>
+              <span>Sign up</span>
+              <ChevronRight size={13} />
+            </button>
+          </>}
           <button className="icon-button m-nav-mobile-toggle" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} aria-label="Toggle navigation" aria-expanded={mobileMenuOpen} aria-controls="landing-mobile-menu">
             {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
           </button>
@@ -936,14 +982,18 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
         <a href="#walkthrough" onClick={() => setMobileMenuOpen(false)}>03 · Walkthrough</a>
         <a href="#setup-steps" onClick={() => setMobileMenuOpen(false)}>04 · Setup</a>
         <div className="m-mobile-menu-actions">
-          <button className="button button-secondary" disabled={demoBusy} onClick={() => { setMobileMenuOpen(false); onDemo(); }}>
-            {demoBusy ? <LoaderCircle size={14} className="spin" /> : <Layers3 size={14} />}
-            <span>Explore Sample Workspace</span>
-          </button>
-          <button className="button button-primary" onClick={() => { setMobileMenuOpen(false); onStart(); }}>
+          {signedIn ? <button className="button button-primary" onClick={() => { setMobileMenuOpen(false); onStart(); }}>
             <span>Open Dashboard</span>
             <ChevronRight size={14} />
-          </button>
+          </button> : <>
+            <button className="button button-secondary" onClick={() => { setMobileMenuOpen(false); onAuth('login'); }}>
+              <span>Log in</span>
+            </button>
+            <button className="button button-primary" onClick={() => { setMobileMenuOpen(false); onAuth('signup'); }}>
+              <span>Sign up</span>
+              <ChevronRight size={14} />
+            </button>
+          </>}
         </div>
       </div>}
     </header>
@@ -1011,6 +1061,8 @@ export default function App() {
   const [actionError, setActionError] = useState('');
   const [adminToken, setAdminToken] = useState(sessionStorage.getItem('tervik_admin_token') || '');
   const [sessionToken, setSessionToken] = useState(sessionStorage.getItem('tervik_session') || '');
+  const [signedIn, setSignedIn] = useState(() => !!getSession());
+  const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   const pendingProject = useRef<string | null>(null);
   // Live mode refetches what is on screen every few seconds, so conversations
   // and problems from a running agent appear without pressing refresh.
@@ -1039,6 +1091,12 @@ export default function App() {
   useEffect(() => { if (projectId) localStorage.setItem('tervik_project', projectId); setClusterId(null); setConversationId(null); }, [projectId]);
   useEffect(() => { document.title = `${page === 'welcome' ? 'Agent intelligence' : titles[page]} — Tervik`; }, [page]);
   const navigate = (next: Page) => { window.location.hash = next; setPage(next); setMobileOpen(false); };
+  const me = useResource<{ account: { email: string } }>(signedIn ? '/api/me' : null, refresh);
+  const signedInAs = () => { setAuthMode(null); setSignedIn(true); setRefresh(value => value + 1); navigate('overview'); };
+  const logout = async () => {
+    try { await request('/api/auth/logout', { method: 'POST' }); } catch { /* the session may already be gone */ }
+    clearSession(); setSignedIn(false); setProjectId(''); setRefresh(value => value + 1); navigate('welcome');
+  };
   const selectConversation = (id: string) => { setClusterId(null); setConversationId(id); };
   const seedDemo = async () => {
     setDemoBusy(true); setActionError('');
@@ -1049,11 +1107,13 @@ export default function App() {
   const noProject = <div className="panel no-project-panel"><EmptyState icon={Layers3} title="A clearer view of your agents starts here." description="Create your first project to connect an agent, or explore a sample workspace to see how Tervik works."><button className="button button-primary" onClick={() => setCreateOpen(true)}><Plus size={16} />Create your first project</button><button className="button button-secondary" disabled={demoBusy} onClick={seedDemo}>{demoBusy ? <LoaderCircle size={15} className="spin" /> : <Layers3 size={16} />}Explore sample workspace</button></EmptyState></div>;
   const navItems: { page: Page; icon: PixelIconName; label: string }[] = [{ page: 'overview', icon: 'overview', label: 'Overview' }, { page: 'failures', icon: 'detect', label: 'Problems' }, { page: 'discovery', icon: 'cluster', label: 'Topics' }, { page: 'conversations', icon: 'chat', label: 'Conversations' }, { page: 'chat', icon: 'prompt', label: 'Chat' }];
   return <>
-    {page === 'welcome' ? <><Welcome onStart={() => navigate('overview')} onDemo={seedDemo} demoBusy={demoBusy} />{actionError && <div className="welcome-error"><ErrorState message={actionError} onRetry={seedDemo} /></div>}</> : <div className="app-shell">
+    {page === 'welcome' ? <><Welcome onStart={() => navigate('overview')} onDemo={seedDemo} demoBusy={demoBusy} signedIn={signedIn} onAuth={setAuthMode} />{actionError && <div className="welcome-error"><ErrorState message={actionError} onRetry={seedDemo} /></div>}</> : <div className="app-shell">
       {mobileOpen && <button className="sidebar-scrim" onClick={() => setMobileOpen(false)} aria-label="Close navigation" />}
       <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}><Logo /><div className="workspace-label">WORKSPACE</div><div className="project-picker"><span className="project-avatar">{project?.name.slice(0, 1).toUpperCase() || 'T'}</span><select aria-label="Select project" value={project?.id || ''} onChange={event => setProjectId(event.target.value)}>{projects.data?.length ? projects.data.map(item => <option key={item.id} value={item.id}>{item.name}{item.is_demo ? ' (sample)' : ''}</option>) : <option value="">No projects yet</option>}</select><ChevronDown size={13} /><button onClick={() => setCreateOpen(true)} aria-label="Create project" title="Create project"><Plus size={15} /></button></div>
         <nav className="main-nav" aria-label="Main navigation">{navItems.map(({ page: navPage, icon, label }, index) => <a href={`#${navPage}`} key={navPage} className={page === navPage ? 'active' : ''} aria-current={page === navPage ? 'page' : undefined}>{page === navPage && <DitherCanvas className="nav-dither" vignette={0} intensity={0.75} seed={index} />}<span className="nav-icon"><PixelIcon name={icon} size={2} /></span><span>{label}</span>{navPage === 'failures' && !!overview.data?.top_clusters.length && <span className="nav-count">{overview.data.top_clusters.length}</span>}</a>)}</nav><div className="nav-divider" /><nav className="secondary-nav"><a href="#integration" className={page === 'integration' ? 'active' : ''}>{page === 'integration' && <DitherCanvas className="nav-dither" vignette={0} intensity={0.75} seed={5} />}<span className="nav-icon"><PixelIcon name="code" size={2} /></span><span>Connect agent</span></a><a href="#welcome"><span className="nav-icon"><PixelIcon name="guide" size={2} /></span><span>Product tour</span><ArrowUpRight size={14} /></a></nav>
-        <div className="sidebar-bottom"><button className="sidebar-link" onClick={() => setGuideOpen(true)}><span className="nav-icon"><PixelIcon name="guide" size={2} /></span><span>Quick guide</span></button><button className="settings-button" onClick={() => { setAdminToken(sessionStorage.getItem('tervik_admin_token') || ''); setSessionToken(sessionStorage.getItem('tervik_session') || ''); setSettingsOpen(true); }}><Settings2 size={17} /><span>Connection settings</span></button><div className="workspace-footer"><span className="user-avatar">T</span><span><strong>Local workspace</strong><small>Development foundation</small></span><span className="local-dot" /></div></div>
+        <div className="sidebar-bottom"><button className="sidebar-link" onClick={() => setGuideOpen(true)}><span className="nav-icon"><PixelIcon name="guide" size={2} /></span><span>Quick guide</span></button><button className="settings-button" onClick={() => { setAdminToken(sessionStorage.getItem('tervik_admin_token') || ''); setSessionToken(getSession()); setSettingsOpen(true); }}><Settings2 size={17} /><span>Connection settings</span></button>{signedIn
+          ? <div className="workspace-footer"><span className="user-avatar">{(me.data?.account.email || 'T').slice(0, 1).toUpperCase()}</span><span><strong title={me.data?.account.email}>{me.data?.account.email || 'Signed in'}</strong><small>Your workspace</small></span><button className="icon-button footer-logout" onClick={logout} aria-label="Log out" title="Log out"><LogOut size={15} /></button></div>
+          : <div className="workspace-footer"><span className="user-avatar">T</span><span><strong>Local workspace</strong><small>Development foundation</small></span><span className="local-dot" /></div>}</div>
       </aside>
       <div className="main-shell"><header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Open navigation"><Menu size={20} /></button><h1 className="topbar-title">{titles[page]}</h1>{project?.is_demo && <span className="demo-badge">SAMPLE DATA</span>}{page !== 'integration' && page !== 'chat' && project && <label className="date-range"><Clock3 size={14} /><select aria-label="Date range" value={range} onChange={event => setRange(event.target.value as Range)}>{Object.entries(rangeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><ChevronDown size={13} /></label>}<button className="icon-button topbar-refresh" onClick={() => setRefresh(value => value + 1)} aria-label="Refresh data" title="Refresh data"><RotateCcw size={15} /></button><button className={`live-toggle ${live ? 'is-live' : ''}`} onClick={() => setLive(value => !value)} aria-pressed={live} title={live ? `Updating every ${LIVE_INTERVAL_MS / 1000} seconds. Select to pause.` : 'Paused. Select to update live.'}><span />{live ? 'Live' : 'Paused'}</button></div><div className="topbar-right"><button className="topbar-guide" onClick={() => setGuideOpen(true)}><CircleHelp size={15} />Guide</button><span className={`api-health ${health.data ? 'connected' : ''}`}><span />{health.data ? 'API connected' : health.loading ? 'Connecting' : 'API offline'}</span></div></header>
         <div className="page-intro"><DitherCanvas className="intro-dither" vignette={0} intensity={0.6} seed={6} /><div><strong>{PAGE_INTRO[page][0]}</strong><span>{PAGE_INTRO[page][1]}</span></div>{page !== 'integration' && <button className="intro-cta" onClick={() => project ? navigate('integration') : setCreateOpen(true)}>{project ? 'Connect your agent' : 'Create a project'}<ArrowRight size={15} /></button>}</div>
@@ -1073,6 +1133,8 @@ export default function App() {
       catch (cause) { setCreateError((cause as Error).message); } finally { setCreateBusy(false); }
     }}><span className="modal-feature-icon"><FolderPlus size={26} /></span><h2>A home for your agent.</h2><p>Keep its conversations, failure signals, and integration key together in a project.</p><label className="field-label" htmlFor="project-name">Project name</label><input id="project-name" className="text-field" placeholder="e.g. Customer support agent" value={projectName} onChange={event => setProjectName(event.target.value)} required maxLength={80} autoComplete="off" />{createError && <p className="inline-error">{createError}</p>}<div className="modal-actions"><button type="button" className="button button-secondary" onClick={modalClose}>Cancel</button><button type="submit" className="button button-primary" disabled={createBusy || !projectName.trim()}>{createBusy ? <LoaderCircle size={16} className="spin" /> : <Plus size={16} />}Create project</button></div></form></Modal>}
     {guideOpen && <GuideModal onClose={() => setGuideOpen(false)} onPage={navigate} />}
-    {settingsOpen && <Modal title="Connection settings" onClose={() => setSettingsOpen(false)}><form className="modal-body" onSubmit={event => { event.preventDefault(); if (sessionToken.trim()) sessionStorage.setItem('tervik_session', sessionToken.trim()); else sessionStorage.removeItem('tervik_session'); if (adminToken.trim()) sessionStorage.setItem('tervik_admin_token', adminToken.trim()); else sessionStorage.removeItem('tervik_admin_token'); setRefresh(value => value + 1); setSettingsOpen(false); }}><span className="modal-feature-icon"><Settings2 size={25} /></span><h2>Your local connection.</h2><p>The dashboard connects through its API proxy. Sign in with an account session, or add the administrator token if the service requires it.</p><label className="field-label" htmlFor="session-token">Account session</label><input id="session-token" className="text-field" type="password" placeholder="Sign in via the API to get a session" value={sessionToken} onChange={event => setSessionToken(event.target.value)} autoComplete="off" /><label className="field-label" htmlFor="admin-token">Administrator token</label><input id="admin-token" className="text-field" type="password" placeholder="Optional in local developer mode" value={adminToken} onChange={event => setAdminToken(event.target.value)} autoComplete="off" /><p className="field-hint">Stored for this browser session only. This is separate from a project’s ingestion key.</p><div className="connection-details"><span>API status<strong>{health.data ? 'Connected' : 'Unavailable'}</strong></span><span>Storage<strong>{health.data?.storage || '—'}</strong></span><span>Analysis<strong>{health.data?.analysis_mode || 'Rule-based'}</strong></span></div><div className="modal-actions"><button type="button" className="button button-secondary" onClick={() => { setAdminToken(''); setSessionToken(''); }}>Clear tokens</button><button type="submit" className="button button-primary"><Check size={16} />Save connection</button></div></form></Modal>}
+    {authMode && <AuthDialog mode={authMode} onMode={setAuthMode} onClose={() => setAuthMode(null)} onDone={signedInAs}
+      onAdminToken={() => { setAuthMode(null); setAdminToken(sessionStorage.getItem('tervik_admin_token') || ''); setSessionToken(getSession()); setSettingsOpen(true); }} />}
+    {settingsOpen && <Modal title="Connection settings" onClose={() => setSettingsOpen(false)}><form className="modal-body" onSubmit={event => { event.preventDefault(); if (sessionToken.trim()) sessionStorage.setItem('tervik_session', sessionToken.trim()); else clearSession(); setSignedIn(!!getSession()); if (adminToken.trim()) sessionStorage.setItem('tervik_admin_token', adminToken.trim()); else sessionStorage.removeItem('tervik_admin_token'); setRefresh(value => value + 1); setSettingsOpen(false); }}><span className="modal-feature-icon"><Settings2 size={25} /></span><h2>Your local connection.</h2><p>The dashboard connects through its API proxy. Sign in with an account session, or add the administrator token if the service requires it.</p><label className="field-label" htmlFor="session-token">Account session</label><input id="session-token" className="text-field" type="password" placeholder="Sign in via the API to get a session" value={sessionToken} onChange={event => setSessionToken(event.target.value)} autoComplete="off" /><label className="field-label" htmlFor="admin-token">Administrator token</label><input id="admin-token" className="text-field" type="password" placeholder="Optional in local developer mode" value={adminToken} onChange={event => setAdminToken(event.target.value)} autoComplete="off" /><p className="field-hint">Stored for this browser session only. This is separate from a project’s ingestion key.</p><div className="connection-details"><span>API status<strong>{health.data ? 'Connected' : 'Unavailable'}</strong></span><span>Storage<strong>{health.data?.storage || '—'}</strong></span><span>Analysis<strong>{health.data?.analysis_mode || 'Rule-based'}</strong></span></div><div className="modal-actions"><button type="button" className="button button-secondary" onClick={() => { setAdminToken(''); setSessionToken(''); }}>Clear tokens</button><button type="submit" className="button button-primary"><Check size={16} />Save connection</button></div></form></Modal>}
   </>;
 }

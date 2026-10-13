@@ -7,6 +7,7 @@ class Settings:
     database_url: str = "sqlite:///./.data/tervik.db"
     admin_token: str | None = None
     demo_enabled: bool = True
+    signup_enabled: bool = True
     cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
     max_body_bytes: int = 4 * 1024 * 1024
     clickhouse_url: str | None = None
@@ -48,6 +49,7 @@ class Settings:
             database_url=url,
             admin_token=token,
             demo_enabled=os.getenv("TERVIK_DEMO_ENABLED", demo_default).lower() == "true",
+            signup_enabled=os.getenv("TERVIK_SIGNUP_ENABLED", "true").lower() == "true",
             cors_origins=tuple(x.strip() for x in os.getenv(
                 "TERVIK_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
             ).split(",") if x.strip()),

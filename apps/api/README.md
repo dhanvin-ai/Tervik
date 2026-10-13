@@ -45,6 +45,7 @@ All settings are environment variables. Locally, none are needed.
 | `TERVIK_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | The dashboard addresses allowed to call the API from a browser, separated by commas. |
 | `TERVIK_DASHBOARD_URL` | `http://localhost:5173` | Where alert messages link to. |
 | `TERVIK_DEMO_ENABLED` | `true`, or `false` when an admin token is set | Allows **Explore sample workspace**. |
+| `TERVIK_SIGNUP_ENABLED` | `true` | Lets anyone create an account with **Sign up**. Each account gets its own workspace and sees only its projects. `false` closes sign-up. |
 | `ANTHROPIC_API_KEY` | none | Turns on LLM intent and policy checks, and Claude in **Chat**. |
 | `TERVIK_LLM_MODEL` | `claude-opus-5-5` | The Claude model for those. |
 | `OPENAI_API_KEY` | none | Adds an OpenAI model to **Chat**. |

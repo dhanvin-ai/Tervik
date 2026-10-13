@@ -22,7 +22,9 @@ In the commands below, replace the words in capitals, such as `PASTE_PROJECT_ID`
 ## Use the hosted Tervik
 
 1. Open https://www.tervik.in.
-2. Sign in: choose **Connection settings** (bottom left), paste the administrator token into **Administrator token**, and choose **Save connection**. The token is the `TERVIK_ADMIN_TOKEN` variable of the API service on Railway. It lasts until you close the tab.
+2. Choose **Sign up** (top right) and create an account with your email and a password of at least 8 characters. You get your own workspace: the projects you create there, and their conversations, are private to it. Next time, choose **Log in**. You stay logged in on that browser until you choose **Log out** (bottom left of the dashboard).
+
+   To see every project on the server instead, as its operator: choose **Log in**, then **Use the administrator token**, and paste the `TERVIK_ADMIN_TOKEN` value of the API service on Railway into **Administrator token**. It lasts until you close the tab.
 3. Choose **Create your first project** and name it.
 4. Open **Connect agent**. It shows the project ID and the endpoint, `https://api.tervik.in`.
 5. Connect an agent: see [Connect your agent](#connect-your-agent).

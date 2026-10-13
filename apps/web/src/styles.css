@@ -213,7 +213,8 @@ code, pre { font-family: var(--font-mono); }
   place-items: center;
   border: 1px solid var(--border);
 }
-.workspace-footer > span:nth-child(2) { flex: 1; }
+.workspace-footer > span:nth-child(2) { flex: 1; min-width: 0; }
+.workspace-footer strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-footer strong, .workspace-footer small { display: block; }
 .workspace-footer strong { color: #ededed; font-size: 11px; font-weight: 500; }
 .workspace-footer small { font-size: 10px; margin-top: 2px; color: #52525b; }
@@ -909,6 +910,15 @@ code, pre { font-family: var(--font-mono); }
 }
 .text-field:focus { border-color: var(--accent); outline: none; }
 .text-field::placeholder { color: #52525b; }
+/* Log in and Sign up */
+.auth-form .text-field + .field-label { margin-top: 14px; }
+.auth-form .modal-actions { margin-top: 22px; padding-top: 0; border-top: 0; }
+.auth-submit { flex: 1; justify-content: center; }
+.modal-body > .auth-switch { margin: 14px 0 0; text-align: center; font-size: 12px; color: #8a8a8a; }
+.auth-switch button { padding: 0; border: 0; background: none; color: #fff; font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.auth-switch button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.field-optional { margin-left: 4px; color: #6b6b6b; font-weight: 400; }
+.footer-logout { flex: none; }
 .modal-actions {
   display: flex;
   gap: 8px;

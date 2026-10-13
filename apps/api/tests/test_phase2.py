@@ -206,3 +206,41 @@ def test_forged_session_tokens_do_not_pass_the_admin_token(tmp_path):
         # And stops passing once revoked.
         guarded.post("/api/auth/logout", headers=auth(created.json()["session"]))
         assert guarded.get("/api/projects", headers=auth(created.json()["session"])).status_code == 401
+
+
+def test_public_signup_keeps_each_account_in_its_own_workspace(tmp_path):
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'public.db'}", admin_token="admin-secret", demo_enabled=True)
+    with TestClient(create_app(settings)) as api:
+        admin = {"Authorization": "Bearer admin-secret"}
+        private = api.post("/api/projects", json={"name": "Operator project"}, headers=admin).json()
+        # Sign-up and log-in work without the administrator token.
+        alice = api.post("/api/auth/signup", json={"email": "alice@example.com", "password": "password-123"})
+        assert alice.status_code == 201, alice.text
+        assert api.post("/api/auth/login", json={"email": "alice@example.com", "password": "password-123"}).status_code == 200
+        bob = api.post("/api/auth/signup", json={"email": "bob@example.com", "password": "password-123"}).json()
+        a, b = auth(alice.json()["session"]), auth(bob["session"])
+        # A new account sees no one else's projects, and can't read their keys.
+        assert api.get("/api/projects", headers=a).json() == []
+        assert api.get(f"/api/projects/{private['id']}/key", headers=a).status_code == 404
+        # Its own project lands in its workspace, and it can use it.
+        mine = api.post("/api/projects", json={"name": "Alice agent"}, headers=a)
+        assert mine.status_code == 201 and mine.json()["org_id"] == alice.json()["organization"]["id"]
+        assert [p["name"] for p in api.get("/api/projects", headers=a).json()] == ["Alice agent"]
+        assert api.get(f"/api/projects/{mine.json()['id']}/key", headers=a).status_code == 200
+        assert api.get(f"/api/overview?project_id={mine.json()['id']}&range=7d", headers=a).status_code == 200
+        # Another account can't see it or read its key.
+        assert api.get("/api/projects", headers=b).json() == []
+        assert api.get(f"/api/projects/{mine.json()['id']}/key", headers=b).status_code == 404
+        # The sample workspace is per account too.
+        seeded = api.post("/api/demo/seed", headers=a).json()
+        assert {p["id"] for p in api.get("/api/projects", headers=a).json()} == {mine.json()["id"], seeded["project_id"]}
+        assert api.get("/api/projects", headers=b).json() == []
+        # The administrator still sees everything.
+        assert {private["id"], mine.json()["id"]} <= {p["id"] for p in api.get("/api/projects", headers=admin).json()}
+
+
+def test_signup_can_be_closed(tmp_path):
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'closed.db'}", admin_token="admin-secret", signup_enabled=False)
+    with TestClient(create_app(settings)) as api:
+        response = api.post("/api/auth/signup", json={"email": "c@example.com", "password": "password-123"})
+        assert response.status_code == 403

@@ -36,6 +36,7 @@ Follow the sections in order. Steps that name `tervik.in` use your own domain in
    | `TERVIK_CORS_ORIGINS` | Every address the dashboard is opened at, separated by commas: `https://www.tervik.in,https://tervik.in,https://tervik-seven.vercel.app` |
    | `TERVIK_DASHBOARD_URL` | The dashboard's main address, `https://www.tervik.in`. Alert messages link to it. |
    | `TERVIK_DEMO_ENABLED` | Optional. `true` allows **Explore sample workspace**. |
+   | `TERVIK_SIGNUP_ENABLED` | Optional. Sign-up is open by default: anyone can create an account, which gets its own private workspace. `false` closes it. |
    | `ANTHROPIC_API_KEY` | Optional. Turns on intent and policy checks, and Claude in **Chat**. |
    | `OPENAI_API_KEY` | Optional. Adds an OpenAI model to **Chat**. |
 

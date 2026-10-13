@@ -5,7 +5,7 @@ import hmac
 import re
 import secrets
 from typing import Literal
-from uuid import UUID, uuid4, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -95,7 +95,8 @@ class RequestGuards:
                 return await JSONResponse({"detail": "API keys can only read this project's analytics"},
                                           status_code=403)(scope, receive, send)
             scope.setdefault("state", {})["api_key_project"] = project_id
-        elif path.startswith("/api/") and path != "/api/health" and not path.startswith("/api/v1/") and self.settings.admin_token:
+        elif (path.startswith("/api/") and path not in PUBLIC_PATHS and not path.startswith("/api/v1/")
+              and self.settings.admin_token):
             provided = headers.get(b"authorization", b"")
             expected = f"Bearer {self.settings.admin_token}".encode()
             if hmac.compare_digest(provided, expected):
@@ -129,6 +130,10 @@ class RequestGuards:
                 return await receive()
             return await self.app(scope, buffered_receive, send)
         return await self.app(scope, receive, send)
+
+
+# Routes anyone may call, even when an administrator token protects the rest.
+PUBLIC_PATHS = {"/api/health", "/api/auth/signup", "/api/auth/login"}
 
 
 def project_dict(project):
@@ -447,21 +452,52 @@ def create_app(settings: Settings | None = None):
                                     "tervik-node": "0.1.0", "tervik-python": "0.1.0"},
                 "deprecated": []}
 
+    def member_orgs(request: Request, db_session):
+        """The organizations a signed-in account belongs to, or None for the
+        administrator token and local mode, which see every project."""
+        resolved = session_auth(request, db_session)
+        if resolved is None:
+            return None
+        return [m.org_id for m in db_session.scalars(select(Membership).where(Membership.account_id == resolved[1].id))]
+
+    def home_org(request: Request, db_session):
+        """Where a signed-in account's new projects go: the organization it signed in
+        to, else its first one. It must be an admin there. None without a session."""
+        resolved = session_auth(request, db_session)
+        if resolved is None:
+            return None
+        record, account = resolved
+        org_id = record.org_id or next(iter(member_orgs(request, db_session)), None)
+        if org_id is None:
+            raise HTTPException(403, "Create an organization first")
+        try:
+            require_project_role(db_session, Project(id="", org_id=org_id), account.id, "admin")
+        except PermissionError:
+            raise HTTPException(403, "Admin role required")
+        return org_id
+
     @app.get("/api/projects")
-    def projects():
+    def projects(request: Request):
         with sessions() as session:
-            return [project_dict(p) for p in session.scalars(select(Project).order_by(Project.created_at, Project.id))]
+            query = select(Project).order_by(Project.created_at, Project.id)
+            orgs = member_orgs(request, session)
+            if orgs is not None:
+                query = query.where(Project.org_id.in_(orgs))
+            return [project_dict(p) for p in session.scalars(query)]
 
     @app.post("/api/projects", status_code=201)
-    def new_project(body: ProjectInput):
+    def new_project(request: Request, body: ProjectInput):
         with sessions.begin() as session:
-            project = create_project(session, body.name)
+            org_id = home_org(request, session)
+            project = create_project(session, body.name, org_id=org_id)
+            if org_id is not None:
+                audit(session, org_id, "project.create", project.id, session_auth(request, session)[1].id)
             return {**project_dict(project), "api_key": project.api_key}
 
     @app.get("/api/projects/{id}/key")
-    def project_key(id: str):
+    def project_key(request: Request, id: str):
         with sessions() as session:
-            return {"api_key": get_project(session, id).api_key}
+            return {"api_key": intent_project(request, session, id, "admin").api_key}
 
     @app.post("/v1/events")
     def ingest(body: EventBatch, request: Request, background_tasks: BackgroundTasks):
@@ -640,6 +676,8 @@ def create_app(settings: Settings | None = None):
 
     @app.post("/api/auth/signup", status_code=201)
     def signup(body: SignupInput):
+        if not settings.signup_enabled:
+            raise HTTPException(403, "Sign-up is closed. Ask an administrator for an account.")
         try:
             email = normalize_email(body.email)
         except ValueError:
@@ -2334,31 +2372,35 @@ def create_app(settings: Settings | None = None):
         return {"backlog": backlog, "projects": len(project_ids)}
 
     @app.post("/api/demo/seed")
-    def seed_demo(background_tasks: BackgroundTasks):
+    def seed_demo(request: Request, background_tasks: BackgroundTasks):
         if not settings.demo_enabled:
             raise HTTPException(404, "Demo seeding is disabled")
         with sessions.begin() as session:
-            project = session.get(Project, DEMO_PROJECT_ID)
+            # Signed-in accounts each get their own sample, inside their organization.
+            org_id = home_org(request, session)
+            demo_id = DEMO_PROJECT_ID if org_id is None else str(uuid5(NAMESPACE_URL, f"tervik-demo-project-v1/{org_id}"))
+            project = session.get(Project, demo_id)
             if project is None:
                 # The PK conflict is handled by the database for concurrent requests.
                 key = "tvk_" + secrets.token_urlsafe(32)
+                slug = "sample-workspace" if org_id is None else f"sample-workspace-{demo_id[:8]}"
                 insert = sqlite_insert if engine.dialect.name == "sqlite" else postgres_insert
-                session.execute(insert(Project).values(id=DEMO_PROJECT_ID, name="Sample workspace", slug="sample-workspace",
-                    created_at=utc_now(), is_demo=True, api_key=key, key_hash=sha256(key.encode()).hexdigest())
+                session.execute(insert(Project).values(id=demo_id, name="Sample workspace", slug=slug, org_id=org_id,
+                    created_at=utc_now(), is_demo=True, api_key=key, key_hash=sha256(key.encode()).hexdigest(), settings={})
                     .on_conflict_do_nothing(index_elements=["id"]))
-                project = session.get(Project, DEMO_PROJECT_ID)
+                project = session.get(Project, demo_id)
             before = session.execute(select(func.count()).select_from(Event).where(
-                Event.project_id == DEMO_PROJECT_ID)).scalar_one()
+                Event.project_id == demo_id)).scalar_one()
             queue_mod.enqueue_events(session, engine, project, demo_events(utc_now()))
         if settings.inline_process:
             with sessions.begin() as session:
-                queue_mod.process_pending(session, engine, settings, project_id=DEMO_PROJECT_ID)
+                queue_mod.process_pending(session, engine, settings, project_id=demo_id)
         with sessions() as session:
             after = session.execute(select(func.count()).select_from(Event).where(
-                Event.project_id == DEMO_PROJECT_ID)).scalar_one()
+                Event.project_id == demo_id)).scalar_one()
         if settings.clickhouse_url:
-            background_tasks.add_task(retry_mirrors_task, DEMO_PROJECT_ID)
-        return {"seeded": after > before, "project_id": DEMO_PROJECT_ID}
+            background_tasks.add_task(retry_mirrors_task, demo_id)
+        return {"seeded": after > before, "project_id": demo_id}
 
     return app
 

@@ -77,8 +77,8 @@ def api_key_allows(method, path, query, project_id):
 
 class RequestGuards:
     """Validate body size while streaming and protect every dashboard route."""
-    def __init__(self, app, settings, api_keys=None):
-        self.app, self.settings, self.api_keys = app, settings, api_keys
+    def __init__(self, app, settings, api_keys=None, live_session=None):
+        self.app, self.settings, self.api_keys, self.live_session = app, settings, api_keys, live_session
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -101,8 +101,12 @@ class RequestGuards:
             if hmac.compare_digest(provided, expected):
                 pass
             elif provided.decode("latin1").startswith(f"Bearer {SESSION_PREFIX}"):
-                # Phase 2 session tokens pass through; route handlers enforce membership.
-                pass
+                # A session token passes only if it is a live session; route handlers then
+                # enforce membership. Anything that merely looks like one is refused.
+                token = provided.decode("latin1")[len("Bearer "):]
+                if not (self.live_session and await run_in_threadpool(self.live_session, token)):
+                    return await JSONResponse({"detail": "Session expired or invalid. Sign in again."},
+                                              status_code=401)(scope, receive, send)
             elif not hmac.compare_digest(provided, expected):
                 return await JSONResponse({"detail": "Administrator token required"}, status_code=401)(scope, receive, send)
         body = bytearray()
@@ -340,7 +344,12 @@ def create_app(settings: Settings | None = None):
                 key.last_used_at = now
             return key.project_id
 
-    app.add_middleware(RequestGuards, settings=settings, api_keys=api_key_project)
+    def live_session(token):
+        """True for a session token that exists, isn't revoked, and hasn't expired."""
+        with sessions() as session:
+            return resolve_session(session, token) is not None
+
+    app.add_middleware(RequestGuards, settings=settings, api_keys=api_key_project, live_session=live_session)
     app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
                        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
                        allow_headers=["Authorization", "Content-Type", "x-org-id", "x-api-key"])

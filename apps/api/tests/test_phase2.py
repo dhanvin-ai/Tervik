@@ -187,3 +187,22 @@ def test_failed_job_visible_and_replayable(client, settings):
     assert jobs["jobs"]["processed"] == 1
     assert jobs["recent"][0]["error_code"] is None
     assert "content" not in jobs["recent"][0]
+
+
+def test_forged_session_tokens_do_not_pass_the_admin_token(tmp_path):
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'guarded.db'}", admin_token="admin-secret")
+    with TestClient(create_app(settings)) as guarded:
+        admin = {"Authorization": "Bearer admin-secret"}
+        project = guarded.post("/api/projects", json={"name": "Private"}, headers=admin).json()
+        forged = {"Authorization": "Bearer tvs_forged"}
+        # Something shaped like a session token is not a session.
+        for path in ["/api/projects", f"/api/projects/{project['id']}/key",
+                     f"/api/overview?project_id={project['id']}&range=7d"]:
+            assert guarded.get(path, headers=forged).status_code == 401, path
+        # A real session still passes the gate.
+        created = guarded.post("/api/auth/signup", json={"email": "a@example.com", "password": "password-123"}, headers=admin)
+        assert created.status_code == 201
+        assert guarded.get("/api/me", headers=auth(created.json()["session"])).status_code == 200
+        # And stops passing once revoked.
+        guarded.post("/api/auth/logout", headers=auth(created.json()["session"]))
+        assert guarded.get("/api/projects", headers=auth(created.json()["session"])).status_code == 401

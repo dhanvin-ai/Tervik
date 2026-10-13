@@ -11,7 +11,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from starlette.concurrency import run_in_threadpool
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
@@ -29,6 +29,7 @@ from . import insights as insights_mod
 from . import classify as classify_mod
 from . import llm as llm_mod
 from . import playground as playground_mod
+from . import oauth as oauth_mod
 from .auth import (API_KEY_PREFIX, ROLES, SESSION_PREFIX, add_membership, create_organization, new_api_key,
                    create_session, credential_for_token, hash_password, is_ingest_token,
                    new_ingest_key, normalize_email, project_role, require_project_role,
@@ -95,7 +96,7 @@ class RequestGuards:
                 return await JSONResponse({"detail": "API keys can only read this project's analytics"},
                                           status_code=403)(scope, receive, send)
             scope.setdefault("state", {})["api_key_project"] = project_id
-        elif (path.startswith("/api/") and path not in PUBLIC_PATHS and not path.startswith("/api/v1/")
+        elif (path.startswith("/api/") and path not in PUBLIC_PATHS and not path.startswith(PUBLIC_PREFIXES)
               and self.settings.admin_token):
             provided = headers.get(b"authorization", b"")
             expected = f"Bearer {self.settings.admin_token}".encode()
@@ -132,8 +133,10 @@ class RequestGuards:
         return await self.app(scope, receive, send)
 
 
-# Routes anyone may call, even when an administrator token protects the rest.
-PUBLIC_PATHS = {"/api/health", "/api/auth/signup", "/api/auth/login"}
+# Routes anyone may call, even when an administrator token protects the rest:
+# sign-in checks credentials itself, and capture checks the project's own key.
+PUBLIC_PATHS = {"/api/health", "/api/auth/signup", "/api/auth/login", "/api/auth/providers"}
+PUBLIC_PREFIXES = ("/api/v1/", "/api/auth/oauth/")
 
 
 def project_dict(project):
@@ -685,16 +688,46 @@ def create_app(settings: Settings | None = None):
         with sessions.begin() as session:
             if session.scalars(select(Account).where(Account.email == email)).first():
                 raise HTTPException(409, "Account already exists")
-            account = Account(id=str(uuid4()), email=email, password_hash=hash_password(body.password))
-            session.add(account)
-            session.flush()
-            org = create_organization(session, body.name.strip() if body.name else f"{email} workspace")
-            add_membership(session, org.id, account.id, "owner")
-            ensure_plan(session, org.id)
+            account, org = new_account(session, email, body.password, body.name.strip() if body.name else None)
             record, token = create_session(session, account.id, org.id)
-            audit(session, org.id, "account.signup", account.id, account.id)
             return {"account": {"id": account.id, "email": email},
                     "organization": {"id": org.id, "name": org.name}, "session": token}
+
+    def new_account(db_session, email, password, workspace_name=None):
+        """An account and the workspace it owns."""
+        account = Account(id=str(uuid4()), email=email, password_hash=hash_password(password))
+        db_session.add(account)
+        db_session.flush()
+        org = create_organization(db_session, (workspace_name or f"{email} workspace")[:120])
+        add_membership(db_session, org.id, account.id, "owner")
+        ensure_plan(db_session, org.id)
+        audit(db_session, org.id, "account.signup", account.id, account.id)
+        return account, org
+
+    def oauth_sign_in(db_session, email, name):
+        """A session for the account with this provider-verified email, creating the
+        account and its workspace on first sign-in. It has no usable password."""
+        try:
+            email = normalize_email(email)
+        except ValueError:
+            raise oauth_mod.OAuthError("That account's email address isn't valid.")
+        account = db_session.scalars(select(Account).where(Account.email == email)).first()
+        if account is None:
+            if not settings.signup_enabled:
+                raise HTTPException(403, "Sign-up is closed. Ask an administrator for an account.")
+            account, org = new_account(db_session, email, secrets.token_urlsafe(32), f"{name}'s workspace" if name else None)
+            org_id = org.id
+        else:
+            membership = db_session.scalars(select(Membership).where(
+                Membership.account_id == account.id).order_by(Membership.created_at)).first()
+            org_id = membership.org_id if membership else None
+        return create_session(db_session, account.id, org_id)[1]
+
+    def dashboard_origins():
+        parts = urlsplit(settings.dashboard_url)
+        return {f"{parts.scheme}://{parts.netloc}", *settings.cors_origins}
+
+    oauth_mod.register(app, sessions=sessions, settings=settings, sign_in=oauth_sign_in, allowed_origins=dashboard_origins)
 
     @app.post("/api/auth/login")
     def login(body: LoginInput):

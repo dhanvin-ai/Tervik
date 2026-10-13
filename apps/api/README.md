@@ -46,6 +46,9 @@ All settings are environment variables. Locally, none are needed.
 | `TERVIK_DASHBOARD_URL` | `http://localhost:5173` | Where alert messages link to. |
 | `TERVIK_DEMO_ENABLED` | `true`, or `false` when an admin token is set | Allows **Explore sample workspace**. |
 | `TERVIK_SIGNUP_ENABLED` | `true` | Lets anyone create an account with **Sign up**. Each account gets its own workspace and sees only its projects. `false` closes sign-up. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | none | Turn on **Continue with Google**. The OAuth client's redirect URI is `<API address>/api/auth/oauth/google/callback`. |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | none | Turn on **Continue with GitHub**. The OAuth app's callback URL is `<API address>/api/auth/oauth/github/callback`. |
+| `TERVIK_PUBLIC_API_URL` | the address the request came to | The API's public address, used to build those callback URLs if a proxy hides it. |
 | `ANTHROPIC_API_KEY` | none | Turns on LLM intent and policy checks, and Claude in **Chat**. |
 | `TERVIK_LLM_MODEL` | `claude-opus-5-5` | The Claude model for those. |
 | `OPENAI_API_KEY` | none | Adds an OpenAI model to **Chat**. |

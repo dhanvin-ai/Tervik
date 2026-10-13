@@ -8,6 +8,13 @@ class Settings:
     admin_token: str | None = None
     demo_enabled: bool = True
     signup_enabled: bool = True
+    # Sign in with Google or GitHub: each needs its OAuth app's client ID and secret.
+    google_client_id: str | None = None
+    google_client_secret: str | None = field(default=None, repr=False)
+    github_client_id: str | None = None
+    github_client_secret: str | None = field(default=None, repr=False)
+    # The API's public address, for OAuth callbacks. Unset = the address the request came to.
+    public_api_url: str | None = None
     cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
     max_body_bytes: int = 4 * 1024 * 1024
     clickhouse_url: str | None = None
@@ -50,6 +57,11 @@ class Settings:
             admin_token=token,
             demo_enabled=os.getenv("TERVIK_DEMO_ENABLED", demo_default).lower() == "true",
             signup_enabled=os.getenv("TERVIK_SIGNUP_ENABLED", "true").lower() == "true",
+            google_client_id=os.getenv("GOOGLE_CLIENT_ID") or None,
+            google_client_secret=os.getenv("GOOGLE_CLIENT_SECRET") or None,
+            github_client_id=os.getenv("GITHUB_CLIENT_ID") or None,
+            github_client_secret=os.getenv("GITHUB_CLIENT_SECRET") or None,
+            public_api_url=os.getenv("TERVIK_PUBLIC_API_URL") or None,
             cors_origins=tuple(x.strip() for x in os.getenv(
                 "TERVIK_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
             ).split(",") if x.strip()),

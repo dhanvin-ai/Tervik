@@ -3,7 +3,7 @@ import {
   Activity, ArrowDownLeft, ArrowRight, ArrowUpRight, Bot, Check,
   CheckCheck, ChevronDown, ChevronRight, CircleHelp, Clock3, Code2, Copy,
   Download, Eye, EyeOff, Filter, FolderPlus, GitBranch,
-  Layers3, LoaderCircle, LogIn, LogOut, Menu, MessageSquare, Play, Plus,
+  Github, Layers3, LoaderCircle, LogOut, Menu, MessageSquare, Play, Plus,
   RotateCcw, Search, Settings2, ShieldCheck, Sparkles, Terminal, TriangleAlert, Users, X,
   Zap, type LucideIcon,
 } from 'lucide-react';
@@ -16,7 +16,7 @@ import { PixelIcon, type PixelIconName } from './components/PixelIcon';
 import { CountChart, RateChart } from './components/DashCharts';
 import { AsciiMatrixBackground } from './components/AsciiMatrixBackground';
 import { AnimatedBrandLogo } from './components/AnimatedBrandLogo';
-import { TervikLogo } from './components/TervikLogo';
+import { TervikLogo, TervikMark } from './components/TervikLogo';
 import { HeroHeadline } from './components/HeroHeadline';
 import { DashboardShowcase, DitherDivider, FeatureShowcase, FinalCta, LandingFooter, OtlpBanner, PrinciplesGrid, SetupSection, TurnWalkthrough } from './components/LandingSections';
 import { WorksWithMarquee } from './components/WorksWithMarquee';
@@ -42,6 +42,26 @@ const PAGE_INTRO: Record<Exclude<Page, 'welcome'>, [string, string]> = {
 };
 
 const welcomeAnchors = new Set(['welcome', 'features', 'how-it-works', 'walkthrough', 'setup-steps', 'preview', 'case-studies', 'faq']);
+
+/** The Log in or Sign up page the address asks for, if any. */
+function currentAuth(): AuthMode | null {
+  const value = window.location.hash.replace('#', '');
+  return value === 'login' || value === 'signup' ? value : null;
+}
+
+/** Takes a session or an error that Google or GitHub sign-in left in the address,
+ * and swaps the address for the page to show next. */
+function takeSignInResult(): string {
+  const value = window.location.hash.replace('#', '');
+  if (value.startsWith('auth=')) {
+    saveSession(decodeURIComponent(value.slice(5)));
+    window.history.replaceState(null, '', '#overview');
+  } else if (value.startsWith('auth-error=')) {
+    window.history.replaceState(null, '', '#login');
+    return decodeURIComponent(value.slice(11));
+  }
+  return '';
+}
 
 function currentPage(): Page {
   const value = window.location.hash.replace('#', '');
@@ -875,18 +895,45 @@ function IntegrationPage({ project, refresh, live, onConversation }: { project: 
 }
 
 type AuthMode = 'login' | 'signup';
+type Providers = { google: boolean; github: boolean; signup: boolean };
 
-/** Log in or sign up with an email and a password. Signing up creates the
- * account's own workspace; its projects stay private to it. */
-function AuthDialog({ mode, onMode, onClose, onDone, onAdminToken }: {
-  mode: AuthMode; onMode: (mode: AuthMode) => void; onClose: () => void; onDone: () => void; onAdminToken: () => void;
+/** Google's "G", in its own colours, as its sign-in guidelines ask. */
+function GoogleMark() {
+  return <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+  </svg>;
+}
+
+/** The Log in and Sign up page: Google and GitHub when the API has them set up,
+ * and email and password underneath. Signing up creates the account's own workspace. */
+function AuthPage({ mode, initialError, onDone, onAdminToken }: {
+  mode: AuthMode; initialError: string; onDone: () => void; onAdminToken: () => void;
 }) {
+  const [providers, setProviders] = useState<Providers | null>(null);
+  const [emailOpen, setEmailOpen] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(initialError);
   const signup = mode === 'signup';
+  useEffect(() => {
+    let live = true;
+    fetch(`${API_URL}/api/auth/providers`).then(response => response.ok ? response.json() : null)
+      .then(data => { if (live) setProviders(data ?? { google: false, github: false, signup: true }); })
+      .catch(() => { if (live) setProviders({ google: false, github: false, signup: true }); });
+    return () => { live = false; };
+  }, []);
+  useEffect(() => { setError(initialError); }, [mode, initialError]);
+  const oauth = !!(providers?.google || providers?.github);
+  const showForm = !oauth || emailOpen;
+  const continueWith = (provider: 'google' | 'github') => {
+    const back = window.location.origin + window.location.pathname;
+    window.location.assign(`${API_URL}/api/auth/oauth/${provider}/start?return_to=${encodeURIComponent(back)}`);
+  };
   const submit = async () => {
     setBusy(true); setError('');
     try {
@@ -894,26 +941,34 @@ function AuthDialog({ mode, onMode, onClose, onDone, onAdminToken }: {
       onDone();
     } catch (cause) { setError((cause as Error).message); } finally { setBusy(false); }
   };
-  const switchTo = (next: AuthMode) => { setError(''); onMode(next); };
-  return <Modal title={signup ? 'Sign up' : 'Log in'} onClose={onClose}>
-    <form className="modal-body auth-form" onSubmit={event => { event.preventDefault(); void submit(); }}>
-      <span className="modal-feature-icon">{signup ? <Users size={25} /> : <LogIn size={25} />}</span>
-      <h2>{signup ? 'Create your account.' : 'Welcome back.'}</h2>
-      <p>{signup ? 'You get your own workspace. The projects you create, and their conversations, stay private to it.' : 'Log in to open your workspace.'}</p>
-      {signup && <><label className="field-label" htmlFor="auth-name">Workspace name <span className="field-optional">optional</span></label>
-        <input id="auth-name" className="text-field" value={name} onChange={event => setName(event.target.value)} placeholder="Acme support team" autoComplete="organization" maxLength={120} /></>}
-      <label className="field-label" htmlFor="auth-email">Email</label>
-      <input id="auth-email" className="text-field" type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@company.com" autoComplete="email" required autoFocus />
-      <label className="field-label" htmlFor="auth-password">Password</label>
-      <input id="auth-password" className="text-field" type="password" value={password} onChange={event => setPassword(event.target.value)} placeholder={signup ? 'At least 8 characters' : ''} autoComplete={signup ? 'new-password' : 'current-password'} minLength={signup ? 8 : 1} required />
-      {error && <p className="inline-error" role="alert">{error}</p>}
-      <div className="modal-actions"><button type="submit" className="button button-primary auth-submit" disabled={busy}>{busy ? <LoaderCircle size={16} className="spin" /> : null}{signup ? 'Create account' : 'Log in'}</button></div>
+  return <main className="auth-page">
+    <a className="auth-back" href="#welcome"><ArrowRight size={14} className="auth-back-icon" />Back to Tervik</a>
+    <section className="auth-card" aria-labelledby="auth-title">
+      <TervikMark size={46} className="auth-mark" />
+      <h1 id="auth-title">{signup ? 'Create your account' : 'Welcome back'}</h1>
+      <p className="auth-lede">{signup ? 'Find and fix where your AI agents fail.' : 'Log in to your Tervik workspace.'}</p>
+      {signup && <p className="auth-note">Your account gets its own private workspace. Connect an agent and see its first problems in minutes.</p>}
+      {signup && providers && !providers.signup && <p className="auth-note">Sign-up is closed on this server. Ask its administrator for an account.</p>}
+      {providers?.google && <button type="button" className="auth-provider is-primary" onClick={() => continueWith('google')}><GoogleMark />Continue with Google</button>}
+      {providers?.google && providers.github && <div className="auth-divider"><span>Or continue with</span></div>}
+      {providers?.github && <button type="button" className="auth-provider" onClick={() => continueWith('github')}><Github size={19} />Continue with GitHub</button>}
+      {oauth && !emailOpen && <button type="button" className="auth-email-link" onClick={() => setEmailOpen(true)}>Or {signup ? 'sign up' : 'log in'} with email</button>}
+      {showForm && <form className="auth-email" onSubmit={event => { event.preventDefault(); void submit(); }}>
+        {signup && <><label className="field-label" htmlFor="auth-name">Workspace name <span className="field-optional">optional</span></label>
+          <input id="auth-name" className="text-field" value={name} onChange={event => setName(event.target.value)} placeholder="Acme support team" autoComplete="organization" maxLength={120} /></>}
+        <label className="field-label" htmlFor="auth-email">Email</label>
+        <input id="auth-email" className="text-field" type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@company.com" autoComplete="email" required autoFocus={emailOpen} />
+        <label className="field-label" htmlFor="auth-password">Password</label>
+        <input id="auth-password" className="text-field" type="password" value={password} onChange={event => setPassword(event.target.value)} placeholder={signup ? 'At least 8 characters' : ''} autoComplete={signup ? 'new-password' : 'current-password'} minLength={signup ? 8 : 1} required />
+        <button type="submit" className="auth-provider is-primary auth-submit" disabled={busy}>{busy ? <LoaderCircle size={16} className="spin" /> : null}{signup ? 'Create account' : 'Log in'}</button>
+      </form>}
+      {error && <p className="auth-error" role="alert">{error}</p>}
       <p className="auth-switch">{signup
-        ? <>Already have an account? <button type="button" onClick={() => switchTo('login')}>Log in</button></>
-        : <>New to Tervik? <button type="button" onClick={() => switchTo('signup')}>Create an account</button></>}</p>
-      {!signup && <p className="auth-switch">Running Tervik yourself? <button type="button" onClick={onAdminToken}>Use the administrator token</button></p>}
-    </form>
-  </Modal>;
+        ? <>Already have an account? <a href="#login">Sign in</a></>
+        : <>New to Tervik? <a href="#signup">Create an account</a></>}</p>
+      {!signup && <p className="auth-operator">Running Tervik yourself? <button type="button" onClick={onAdminToken}>Use the administrator token</button></p>}
+    </section>
+  </main>;
 }
 
 function Welcome({ onStart, onDemo, demoBusy, signedIn, onAuth }: {
@@ -1061,8 +1116,9 @@ export default function App() {
   const [actionError, setActionError] = useState('');
   const [adminToken, setAdminToken] = useState(sessionStorage.getItem('tervik_admin_token') || '');
   const [sessionToken, setSessionToken] = useState(sessionStorage.getItem('tervik_session') || '');
+  const [signInError, setSignInError] = useState(takeSignInResult);
   const [signedIn, setSignedIn] = useState(() => !!getSession());
-  const [authMode, setAuthMode] = useState<AuthMode | null>(null);
+  const [authMode, setAuthMode] = useState<AuthMode | null>(currentAuth);
   const pendingProject = useRef<string | null>(null);
   // Live mode refetches what is on screen every few seconds, so conversations
   // and problems from a running agent appear without pressing refresh.
@@ -1077,7 +1133,11 @@ export default function App() {
   const project = projects.data?.find(item => item.id === projectId) || (pendingProject.current ? undefined : projects.data?.[0]);
   const overview = useResource<Overview>(project ? `/api/overview${query({ project_id: project.id, range })}` : null, liveRefresh);
   useEffect(() => {
-    const change = () => { setPage(currentPage()); setMobileOpen(false); };
+    const change = () => {
+      const failure = takeSignInResult();
+      if (failure) setSignInError(failure);
+      setSignedIn(!!getSession()); setPage(currentPage()); setAuthMode(currentAuth()); setMobileOpen(false);
+    };
     window.addEventListener('hashchange', change);
     return () => window.removeEventListener('hashchange', change);
   }, []);
@@ -1092,7 +1152,8 @@ export default function App() {
   useEffect(() => { document.title = `${page === 'welcome' ? 'Agent intelligence' : titles[page]} — Tervik`; }, [page]);
   const navigate = (next: Page) => { window.location.hash = next; setPage(next); setMobileOpen(false); };
   const me = useResource<{ account: { email: string } }>(signedIn ? '/api/me' : null, refresh);
-  const signedInAs = () => { setAuthMode(null); setSignedIn(true); setRefresh(value => value + 1); navigate('overview'); };
+  const signedInAs = () => { setAuthMode(null); setSignedIn(true); setProjectId(''); setRefresh(value => value + 1); navigate('overview'); };
+  const openAuth = (mode: AuthMode) => { window.location.hash = mode; setAuthMode(mode); };
   const logout = async () => {
     try { await request('/api/auth/logout', { method: 'POST' }); } catch { /* the session may already be gone */ }
     clearSession(); setSignedIn(false); setProjectId(''); setRefresh(value => value + 1); navigate('welcome');
@@ -1107,7 +1168,9 @@ export default function App() {
   const noProject = <div className="panel no-project-panel"><EmptyState icon={Layers3} title="A clearer view of your agents starts here." description="Create your first project to connect an agent, or explore a sample workspace to see how Tervik works."><button className="button button-primary" onClick={() => setCreateOpen(true)}><Plus size={16} />Create your first project</button><button className="button button-secondary" disabled={demoBusy} onClick={seedDemo}>{demoBusy ? <LoaderCircle size={15} className="spin" /> : <Layers3 size={16} />}Explore sample workspace</button></EmptyState></div>;
   const navItems: { page: Page; icon: PixelIconName; label: string }[] = [{ page: 'overview', icon: 'overview', label: 'Overview' }, { page: 'failures', icon: 'detect', label: 'Problems' }, { page: 'discovery', icon: 'cluster', label: 'Topics' }, { page: 'conversations', icon: 'chat', label: 'Conversations' }, { page: 'chat', icon: 'prompt', label: 'Chat' }];
   return <>
-    {page === 'welcome' ? <><Welcome onStart={() => navigate('overview')} onDemo={seedDemo} demoBusy={demoBusy} signedIn={signedIn} onAuth={setAuthMode} />{actionError && <div className="welcome-error"><ErrorState message={actionError} onRetry={seedDemo} /></div>}</> : <div className="app-shell">
+    {authMode ? <AuthPage mode={authMode} initialError={signInError} onDone={signedInAs}
+      onAdminToken={() => { setAdminToken(sessionStorage.getItem('tervik_admin_token') || ''); setSessionToken(getSession()); setSettingsOpen(true); }} />
+    : page === 'welcome' ? <><Welcome onStart={() => navigate('overview')} onDemo={seedDemo} demoBusy={demoBusy} signedIn={signedIn} onAuth={openAuth} />{actionError && <div className="welcome-error"><ErrorState message={actionError} onRetry={seedDemo} /></div>}</> : <div className="app-shell">
       {mobileOpen && <button className="sidebar-scrim" onClick={() => setMobileOpen(false)} aria-label="Close navigation" />}
       <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}><Logo /><div className="workspace-label">WORKSPACE</div><div className="project-picker"><span className="project-avatar">{project?.name.slice(0, 1).toUpperCase() || 'T'}</span><select aria-label="Select project" value={project?.id || ''} onChange={event => setProjectId(event.target.value)}>{projects.data?.length ? projects.data.map(item => <option key={item.id} value={item.id}>{item.name}{item.is_demo ? ' (sample)' : ''}</option>) : <option value="">No projects yet</option>}</select><ChevronDown size={13} /><button onClick={() => setCreateOpen(true)} aria-label="Create project" title="Create project"><Plus size={15} /></button></div>
         <nav className="main-nav" aria-label="Main navigation">{navItems.map(({ page: navPage, icon, label }, index) => <a href={`#${navPage}`} key={navPage} className={page === navPage ? 'active' : ''} aria-current={page === navPage ? 'page' : undefined}>{page === navPage && <DitherCanvas className="nav-dither" vignette={0} intensity={0.75} seed={index} />}<span className="nav-icon"><PixelIcon name={icon} size={2} /></span><span>{label}</span>{navPage === 'failures' && !!overview.data?.top_clusters.length && <span className="nav-count">{overview.data.top_clusters.length}</span>}</a>)}</nav><div className="nav-divider" /><nav className="secondary-nav"><a href="#integration" className={page === 'integration' ? 'active' : ''}>{page === 'integration' && <DitherCanvas className="nav-dither" vignette={0} intensity={0.75} seed={5} />}<span className="nav-icon"><PixelIcon name="code" size={2} /></span><span>Connect agent</span></a><a href="#welcome"><span className="nav-icon"><PixelIcon name="guide" size={2} /></span><span>Product tour</span><ArrowUpRight size={14} /></a></nav>
@@ -1133,8 +1196,6 @@ export default function App() {
       catch (cause) { setCreateError((cause as Error).message); } finally { setCreateBusy(false); }
     }}><span className="modal-feature-icon"><FolderPlus size={26} /></span><h2>A home for your agent.</h2><p>Keep its conversations, failure signals, and integration key together in a project.</p><label className="field-label" htmlFor="project-name">Project name</label><input id="project-name" className="text-field" placeholder="e.g. Customer support agent" value={projectName} onChange={event => setProjectName(event.target.value)} required maxLength={80} autoComplete="off" />{createError && <p className="inline-error">{createError}</p>}<div className="modal-actions"><button type="button" className="button button-secondary" onClick={modalClose}>Cancel</button><button type="submit" className="button button-primary" disabled={createBusy || !projectName.trim()}>{createBusy ? <LoaderCircle size={16} className="spin" /> : <Plus size={16} />}Create project</button></div></form></Modal>}
     {guideOpen && <GuideModal onClose={() => setGuideOpen(false)} onPage={navigate} />}
-    {authMode && <AuthDialog mode={authMode} onMode={setAuthMode} onClose={() => setAuthMode(null)} onDone={signedInAs}
-      onAdminToken={() => { setAuthMode(null); setAdminToken(sessionStorage.getItem('tervik_admin_token') || ''); setSessionToken(getSession()); setSettingsOpen(true); }} />}
-    {settingsOpen && <Modal title="Connection settings" onClose={() => setSettingsOpen(false)}><form className="modal-body" onSubmit={event => { event.preventDefault(); if (sessionToken.trim()) sessionStorage.setItem('tervik_session', sessionToken.trim()); else clearSession(); setSignedIn(!!getSession()); if (adminToken.trim()) sessionStorage.setItem('tervik_admin_token', adminToken.trim()); else sessionStorage.removeItem('tervik_admin_token'); setRefresh(value => value + 1); setSettingsOpen(false); }}><span className="modal-feature-icon"><Settings2 size={25} /></span><h2>Your local connection.</h2><p>The dashboard connects through its API proxy. Sign in with an account session, or add the administrator token if the service requires it.</p><label className="field-label" htmlFor="session-token">Account session</label><input id="session-token" className="text-field" type="password" placeholder="Sign in via the API to get a session" value={sessionToken} onChange={event => setSessionToken(event.target.value)} autoComplete="off" /><label className="field-label" htmlFor="admin-token">Administrator token</label><input id="admin-token" className="text-field" type="password" placeholder="Optional in local developer mode" value={adminToken} onChange={event => setAdminToken(event.target.value)} autoComplete="off" /><p className="field-hint">Stored for this browser session only. This is separate from a project’s ingestion key.</p><div className="connection-details"><span>API status<strong>{health.data ? 'Connected' : 'Unavailable'}</strong></span><span>Storage<strong>{health.data?.storage || '—'}</strong></span><span>Analysis<strong>{health.data?.analysis_mode || 'Rule-based'}</strong></span></div><div className="modal-actions"><button type="button" className="button button-secondary" onClick={() => { setAdminToken(''); setSessionToken(''); }}>Clear tokens</button><button type="submit" className="button button-primary"><Check size={16} />Save connection</button></div></form></Modal>}
+    {settingsOpen && <Modal title="Connection settings" onClose={() => setSettingsOpen(false)}><form className="modal-body" onSubmit={event => { event.preventDefault(); if (sessionToken.trim()) sessionStorage.setItem('tervik_session', sessionToken.trim()); else clearSession(); setSignedIn(!!getSession()); if (adminToken.trim()) sessionStorage.setItem('tervik_admin_token', adminToken.trim()); else sessionStorage.removeItem('tervik_admin_token'); setRefresh(value => value + 1); setSettingsOpen(false); if (currentAuth()) navigate('overview'); }}><span className="modal-feature-icon"><Settings2 size={25} /></span><h2>Your local connection.</h2><p>The dashboard connects through its API proxy. Sign in with an account session, or add the administrator token if the service requires it.</p><label className="field-label" htmlFor="session-token">Account session</label><input id="session-token" className="text-field" type="password" placeholder="Sign in via the API to get a session" value={sessionToken} onChange={event => setSessionToken(event.target.value)} autoComplete="off" /><label className="field-label" htmlFor="admin-token">Administrator token</label><input id="admin-token" className="text-field" type="password" placeholder="Optional in local developer mode" value={adminToken} onChange={event => setAdminToken(event.target.value)} autoComplete="off" /><p className="field-hint">Stored for this browser session only. This is separate from a project’s ingestion key.</p><div className="connection-details"><span>API status<strong>{health.data ? 'Connected' : 'Unavailable'}</strong></span><span>Storage<strong>{health.data?.storage || '—'}</strong></span><span>Analysis<strong>{health.data?.analysis_mode || 'Rule-based'}</strong></span></div><div className="modal-actions"><button type="button" className="button button-secondary" onClick={() => { setAdminToken(''); setSessionToken(''); }}>Clear tokens</button><button type="submit" className="button button-primary"><Check size={16} />Save connection</button></div></form></Modal>}
   </>;
 }

@@ -132,12 +132,22 @@ This puts the dashboard on `www.tervik.in` and `tervik.in`, and the API on `api.
 
 ## 4. Sign in
 
-1. Open https://www.tervik.in. Until you sign in, the overview says "Access denied. Sign in or add your administrator token in connection settings."
-2. Choose **Connection settings** at the bottom left.
-3. Paste the `TERVIK_ADMIN_TOKEN` value from Railway's **Variables** into **Administrator token**, the second field. Leave **Account session** empty: a value there is used instead of the token.
-4. Choose **Save connection**. The overview shows **Create your first project**.
+**With an account.** Open https://www.tervik.in and choose **Sign up** (or **Log in**). Each account gets its own private workspace. Sign-up is open to anyone unless `TERVIK_SIGNUP_ENABLED=false`.
 
-The token is kept for that browser tab only. Paste it again in a new tab or window. It's never stored in Vercel.
+**As the operator, seeing every project.** On the **Log in** page, choose **Use the administrator token** and paste the `TERVIK_ADMIN_TOKEN` value from Railway's **Variables** into **Administrator token**. Leave **Account session** empty: a value there is used instead of the token. The token lasts for that browser tab only, and it's never stored in Vercel.
+
+**With Google or GitHub (optional).** Each button appears on the sign-in page once its client ID and secret are set on the Railway API service. Use your API's address in the callback URLs.
+
+- **Google:**
+  1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), choose **Create credentials → OAuth client ID**, with application type **Web application**.
+  2. Under **Authorized redirect URIs**, add `https://api.tervik.in/api/auth/oauth/google/callback`.
+  3. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to the values it shows. If it asks you to configure the consent screen first, choose **External** and add your app name and email.
+- **GitHub:**
+  1. In [GitHub Developer settings](https://github.com/settings/developers), choose **OAuth Apps → New OAuth App**.
+  2. Set **Homepage URL** to `https://www.tervik.in` and **Authorization callback URL** to `https://api.tervik.in/api/auth/oauth/github/callback`.
+  3. Choose **Generate a new client secret**, then set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
+
+Deploy after setting them. A Google or GitHub account signs in to the Tervik account with the same verified email, creating it on first sign-in.
 
 ## 5. Connect an agent to the hosted API
 

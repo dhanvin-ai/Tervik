@@ -16,6 +16,7 @@ import { PixelIcon, type PixelIconName } from './components/PixelIcon';
 import { CountChart, RateChart } from './components/DashCharts';
 import { AsciiMatrixBackground } from './components/AsciiMatrixBackground';
 import { AnimatedBrandLogo } from './components/AnimatedBrandLogo';
+import { TervikLogo } from './components/TervikLogo';
 import { HeroHeadline } from './components/HeroHeadline';
 import { DashboardShowcase, DitherDivider, FeatureShowcase, FinalCta, LandingFooter, OtlpBanner, PrinciplesGrid, SetupSection, TurnWalkthrough } from './components/LandingSections';
 import { WorksWithMarquee } from './components/WorksWithMarquee';
@@ -96,10 +97,8 @@ function useResource<T>(url: string | null, refresh = 0) {
   return { data, loading, error, retry: () => setRetry(value => value + 1) };
 }
 
-function Logo({ small = false }: { small?: boolean }) {
-  return <a href="#overview" className={`logo ${small ? 'logo-light' : ''}`} aria-label="Tervik overview">
-    <span className="logo-symbol"><span /></span><span>tervik<span className="logo-dot">.</span></span>
-  </a>;
+function Logo() {
+  return <a href="#overview" className="logo" aria-label="Tervik overview"><TervikLogo height={22} /></a>;
 }
 
 function CopyButton({ text, label = 'Copy', compact = false }: { text: string; label?: string; compact?: boolean }) {

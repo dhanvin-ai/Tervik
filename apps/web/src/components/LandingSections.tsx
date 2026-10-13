@@ -3,6 +3,7 @@ import { ArrowRight, Check, Copy, Download, LoaderCircle } from 'lucide-react';
 import { DitherCanvas } from './DitherCanvas';
 import { DitherText } from './DitherText';
 import { PixelIcon, type PixelIconName } from './PixelIcon';
+import { TervikLogo } from './TervikLogo';
 import { usePrefersReducedMotion, useScrollReveal } from '../hooks/useMotion';
 
 const INSTALL_COMMAND = 'npx skills add dhanvin-ai/tervik --skill tervik';
@@ -432,7 +433,7 @@ export function LandingFooter({ onStart, onDemo }: { onStart: () => void; onDemo
       <div className="lp-container">
         <div className="lp-footer-top">
           <div className="lp-footer-brand">
-            <a href="#welcome" className="lp-footer-logo"><span className="lp-footer-mark" aria-hidden="true">T</span>tervik</a>
+            <a href="#welcome" className="lp-footer-logo" aria-label="Tervik"><TervikLogo height={26} /></a>
             <p>Analytics for AI agents.<br />Find failures. Follow the evidence.</p>
             <a className="lp-footer-mail" href={GITHUB_URL} target="_blank" rel="noreferrer">github.com/dhanvin-ai/tervik</a>
           </div>

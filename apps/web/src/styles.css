@@ -1359,14 +1359,13 @@ body:has(.m-page) { min-width: 320px; }
   position: relative;
 }
 
-/* Hidden symbol grid revealed by the pointer's white spotlight. */
+/* Hero symbol grid: a dim, always-changing field across the whole box that
+   clears around the text, and the same symbols in bright white under the pointer. */
 .m-ascii-canvas-wrapper {
   position: absolute;
   inset: 0;
   overflow: hidden;
   pointer-events: none;
-  opacity: 0;
-  transition: opacity .08s ease;
   --spotlight-x: -1000px;
   --spotlight-y: -1000px;
   z-index: -1;
@@ -1378,6 +1377,12 @@ body:has(.m-page) { min-width: 320px; }
   width: 100%;
   height: 100%;
   pointer-events: none;
+}
+.m-ascii-ambient { opacity: 0; transition: opacity 1.6s ease .2s; }
+.m-ascii-canvas-wrapper.is-ready .m-ascii-ambient { opacity: 1; }
+.m-ascii-spotlight {
+  opacity: 0;
+  transition: opacity .08s ease;
   mask-image: radial-gradient(circle var(--spotlight-radius) at var(--spotlight-x) var(--spotlight-y), #000 0%, #000 80%, transparent 100%);
 }
 

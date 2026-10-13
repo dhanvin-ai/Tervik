@@ -907,8 +907,8 @@ function GoogleMark() {
   </svg>;
 }
 
-/** The Log in and Sign up page: Google and GitHub when the API has them set up,
- * and email and password underneath. Signing up creates the account's own workspace. */
+/** The Log in and Sign up page: Google, GitHub, and email and password underneath.
+ * Signing up creates the account's own workspace. */
 function AuthPage({ mode, initialError, onDone, onAdminToken }: {
   mode: AuthMode; initialError: string; onDone: () => void; onAdminToken: () => void;
 }) {
@@ -920,17 +920,19 @@ function AuthPage({ mode, initialError, onDone, onAdminToken }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialError);
   const signup = mode === 'signup';
+  // Which sign-in options the API has switched on; null until it answers, or if it can't be reached.
   useEffect(() => {
     let live = true;
     fetch(`${API_URL}/api/auth/providers`).then(response => response.ok ? response.json() : null)
-      .then(data => { if (live) setProviders(data ?? { google: false, github: false, signup: true }); })
-      .catch(() => { if (live) setProviders({ google: false, github: false, signup: true }); });
+      .then(data => { if (live) setProviders(data); })
+      .catch(() => { /* stays null: the API is unreachable */ });
     return () => { live = false; };
   }, []);
   useEffect(() => { setError(initialError); }, [mode, initialError]);
-  const oauth = !!(providers?.google || providers?.github);
-  const showForm = !oauth || emailOpen;
   const continueWith = (provider: 'google' | 'github') => {
+    const label = provider === 'google' ? 'Google' : 'GitHub';
+    if (!providers) { setError(`Can't reach Tervik right now, so ${label} sign-in can't start. Try again in a moment.`); return; }
+    if (!providers[provider]) { setError(`${label} sign-in isn't switched on for this server yet. Use email for now.`); setEmailOpen(true); return; }
     const back = window.location.origin + window.location.pathname;
     window.location.assign(`${API_URL}/api/auth/oauth/${provider}/start?return_to=${encodeURIComponent(back)}`);
   };
@@ -949,11 +951,11 @@ function AuthPage({ mode, initialError, onDone, onAdminToken }: {
       <p className="auth-lede">{signup ? 'Find and fix where your AI agents fail.' : 'Log in to your Tervik workspace.'}</p>
       {signup && <p className="auth-note">Your account gets its own private workspace. Connect an agent and see its first problems in minutes.</p>}
       {signup && providers && !providers.signup && <p className="auth-note">Sign-up is closed on this server. Ask its administrator for an account.</p>}
-      {providers?.google && <button type="button" className="auth-provider is-primary" onClick={() => continueWith('google')}><GoogleMark />Continue with Google</button>}
-      {providers?.google && providers.github && <div className="auth-divider"><span>Or continue with</span></div>}
-      {providers?.github && <button type="button" className="auth-provider" onClick={() => continueWith('github')}><Github size={19} />Continue with GitHub</button>}
-      {oauth && !emailOpen && <button type="button" className="auth-email-link" onClick={() => setEmailOpen(true)}>Or {signup ? 'sign up' : 'log in'} with email</button>}
-      {showForm && <form className="auth-email" onSubmit={event => { event.preventDefault(); void submit(); }}>
+      <button type="button" className="auth-provider is-primary" onClick={() => continueWith('google')}><GoogleMark />Continue with Google</button>
+      <div className="auth-divider"><span>Or continue with</span></div>
+      <button type="button" className="auth-provider" onClick={() => continueWith('github')}><Github size={19} />Continue with GitHub</button>
+      {!emailOpen && <button type="button" className="auth-email-link" onClick={() => setEmailOpen(true)}>Or {signup ? 'sign up' : 'log in'} with email</button>}
+      {emailOpen && <form className="auth-email" onSubmit={event => { event.preventDefault(); void submit(); }}>
         {signup && <><label className="field-label" htmlFor="auth-name">Workspace name <span className="field-optional">optional</span></label>
           <input id="auth-name" className="text-field" value={name} onChange={event => setName(event.target.value)} placeholder="Acme support team" autoComplete="organization" maxLength={120} /></>}
         <label className="field-label" htmlFor="auth-email">Email</label>

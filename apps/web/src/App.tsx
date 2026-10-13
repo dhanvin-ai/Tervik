@@ -24,7 +24,8 @@ import { useRevealOnScroll } from './hooks/useMotion';
 import type { AlertRule, BehaviorRule, Cluster, ClusterDetail, Conversation, ConversationDetail, Delivery, Discovery, DiscoveryIntent, EvalDataset, EvalRun, Improvement, Overview, Page, Project, Range, SetupStatus } from './types';
 
 const INSTALL_COMMAND = 'npx skills add dhanvin-ai/tervik --skill tervik';
-const INSTALL_PROMPT = 'Use the tervik skill to add Tervik analytics to this agent.';
+const INSTALL_PROMPT = 'Use the tervik skill to add Tervik analytics to the agent application in this workspace. If this is only the skill folder, ask me for the application path or repository URL first.';
+const OPENCODE_PROMPT = 'Use the tervik skill to monitor this OpenCode instance’s own conversations and tool calls. Install the OpenCode plugin and configure my Tervik project.';
 const rangeLabels: Record<Range, string> = { '24h': 'Last 24 hours', '7d': 'Last 7 days', '30d': 'Last 30 days' };
 const titles: Record<Page, string> = {
   overview: 'Overview', failures: 'Problems', discovery: 'Topics',
@@ -860,6 +861,7 @@ function IntegrationPage({ project, refresh, live, onConversation }: { project: 
   useEffect(() => { setKey(''); setShowKey(false); setKeyError(''); }, [project.id, refresh]);
   const shownKey = key && showKey ? key : 'tvk_••••••••••••••••••••••••';
   const prompt = `${INSTALL_PROMPT} Project ID: ${project.id}. Endpoint: ${endpointBase}.`;
+  const opencodePrompt = `${OPENCODE_PROMPT} Endpoint: ${endpointBase}.`;
   const env = `TERVIK_PROJECT_ID=${project.id}\nTERVIK_ENDPOINT=${endpointBase}`;
   const code = language === 'python'
     ? `# Copy scripts/tervik_client.py from the skill into your server code.\nimport os\nimport tervik_client as tervik\n\ntervik.init(os.environ["TERVIK_PROJECT_ID"], endpoint=os.environ["TERVIK_ENDPOINT"])\n\n# For each message your agent handles:\nturn = tervik.begin(user_id="user-123", agent_name="my-agent",\n                    input=user_message, conversation_id=conversation_id)\nwith turn.tool("lookup_order", {"order_id": "1042"}) as call:\n    call.output = lookup_order("1042")\nturn.end(output=reply)\n\ntervik.shutdown()  # when the server stops`
@@ -868,7 +870,8 @@ function IntegrationPage({ project, refresh, live, onConversation }: { project: 
       : `curl -X POST "${endpointBase}/api/v1/capture-session" \\\n  -H "x-org-id: ${project.id}" -H "Content-Type: application/json" \\\n  -d '{"session_id": "conv-123", "user_data": {"user_id": "user-123"}}'\n\ncurl -X POST "${endpointBase}/api/v1/capture-event" \\\n  -H "x-org-id: ${project.id}" -H "Content-Type: application/json" \\\n  -d '{"event_id": "'"$(uuidgen)"'", "session_id": "conv-123", "primitive_name": "my-agent",\n       "args": "Where is my order?", "result": "It ships tomorrow.", "latency": 1200}'`;
   return <div className="integration-layout"><div className="integration-main">
     <section className="setup-step panel"><div className="step-heading"><span className="step-number">01</span><div><h3>Add the Tervik skill</h3><p>Give your coding agent (Claude Code, Codex, Cursor, …) Tervik’s integration instructions.</p></div></div><div className="command-box"><code>{INSTALL_COMMAND}</code><CopyButton text={INSTALL_COMMAND} /></div><div className="step-footer"><span>Works with agents that support skills</span><a href="/tervik-skill.zip" download className="text-button"><Download size={14} />Download ZIP</a></div></section>
-    <section className="setup-step panel"><div className="step-heading"><span className="step-number">02</span><div><h3>Run this prompt in your agent’s project</h3><p>It finds your agent’s message handler and tools and adds Tervik around them.</p></div></div><div className="command-box prompt-box"><code>{prompt}</code><CopyButton text={prompt} /></div><div className="step-footer"><span>Review the code changes before you run them.</span></div></section>
+    <section className="setup-step panel"><div className="step-heading"><span className="step-number">02</span><div><h3>Run this prompt in your agent’s project</h3><p>It finds your agent’s message handler and tools and adds Tervik around them. Open your agent application’s project first: the downloaded skill folder isn’t your agent. If that’s all you have open, give the coding agent your application’s path or repository URL.</p></div></div><div className="command-box prompt-box"><code>{prompt}</code><CopyButton text={prompt} /></div><div className="step-footer"><span>Review the code changes before you run them.</span></div>
+      <p className="step-alt">To monitor OpenCode’s own chats and tool calls instead, run this in OpenCode. It installs a plugin that uses this project’s secret key (step 03, <em>Prefer a secret key?</em>).</p><div className="command-box prompt-box"><code>{opencodePrompt}</code><CopyButton text={opencodePrompt} /></div></section>
     <section className="setup-step panel"><div className="step-heading"><span className="step-number">03</span><div><h3>Your connection details</h3><p>Put these in your agent server’s environment. The prompt above already includes them.</p></div></div>
       <label className="field-label">Project ID</label><div className="key-box"><code>{project.id}</code><CopyButton text={project.id} compact label="Copy project ID" /></div>
       <label className="field-label endpoint-label" htmlFor="ingestion-endpoint">Endpoint</label><input id="ingestion-endpoint" className="text-field" type="url" value={endpoint} onChange={event => setEndpoint(event.target.value)} />

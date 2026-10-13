@@ -1,4 +1,4 @@
 interface:
   display_name: "Tervik"
-  short_description: "Connect agent conversations and tool spans to Tervik"
-  default_prompt: "Use the Tervik skill to add analytics to this agent."
+  short_description: "Monitor agent applications or OpenCode chats with Tervik"
+  default_prompt: "Use $tervik to connect my agent to Tervik. First determine whether I want to monitor OpenCode itself or an application in this workspace."

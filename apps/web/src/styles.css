@@ -910,6 +910,9 @@ code, pre { font-family: var(--font-mono); }
 }
 .text-field:focus { border-color: var(--accent); outline: none; }
 .text-field::placeholder { color: #52525b; }
+.step-alt { margin: 18px 0 10px; color: #8a8a8a; font-size: 12px; line-height: 1.6; }
+.step-alt em { color: #d4d4d4; font-style: normal; }
+
 /* Log in and Sign up: a centred card on the dark page. */
 .auth-page { position: relative; display: grid; place-items: center; min-height: 100vh; min-height: 100svh; padding: 72px 16px 48px; box-sizing: border-box; background: #0a0a0a; color: #ededed; font-family: var(--font-sans); }
 .auth-back { position: absolute; top: 24px; left: 24px; display: inline-flex; align-items: center; gap: 8px; color: #8a8a8a; font-size: 13px; text-decoration: none; transition: color .15s ease; }

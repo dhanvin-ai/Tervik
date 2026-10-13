@@ -22,7 +22,7 @@ Follow the sections in order. Steps that name `tervik.in` use your own domain in
 
 1. **Create the API service.** In your Railway project, choose **New → GitHub Repo** and pick this repository.
 2. **Point it at the API.** Click the new service's card to open its panel, then open **Settings**:
-   - **Source → Branch:** the branch to deploy, `ui-maritime-theme` until it's merged into `main`.
+   - **Source → Branch:** `main`.
    - **Source → Root Directory:** `/apps/api`.
    - **Config-as-code → Railway config file:** `/apps/api/railway.json`. This builds the service from the Dockerfile and health-checks `/api/health`.
 3. **Add a database.** On the project canvas, choose **New → Database → PostgreSQL**. Tervik creates its tables on first start.
@@ -59,7 +59,7 @@ Follow the sections in order. Steps that name `tervik.in` use your own domain in
 ## 2. The dashboard on Vercel
 
 1. **Import the repository.** Skip this if the Vercel project already exists. Otherwise choose **Add New → Project**, import this repository, set **Root Directory** to `apps/web`, and keep the **Vite** framework preset. The dashboard builds on its own: the skill download in `apps/web/public` is committed.
-2. **Production branch.** Under **Settings → Git → Production Branch**, choose `ui-maritime-theme` until it's merged into `main`.
+2. **Production branch.** Under **Settings → Git → Production Branch**, choose `main`.
 3. **API address.** Under **Settings → Environment Variables → Add New**:
    - **Type:** **Config**, not **Secret**. The dashboard runs in the browser, so the API address is public by design, and Vercel refuses a `VITE_` variable marked secret.
    - **Key:** `VITE_API_URL`. Keep the `VITE_` prefix; without it the dashboard never sees the value.
@@ -173,7 +173,7 @@ cd ~/Projects/tervik && npm run demo:agent -- --persona general
 
 | You see | Cause and fix |
 | - | - |
-| The dashboard on Vercel is the old design | Vercel builds `main`. Set **Production Branch** to `ui-maritime-theme` and redeploy. |
+| The dashboard on Vercel is an old design | Vercel builds an old branch. Set **Production Branch** to `main` and redeploy. |
 | "API offline" | `VITE_API_URL` is missing or wrong, or the dashboard wasn't redeployed after setting it. |
 | A request to `/api/...` on `www.tervik.in` returns 404 | Same cause: without `VITE_API_URL`, the dashboard asks Vercel instead of the API. |
 | "Access denied" after signing in | The token is in **Account session** instead of **Administrator token**, or it was cut short when copied. |

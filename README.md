@@ -52,7 +52,7 @@ git clone https://github.com/dhanvin-ai/tervik.git ~/Projects/tervik
 ```
 
 ```bash
-cd ~/Projects/tervik && git checkout ui-maritime-theme && npm ci
+cd ~/Projects/tervik && npm ci
 ```
 
 ```bash
@@ -115,12 +115,10 @@ The Tervik skill gives a coding agent (Claude Code, Codex, or Cursor) instructio
 1. **Install the skill** in your agent's folder:
 
    ```bash
-   cd ~/Projects/YOUR_AGENT && npx skills add https://github.com/dhanvin-ai/tervik/tree/ui-maritime-theme/skills/tervik -a claude-code -a codex -a cursor -y
+   cd ~/Projects/YOUR_AGENT && npx skills add dhanvin-ai/tervik --skill tervik -a claude-code -a codex -a cursor -y
    ```
 
-   The shorter `npx skills add dhanvin-ai/tervik --skill tervik` shown on the Connect page reads the `main` branch, which has an older version of the skill until this branch is merged.
-
-2. **Run the prompt.** Copy the prompt from step 02 of the Connect page. It includes your project ID and endpoint. Open your agent's folder in your coding agent and paste it. The skill copies a one-file client into the project, starts it once at start-up, wraps each message and tool call, and marks each change with a `tervik.instrumented` comment. Review the changes.
+2. **Run the prompt.** Copy the prompt from step 02 of the Connect page. It includes your project ID and endpoint. Open your agent's folder in your coding agent and paste it. Open the agent's own project, not the downloaded `tervik` skill folder; if only the skill folder is open, the skill asks for your application's path or repository URL. The skill copies a one-file client into the project, starts it once at start-up, wraps each message and tool call, and marks each change with a `tervik.instrumented` comment. Review the changes.
 
 3. **Run your agent** with the details from step 03 of the Connect page:
 
@@ -131,6 +129,8 @@ The Tervik skill gives a coding agent (Claude Code, Codex, or Cursor) instructio
    Use `TERVIK_ENDPOINT=http://127.0.0.1:8000` for the local Tervik. If your agent starts with a different command, use that command after the two variables.
 
 4. **Check the connection.** Send your agent a message. Step 04 of the Connect page changes from "Waiting for your agent's first event…" to **Connected**, and the conversation appears under **Conversations**.
+
+**Monitor OpenCode itself.** To send OpenCode's own chats and tool calls to Tervik, run the second prompt in step 02 of the Connect page inside OpenCode. The skill installs a plugin ([how it works](skills/tervik/references/opencode.md)) that uses the project's secret key, then OpenCode needs a restart. It captures new messages and tool outcomes, not raw tool inputs and outputs.
 
 The project ID can only add events to its project; it can't read anything. To use a secret key instead, open **Prefer a secret key?** on the Connect page and set `TERVIK_API_KEY` in place of `TERVIK_PROJECT_ID`. Without a coding agent, see **Prefer to add it by hand?** on the same page, or call the capture API directly ([docs/api.md](docs/api.md)).
 

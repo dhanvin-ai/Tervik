@@ -37,10 +37,10 @@ cd ~/Projects/my-agent && python3 agent.py
 This installs the skill into the project for Claude Code (`.claude/skills/`), Codex, and Cursor (both `.agents/skills/`):
 
 ```bash
-cd ~/Projects/my-agent && npx skills add https://github.com/dhanvin-ai/tervik/tree/ui-maritime-theme/skills/tervik -a claude-code -a codex -a cursor -y
+cd ~/Projects/my-agent && npx skills add dhanvin-ai/tervik --skill tervik -a claude-code -a codex -a cursor -y
 ```
 
-The Connect page shows the shorter `npx skills add dhanvin-ai/tervik --skill tervik`. That command reads the `main` branch, which has an older version of the skill until this branch is merged.
+It's the same command the Connect page shows, with the coding agents to install it for.
 
 If you'd rather not use `npx`, copy the skill yourself:
 

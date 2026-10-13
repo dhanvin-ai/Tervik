@@ -1368,6 +1368,7 @@ body:has(.m-page) { min-width: 320px; }
   pointer-events: none;
   --spotlight-x: -1000px;
   --spotlight-y: -1000px;
+  --spotlight-radius: 70px;
   z-index: -1;
 }
 .m-ascii-canvas {
@@ -1380,10 +1381,10 @@ body:has(.m-page) { min-width: 320px; }
 }
 .m-ascii-ambient { opacity: 0; transition: opacity 1.6s ease .2s; }
 .m-ascii-canvas-wrapper.is-ready .m-ascii-ambient { opacity: 1; }
+/* Its position, size, and opacity are eased frame by frame in AsciiMatrixBackground. */
 .m-ascii-spotlight {
   opacity: 0;
-  transition: opacity .08s ease;
-  mask-image: radial-gradient(circle var(--spotlight-radius) at var(--spotlight-x) var(--spotlight-y), #000 0%, #000 80%, transparent 100%);
+  mask-image: radial-gradient(circle var(--spotlight-radius) at var(--spotlight-x) var(--spotlight-y), #000 0%, #000 55%, transparent 100%);
 }
 
 /* Landing navigation */

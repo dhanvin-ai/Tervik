@@ -20,6 +20,7 @@ import { TervikLogo } from './components/TervikLogo';
 import { HeroHeadline } from './components/HeroHeadline';
 import { DashboardShowcase, DitherDivider, FeatureShowcase, FinalCta, LandingFooter, OtlpBanner, PrinciplesGrid, SetupSection, TurnWalkthrough } from './components/LandingSections';
 import { WorksWithMarquee } from './components/WorksWithMarquee';
+import { useRevealOnScroll } from './hooks/useMotion';
 import type { AlertRule, BehaviorRule, Cluster, ClusterDetail, Conversation, ConversationDetail, Delivery, Discovery, DiscoveryIntent, EvalDataset, EvalRun, Improvement, Overview, Page, Project, Range, SetupStatus } from './types';
 
 const INSTALL_COMMAND = 'npx skills add dhanvin-ai/tervik --skill tervik';
@@ -877,6 +878,15 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [copyError, setCopyError] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const pageRef = useRevealOnScroll<HTMLDivElement>();
+  // The navigation bar gets a backdrop once the page moves under it.
+  useEffect(() => {
+    const update = () => setScrolled(window.scrollY > 8);
+    update();
+    window.addEventListener('scroll', update, { passive: true });
+    return () => window.removeEventListener('scroll', update);
+  }, []);
 
   const copyHeroCmd = async () => {
     setCopyError(false);
@@ -889,9 +899,10 @@ function Welcome({ onStart, onDemo, demoBusy }: { onStart: () => void; onDemo: (
     }
   };
 
-  return <div className="m-page">
+  return <div className="m-page" ref={pageRef}>
+    <div className="m-scroll-progress" aria-hidden="true" />
     {/* Landing navigation */}
-    <header className="m-nav-wrapper">
+    <header className={`m-nav-wrapper ${scrolled ? 'is-scrolled' : ''}`}>
       <nav className="m-navbar">
         <a href="#welcome" className="m-brand">
           <AnimatedBrandLogo />

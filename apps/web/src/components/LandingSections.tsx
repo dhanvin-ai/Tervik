@@ -4,7 +4,7 @@ import { DitherCanvas } from './DitherCanvas';
 import { DitherText } from './DitherText';
 import { PixelIcon, type PixelIconName } from './PixelIcon';
 import { TervikLogo } from './TervikLogo';
-import { usePrefersReducedMotion, useScrollReveal } from '../hooks/useMotion';
+import { useInView, usePrefersReducedMotion, useScrollReveal } from '../hooks/useMotion';
 
 const INSTALL_COMMAND = 'npx skills add dhanvin-ai/tervik --skill tervik';
 const INSTALL_PROMPT = 'Use the tervik skill to add Tervik analytics to this agent.';
@@ -24,8 +24,43 @@ function useAutoCycle(count: number, intervalMs: number) {
   return { ref, index, cycling: !manual && !reduced && isRevealed, pick: (value: number) => { setManual(true); setIndex(value); } };
 }
 
+/** A CSS custom property for inline styles, such as the stagger position `--i`. */
+const cssVars = (vars: Record<string, string | number>) => vars as CSSProperties;
+
+/** Each line rises out of its own mask as the heading scrolls into view. */
 function Heading({ title, muted, align = 'left', className = '' }: { title: string; muted: string; align?: 'left' | 'right'; className?: string }) {
-  return <h2 className={`lp-heading ${align === 'right' ? 'is-right' : ''} ${className}`}>{title}<span>{muted}</span></h2>;
+  return <h2 className={`lp-heading ${align === 'right' ? 'is-right' : ''} ${className}`}>
+    <span className="lp-mask" data-reveal="rise"><span>{title}</span></span>
+    <span className="lp-mask lp-heading-muted" data-reveal="rise" style={cssVars({ '--i': 1 })}><span>{muted}</span></span>
+  </h2>;
+}
+
+/** Counts up to a figure such as "1,284", "8.6%", or "1.4 s" once it scrolls into view. */
+function CountUp({ value }: { value: string }) {
+  const match = value.match(/^([^\d]*)([\d,]+(?:\.\d+)?)(.*)$/);
+  const reduced = usePrefersReducedMotion();
+  const { ref, inView } = useInView<HTMLElement>();
+  const target = match ? Number(match[2].replace(/,/g, '')) : 0;
+  const decimals = match?.[2].split('.')[1]?.length ?? 0;
+  const [shown, setShown] = useState(reduced || !match ? target : 0);
+  useEffect(() => {
+    if (!match || reduced || !inView) { setShown(target); return; }
+    let frame = 0;
+    const start = performance.now();
+    const step = (now: number) => {
+      const progress = Math.min(1, (now - start) / 1400);
+      setShown(target * (1 - Math.pow(2, -10 * progress)));
+      if (progress < 1) frame = requestAnimationFrame(step);
+      else setShown(target);
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [inView, reduced, target]);  // eslint-disable-line react-hooks/exhaustive-deps
+  if (!match) return <strong>{value}</strong>;
+  const text = shown.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  // The final value sits invisibly underneath: it holds the width while counting,
+  // and it is what screen readers read.
+  return <strong ref={ref} className="lp-count"><span className="lp-count-final">{value}</span><span aria-hidden="true">{match[1]}{text}{match[3]}</span></strong>;
 }
 
 function Window({ title, children, className = '' }: { title: ReactNode; children: ReactNode; className?: string }) {
@@ -117,13 +152,12 @@ const FEATURES: { lead: string; text: string; visual: ReactNode; seed: number }[
 ];
 
 export function FeatureShowcase() {
-  const { ref, isRevealed } = useScrollReveal<HTMLDivElement>(0.1);
   return (
     <section id="features" className="lp-section lp-section-first">
       <div className="lp-container">
         <Heading title="Know exactly where your agent fails." muted="Every turn recorded, every signal tied to evidence." />
-        <div ref={ref} className={`lp-feature-grid ${isRevealed ? 'is-revealed' : ''}`}>
-          {FEATURES.map(({ lead, text, visual, seed }) => <article key={lead} className="lp-feature">
+        <div className="lp-feature-grid">
+          {FEATURES.map(({ lead, text, visual, seed }, index) => <article key={lead} className="lp-feature" data-reveal="up" style={cssVars({ '--i': index % 2 })}>
             <div className="lp-visual">
               <DitherCanvas seed={seed} vignette={0.8} intensity={1.15} />
               <div className="lp-visual-stage">{visual}</div>
@@ -139,7 +173,7 @@ export function FeatureShowcase() {
 /* ---------- 2. Divider ---------- */
 
 export function DitherDivider() {
-  return <div className="lp-divider" aria-hidden="true"><DitherCanvas vignette={0} intensity={0.6} scale={1.6} speed={0.6} seed={9} /></div>;
+  return <div className="lp-divider" aria-hidden="true" data-reveal="fade"><DitherCanvas vignette={0} intensity={0.6} scale={1.6} speed={0.6} seed={9} /></div>;
 }
 
 /* ---------- 3. Principles grid ---------- */
@@ -149,7 +183,7 @@ function OutboxArt() {
   return (
     <div className="lp-ascii">
       <p className="lp-ascii-cmd">ingestion jobs · support-bot</p>
-      {rows.map(([label, blocks, count]) => <p key={label}>
+      {rows.map(([label, blocks, count], row) => <p key={label} style={cssVars({ '--row': row })}>
         <span className="lp-ascii-label">{label}</span>
         <span className="lp-ascii-bar">{'█'.repeat(blocks)}<span>{'░'.repeat(15 - blocks)}</span></span>
         <span className="lp-ascii-count">{count}</span>
@@ -160,11 +194,12 @@ function OutboxArt() {
 
 function StackArt() {
   // Four dotted isometric slabs: ingest, detect, cluster, replay.
-  const slab = (y: number, key: number) => <g key={key} transform={`translate(0 ${y})`}>
+  // Each slab drops into place, bottom first, when the column is shown.
+  const slab = (y: number, key: number) => <g key={key} transform={`translate(0 ${y})`}><g className="lp-slab" style={cssVars({ '--slab': key })}>
     <path d="M100 10 L180 50 L100 90 L20 50 Z" fill="url(#lp-dots-top)" />
     <path d="M20 50 L100 90 L100 104 L20 64 Z" fill="url(#lp-dots-left)" />
     <path d="M100 90 L180 50 L180 64 L100 104 Z" fill="url(#lp-dots-right)" />
-  </g>;
+  </g></g>;
   return (
     <svg className="lp-stack" viewBox="0 0 200 200" aria-hidden="true">
       <defs>
@@ -183,7 +218,8 @@ function GaugeArt() {
       <rect x="44" y="2" width="12" height="6" fill="#8a8a8a" />
       <circle cx="50" cy="56" r="38" fill="none" stroke="#9a9a9a" strokeWidth="2.4" strokeDasharray="1.4 2.2" />
       {Array.from({ length: 12 }, (_, i) => <rect key={i} x="49" y="20" width="2" height="4" fill="#6a6a6a" transform={`rotate(${i * 30} 50 56)`} />)}
-      <line x1="50" y1="56" x2="50" y2="28" stroke="#e5e5e5" strokeWidth="3" strokeDasharray="2 1.2" transform={`rotate(${angle} 50 56)`} />
+      {/* The needle swings from zero to its reading when the column is shown. */}
+      <g className="lp-needle" style={cssVars({ '--angle': `${angle}deg` })}><line x1="50" y1="56" x2="50" y2="28" stroke="#e5e5e5" strokeWidth="3" strokeDasharray="2 1.2" transform={`rotate(${angle} 50 56)`} /></g>
       <rect x="47" y="53" width="6" height="6" fill="#e5e5e5" />
     </svg>
     <figcaption>{value.toFixed(1)}%<small>{label}</small></figcaption>
@@ -203,7 +239,7 @@ export function PrinciplesGrid() {
       <div className="lp-container">
         <Heading title="Every signal is deterministic," muted="versioned, and tied to a recorded event." />
         <div className="lp-principles">
-          {PRINCIPLES.map(item => <div key={item.title} className="lp-principle">
+          {PRINCIPLES.map((item, index) => <div key={item.title} className="lp-principle" data-reveal="up" style={cssVars({ '--i': index })}>
             <h3>{item.title}</h3>
             <p>{item.text}</p>
             <div className="lp-principle-art">{item.art}</div>
@@ -291,13 +327,13 @@ export function TurnWalkthrough({ onStart }: { onStart: () => void }) {
       <div className="lp-container">
         <div className="lp-heading-row">
           <Heading title="Follow one turn through Tervik." muted="From the first prompt to a verified fix." />
-          <div className="lp-heading-actions">
+          <div className="lp-heading-actions" data-reveal="fade" style={cssVars({ '--i': 2 })}>
             <button className="lp-btn" onClick={onStart}>Open the dashboard<ArrowRight size={15} /></button>
             <span>Runs locally. No account needed.</span>
           </div>
         </div>
         <div ref={ref} className="lp-tabs">
-          <div className="lp-tab-list" role="tablist" aria-label="Turn stages">
+          <div className="lp-tab-list" role="tablist" aria-label="Turn stages" data-reveal="left">
             {STAGES.map((item, i) => <button key={item.title} role="tab" aria-selected={index === i} aria-controls="lp-stage-panel"
               className={`lp-tab ${index === i ? 'is-active' : ''}`} onClick={() => pick(i)}>
               {index === i && <DitherCanvas className="lp-tab-dither" vignette={0} intensity={0.8} seed={i} />}
@@ -306,7 +342,7 @@ export function TurnWalkthrough({ onStart }: { onStart: () => void }) {
               {index === i && cycling && <span className="lp-tab-progress" key={`p-${i}`} />}
             </button>)}
           </div>
-          <div className="lp-tab-panel" id="lp-stage-panel" role="tabpanel"><StagePanel stage={index} onStart={onStart} /></div>
+          <div className="lp-tab-panel" id="lp-stage-panel" role="tabpanel" data-reveal="right" style={cssVars({ '--i': 1 })}><StagePanel stage={index} onStart={onStart} /></div>
         </div>
       </div>
     </section>
@@ -328,11 +364,11 @@ export function SetupSection({ onCopy, copied }: { onCopy: () => void; copied: b
     <section id="setup-steps" className="lp-section">
       <div className="lp-container">
         <div className="lp-heading-row is-mirrored">
-          <button className="lp-btn lp-btn-outline" onClick={onCopy}>{copied ? <Check size={15} /> : <Copy size={15} />}<span aria-live="polite">{copied ? 'Command copied' : 'Copy install command'}</span></button>
+          <span data-reveal="fade" style={cssVars({ '--i': 2 })}><button className="lp-btn lp-btn-outline" onClick={onCopy}>{copied ? <Check size={15} /> : <Copy size={15} />}<span aria-live="polite">{copied ? 'Command copied' : 'Copy install command'}</span></button></span>
           <Heading title="Set it up from your coding agent." muted="One skill. One prompt. Real traffic." align="right" />
         </div>
         <div ref={ref} className="lp-setup">
-          <div className="lp-code">
+          <div className="lp-code" data-reveal="left">
             <button className="lp-code-copy" onClick={onCopy} aria-label="Copy install command">{copied ? <Check size={14} /> : <Copy size={14} />}</button>
             <pre>
               {line(0, <><span className="c">{'# 1 · add the skill to your coding agent'}</span>{'\n'}<span className="p">$</span> {INSTALL_COMMAND}{'\n'}</>)}
@@ -343,7 +379,7 @@ export function SetupSection({ onCopy, copied }: { onCopy: () => void; copied: b
             </pre>
             <a className="lp-code-link" href="/tervik-skill.zip" download>Download skill ZIP<Download size={12} /></a>
           </div>
-          <div className="lp-steps">
+          <div className="lp-steps" data-reveal="right" style={cssVars({ '--i': 1 })}>
             {SETUP.map((step, i) => <button key={step.title} className={`lp-tab lp-step ${index === i ? 'is-active' : ''}`} onClick={() => pick(i)} aria-pressed={index === i}>
               {index === i && <DitherCanvas className="lp-tab-dither" vignette={0} intensity={0.8} seed={i + 4} />}
               <span className="lp-tab-icon"><PixelIcon name={step.icon} /></span>
@@ -368,16 +404,16 @@ export function DashboardShowcase({ onDemo, demoBusy }: { onDemo: () => void; de
   return (
     <section id="preview" className="lp-section">
       <div className="lp-container">
-        <h2 className="lp-dither-heading"><DitherText text="See every failure in one place." /></h2>
-        <div className="lp-showcase">
+        <h2 className="lp-dither-heading" data-reveal="fade"><DitherText text="See every failure in one place." /></h2>
+        <div className="lp-showcase" data-reveal="scale">
           <DitherCanvas tone="blue" vignette={0.45} intensity={1} scale={0.8} seed={3} />
           <Window title={<>tervik · overview <span className="lp-live">last 7 days</span></>} className="lp-dashboard">
             <div className="lp-metrics">
-              {[['Conversations', '1,284'], ['Failure rate', '8.6%'], ['Affected users', '97'], ['Avg latency', '1.4 s']].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
+              {[['Conversations', '1,284'], ['Failure rate', '8.6%'], ['Affected users', '97'], ['Avg latency', '1.4 s']].map(([label, value]) => <div key={label}><span>{label}</span><CountUp value={value} /></div>)}
             </div>
             <p className="lp-run-label">failure clusters</p>
             <div className="lp-dash-table">
-              {clusters.map(([title, severity, count, trend]) => <div key={title}>
+              {clusters.map(([title, severity, count, trend], row) => <div key={title} style={cssVars({ '--row': row })}>
                 <span className={`lp-sev is-${severity}`} />
                 <span className="lp-dash-title">{title}</span>
                 <span className="lp-meter" style={{ '--fill': `${(count / 42) * 100}%` } as CSSProperties} />
@@ -387,7 +423,7 @@ export function DashboardShowcase({ onDemo, demoBusy }: { onDemo: () => void; de
             </div>
           </Window>
         </div>
-        <div className="lp-showcase-foot">
+        <div className="lp-showcase-foot" data-reveal="up">
           <p>The dashboard ranks clusters by how many conversations they touch, links every count back to the recorded messages and spans, and keeps what you have resolved out of the way.</p>
           <button className="lp-btn" disabled={demoBusy} onClick={onDemo}>{demoBusy ? <LoaderCircle size={15} className="spin" /> : null}Explore the sample workspace<ArrowRight size={15} /></button>
         </div>
@@ -402,7 +438,7 @@ export function OtlpBanner() {
   return (
     <section className="lp-section lp-section-tight">
       <div className="lp-container">
-        <div className="lp-banner">
+        <div className="lp-banner" data-reveal="scale">
           <DitherCanvas vignette={0.15} intensity={0.9} scale={0.7} seed={7} />
           <div className="lp-banner-content">
             <h3>Already exporting OpenTelemetry?<span>Send your OTLP traces to Tervik as they are.</span></h3>
@@ -418,8 +454,8 @@ export function FinalCta({ onStart }: { onStart: () => void }) {
   return (
     <section className="lp-final">
       <div className="lp-container">
-        <h2 className="lp-dither-heading"><DitherText text="Find your first failure." /></h2>
-        <button className="lp-btn" onClick={onStart}>Go to the dashboard<ArrowRight size={15} /></button>
+        <h2 className="lp-dither-heading" data-reveal="fade"><DitherText text="Find your first failure." /></h2>
+        <div data-reveal="up" style={cssVars({ '--i': 1 })}><button className="lp-btn" onClick={onStart}>Go to the dashboard<ArrowRight size={15} /></button></div>
       </div>
     </section>
   );
@@ -432,19 +468,19 @@ export function LandingFooter({ onStart, onDemo }: { onStart: () => void; onDemo
     <footer className="lp-footer">
       <div className="lp-container">
         <div className="lp-footer-top">
-          <div className="lp-footer-brand">
+          <div className="lp-footer-brand" data-reveal="up">
             <a href="#welcome" className="lp-footer-logo" aria-label="Tervik"><TervikLogo height={26} /></a>
             <p>Analytics for AI agents.<br />Find failures. Follow the evidence.</p>
             <a className="lp-footer-mail" href={GITHUB_URL} target="_blank" rel="noreferrer">github.com/dhanvin-ai/tervik</a>
           </div>
           <nav className="lp-footer-cols" aria-label="Footer">
-            <div><h4>Product</h4><button onClick={onStart}>Dashboard</button><button onClick={onDemo}>Sample workspace</button><a href="#integration">Integration</a><a href="/tervik-skill.zip" download>Skill ZIP</a></div>
-            <div><h4>Works with</h4>{['Claude Code', 'Cursor', 'OpenCode', 'Codex', 'LangChain'].map(name => <a key={name} href="#setup-steps">{name}</a>)}</div>
-            <div><h4>Learn</h4><a href="#features">Features</a><a href="#how-it-works">How it works</a><a href="#walkthrough">Walkthrough</a><a href="#setup-steps">Setup</a></div>
-            <div><h4>Source</h4><a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a><a href={`${GITHUB_URL}#readme`} target="_blank" rel="noreferrer">README</a></div>
+            <div data-reveal="up" style={cssVars({ '--i': 1 })}><h4>Product</h4><button onClick={onStart}>Dashboard</button><button onClick={onDemo}>Sample workspace</button><a href="#integration">Integration</a><a href="/tervik-skill.zip" download>Skill ZIP</a></div>
+            <div data-reveal="up" style={cssVars({ '--i': 2 })}><h4>Works with</h4>{['Claude Code', 'Cursor', 'OpenCode', 'Codex', 'LangChain'].map(name => <a key={name} href="#setup-steps">{name}</a>)}</div>
+            <div data-reveal="up" style={cssVars({ '--i': 3 })}><h4>Learn</h4><a href="#features">Features</a><a href="#how-it-works">How it works</a><a href="#walkthrough">Walkthrough</a><a href="#setup-steps">Setup</a></div>
+            <div data-reveal="up" style={cssVars({ '--i': 4 })}><h4>Source</h4><a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a><a href={`${GITHUB_URL}#readme`} target="_blank" rel="noreferrer">README</a></div>
           </nav>
         </div>
-        <div className="lp-footer-bottom">
+        <div className="lp-footer-bottom" data-reveal="fade">
           <span>&copy; {new Date().getFullYear()} Tervik. All rights reserved.</span>
           <span>Runs on your machine.</span>
         </div>

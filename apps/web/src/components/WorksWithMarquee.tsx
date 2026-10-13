@@ -42,7 +42,7 @@ function LogoList({ hidden = false }: { hidden?: boolean }) {
 
 export function WorksWithMarquee() {
   return (
-    <section className="m-works-with" aria-labelledby="m-works-caption">
+    <section className="m-works-with" aria-labelledby="m-works-caption" data-reveal="fade">
       <p id="m-works-caption" className="m-works-caption">Works with the coding agents and frameworks you already use</p>
       <div className="m-works-marquee">
         <div className="m-works-track">

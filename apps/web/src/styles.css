@@ -1354,7 +1354,7 @@ body:has(.m-page) { min-width: 320px; }
   background: #090909;
   min-height: 100vh;
   color: #ededed;
-  overflow-x: hidden;
+  overflow-x: clip;
   font-family: var(--font-sans);
   position: relative;
 }
@@ -1383,13 +1383,22 @@ body:has(.m-page) { min-width: 320px; }
 
 /* Landing navigation */
 .m-nav-wrapper {
-  position: relative;
+  position: sticky;
+  top: 0;
   z-index: 50;
   display: flex;
   justify-content: center;
   pointer-events: none;
   padding: 0 32px;
+  border-bottom: 1px solid transparent;
+  transition: background-color .35s ease, border-color .35s ease, backdrop-filter .35s ease;
 }
+.m-nav-wrapper.is-scrolled {
+  background: rgba(9, 9, 9, .72);
+  border-bottom-color: rgba(255, 255, 255, .08);
+  backdrop-filter: blur(14px) saturate(140%);
+}
+.m-nav-wrapper.is-scrolled .m-navbar { height: 64px; }
 .m-navbar {
   pointer-events: auto;
   width: 100%;
@@ -2132,6 +2141,11 @@ body:has(.m-page) { min-width: 320px; }
 }
 
 @keyframes charFadeBlur {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+    transform: translateY(14px);
+  }
   to {
     opacity: 1;
     filter: blur(0px);
@@ -2173,14 +2187,15 @@ body:has(.m-page) { min-width: 320px; }
 
 /* ===== Landing sections after the logo marquee (maritime.sh layout) ===== */
 .lp-container { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
-.lp-section { padding: 56px 0; scroll-margin-top: 48px; }
+.lp-section { padding: 56px 0; scroll-margin-top: 80px; }
 .lp-section-first { padding-top: 88px; }
 .lp-section-tight { padding: 40px 0; }
 .lp-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .lp-dither { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; pointer-events: none; }
 
 .lp-heading { margin: 0 0 64px; color: #fff; font-size: 36px; font-weight: 400; line-height: 1.25; letter-spacing: -0.025em; }
-.lp-heading span { display: block; color: #8a8a8a; }
+.lp-heading span { display: block; }
+.lp-heading-muted { color: #8a8a8a; }
 .lp-heading.is-right { text-align: right; }
 .lp-heading-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; margin-bottom: 64px; }
 .lp-heading-row .lp-heading { margin: 0; }
@@ -2204,9 +2219,9 @@ body:has(.m-page) { min-width: 320px; }
 .lp-visual-stage { position: absolute; inset: 0; }
 .lp-caption { margin: 20px 0 0; color: #8a8a8a; font-size: 18px; line-height: 1.625; }
 .lp-caption strong { color: #fff; font-weight: 500; }
-.lp-feature .lp-window { opacity: 0; transform: translateY(16px); transition: opacity .7s ease, transform .8s cubic-bezier(.2, .7, .2, 1); }
-.lp-feature .lp-window + .lp-window { transition-delay: .18s; }
-.lp-feature-grid.is-revealed .lp-window { opacity: 1; transform: none; }
+.lp-feature .lp-window { transition: opacity .8s ease, transform .9s cubic-bezier(.2, .7, .2, 1); transition-delay: calc(var(--i, 0) * 110ms + .25s); }
+.lp-feature .lp-window + .lp-window { transition-delay: calc(var(--i, 0) * 110ms + .45s); }
+[data-motion] .lp-feature:not([data-shown]) .lp-window { opacity: 0; transform: translateY(24px); }
 
 /* Floating mock windows */
 .lp-window {
@@ -2435,6 +2450,106 @@ body:has(.m-page) { min-width: 320px; }
 @media (prefers-reduced-motion: reduce) {
   .lp-feature .lp-window { opacity: 1; transform: none; transition: none; }
   .lp-cursor, .lp-tab-progress, .lp-run-detail { animation: none !important; }
+}
+
+/* ===== Motion: entrances and scroll reveals across the landing page =====
+   Elements marked data-reveal start hidden only once useRevealOnScroll has set
+   data-motion on the page, and they settle when it sets data-shown on them.
+   --i staggers siblings. */
+html:has(.m-page) { scroll-behavior: smooth; }
+
+[data-motion] [data-reveal] {
+  transition: opacity .8s var(--m-ease-out-expo), transform 1s var(--m-ease-out-expo);
+  transition-delay: calc(var(--i, 0) * 110ms);
+}
+[data-motion] [data-reveal]:not([data-shown]) { opacity: 0; transform: translateY(32px); }
+[data-motion] [data-reveal="fade"]:not([data-shown]) { transform: none; }
+[data-motion] [data-reveal="scale"]:not([data-shown]) { transform: translateY(40px) scale(.94); }
+[data-motion] [data-reveal="left"]:not([data-shown]) { transform: translateX(-40px); }
+[data-motion] [data-reveal="right"]:not([data-shown]) { transform: translateX(40px); }
+/* A rising line moves inside its mask; the mask itself is what gets observed,
+   since a line clipped out of view would never count as visible. */
+[data-motion] [data-reveal="rise"]:not([data-shown]) { opacity: 1; transform: none; }
+[data-motion] [data-reveal="rise"] > span { transition: opacity .8s var(--m-ease-out-expo), transform 1s var(--m-ease-out-expo); transition-delay: inherit; }
+[data-motion] [data-reveal="rise"]:not([data-shown]) > span { opacity: 0; transform: translateY(110%); }
+.lp-mask { display: block; overflow: hidden; padding-bottom: .12em; margin-bottom: -.12em; }
+
+/* Hero: the eyebrow, words, subtitle, and buttons arrive in sequence on load. */
+.m-hero-eyebrow, .m-hero-subtitle, .m-hero-actions, .m-hero-setup-link { animation: mHeroIn .9s var(--m-ease-out-expo) backwards; }
+.m-hero-subtitle { animation-delay: .45s; }
+.m-hero-actions { animation-delay: .58s; }
+.m-hero-setup-link { animation-delay: .72s; }
+@keyframes mHeroIn { from { opacity: 0; transform: translateY(18px); filter: blur(6px); } }
+
+/* Scroll-linked effects where the browser supports scroll timelines: a progress
+   line along the top, and the hero drifting back as the page moves past it. */
+.m-scroll-progress { display: none; }
+@supports (animation-timeline: scroll()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .m-scroll-progress {
+      display: block; position: fixed; inset: 0 0 auto; z-index: 60; height: 2px;
+      background: #fff; transform-origin: 0 50%;
+      animation: mScrollProgress linear both;
+      animation-timeline: scroll(root);
+    }
+    .m-hero-content {
+      animation: mHeroDrift linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0 90vh;
+    }
+  }
+}
+@keyframes mScrollProgress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes mHeroDrift { to { opacity: .15; transform: translateY(-72px) scale(.96); } }
+
+/* Principles: once a column is shown, its art plays. */
+.lp-ascii-bar { clip-path: inset(0 0 0 0); transition: clip-path 1.1s var(--m-ease-out-expo); transition-delay: calc(var(--row, 0) * 120ms + .35s); }
+[data-motion] .lp-principle:not([data-shown]) .lp-ascii-bar { clip-path: inset(0 100% 0 0); }
+.lp-slab { transition: transform .9s var(--m-ease-spring), opacity .5s ease; transition-delay: calc(var(--slab, 0) * 140ms + .45s); }
+[data-motion] .lp-principle:not([data-shown]) .lp-slab { opacity: 0; transform: translateY(-36px); }
+.lp-needle { transform-origin: 50px 56px; transition: transform 1.4s var(--m-ease-spring) .6s; }
+[data-motion] .lp-principle:not([data-shown]) .lp-needle { transform: rotate(calc(-1 * var(--angle))); }
+
+/* Dashboard preview: rows slide in, meters fill, figures count up. */
+.lp-dash-table > div { transition: opacity .6s ease, transform .7s var(--m-ease-out-expo); transition-delay: calc(var(--row, 0) * 120ms + .35s); }
+[data-motion] .lp-showcase:not([data-shown]) .lp-dash-table > div { opacity: 0; transform: translateX(-12px); }
+.lp-showcase .lp-meter::after { transform-origin: left; transition: transform 1.2s var(--m-ease-out-expo); transition-delay: calc(var(--row, 0) * 120ms + .55s); }
+[data-motion] .lp-showcase:not([data-shown]) .lp-meter::after { transform: scaleX(0); }
+.lp-count { display: inline-grid; }
+.lp-metrics .lp-count span { grid-area: 1 / 1; margin: 0; color: inherit; font-size: inherit; }
+.lp-metrics .lp-count .lp-count-final { opacity: 0; }
+
+/* Banner: the copy follows the panel in. */
+.lp-banner-content > * { transition: opacity .7s ease, transform .9s var(--m-ease-out-expo); transition-delay: .3s; }
+.lp-banner-content > * + * { transition-delay: .45s; }
+[data-motion] .lp-banner:not([data-shown]) .lp-banner-content > * { opacity: 0; transform: translateY(16px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .m-hero-eyebrow, .m-hero-subtitle, .m-hero-actions, .m-hero-setup-link { animation: none; }
+}
+
+/* ===== Motion in the dashboard =====
+   Opening a page brings its blocks in one after another. They animate only when
+   they first appear, so live refreshes don't replay it. Dialogs and drawers
+   ease in when they open. */
+.main-content > :not(.dashboard-footer):not(.action-error) { animation: dashBlockIn .6s var(--m-ease-out-expo) backwards; }
+.main-content > :nth-child(2) { animation-delay: .06s; }
+.main-content > :nth-child(3) { animation-delay: .12s; }
+.main-content > :nth-child(4) { animation-delay: .18s; }
+.main-content > :nth-child(5) { animation-delay: .24s; }
+.main-content > :nth-child(6) { animation-delay: .3s; }
+.main-content > :nth-child(n+7) { animation-delay: .36s; }
+@keyframes dashBlockIn { from { opacity: 0; transform: translateY(14px); } }
+
+.modal-backdrop { animation: dashFadeIn .25s ease backwards; }
+.modal { animation: dashModalIn .35s var(--m-ease-out-expo) backwards; }
+.modal.sheet { animation: dashSheetIn .45s var(--m-ease-out-expo) backwards; }
+@keyframes dashFadeIn { from { opacity: 0; } }
+@keyframes dashModalIn { from { opacity: 0; transform: translateY(12px) scale(.97); } }
+@keyframes dashSheetIn { from { opacity: 0; transform: translateX(48px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .main-content > *, .modal-backdrop, .modal, .modal.sheet { animation: none; }
 }
 
 /* ===== Dashboard in the landing page's design language ===== */

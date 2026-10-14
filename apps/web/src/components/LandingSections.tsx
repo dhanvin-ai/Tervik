@@ -235,7 +235,7 @@ const PRINCIPLES = [
 
 export function PrinciplesGrid() {
   return (
-    <section id="how-it-works" className="lp-section">
+    <section id="principles" className="lp-section">
       <div className="lp-container">
         <Heading title="Every signal is deterministic," muted="versioned, and tied to a recorded event." />
         <div className="lp-principles">

@@ -2,7 +2,7 @@
 // Traced from the brand artwork; both share one coordinate space, 323 units tall.
 
 // Top, right, and left panels of the mark.
-const PANELS = [
+export const TERVIK_PANELS = [
   'M53.7 0.5L324.2 0.5L323 1.9L241 56.6L94 56.7L73 56.5L13.6 27.5L14 26.5L47 3Z',
   'M331.5 6.5L337 6.2L340 7.2L342.4 9.5L344.2 14.5L344.2 67.5L342.4 75.5L339.3 80.5L337 82.5L242 146.5L240 148.5L239.9 267.5L239.5 271.5L237.1 276.5L233 281.2L184 314L183.3 313.5L183.1 307.5L183.2 180.5L184 179.1L229 147.8L236 142.8L236.9 141.5L182 107.7L181.4 106.5Z',
   'M6.3 36.5L10 36.2L17 39.1L82 70.8L165 109.2L168 111.1L171.1 114.5L173.3 119.5L174 125.5L174.4 320.5L173.7 321.5L172 322.3L170 321.6L109 281.1L103.8 275.5L101.9 270.5L101.6 266.5L101.4 144.5L78 133.4L10 102.9L3.9 98.5L0.9 93.5L0.4 90.5L0.3 44.5L1.8 39.5L4 37.5Z',
@@ -16,14 +16,14 @@ const HEIGHT = 323;
 /** The folded-T mark on its own. */
 export function TervikMark({ size = 24, className }: { size?: number; className?: string }) {
   return <svg className={className} viewBox={`0 0 ${MARK_WIDTH} ${HEIGHT}`} height={size} width={(size * MARK_WIDTH) / HEIGHT} fill="currentColor" aria-hidden="true">
-    {PANELS.map((d, index) => <path key={index} className="tervik-panel" d={d} />)}
+    {TERVIK_PANELS.map((d, index) => <path key={index} className="tervik-panel" d={d} />)}
   </svg>;
 }
 
 /** The mark and the wordmark, at the given height in pixels. */
 export function TervikLogo({ height = 24, className }: { height?: number; className?: string }) {
   return <svg className={className} viewBox={`0 0 ${LOGO_WIDTH} ${HEIGHT}`} height={height} width={(height * LOGO_WIDTH) / HEIGHT} fill="currentColor" role="img" aria-label="Tervik">
-    {PANELS.map((d, index) => <path key={index} className="tervik-panel" d={d} />)}
+    {TERVIK_PANELS.map((d, index) => <path key={index} className="tervik-panel" d={d} />)}
     <path className="tervik-wordmark" d={WORDMARK} fillRule="evenodd" />
   </svg>;
 }

@@ -2522,6 +2522,54 @@ body:has(.m-page) { min-width: 320px; }
   .lp-cursor, .lp-tab-progress, .lp-run-detail { animation: none !important; }
 }
 
+/* How it works: the exploded layer stack, with a card for each layer.
+   The composition keeps the 2000 × 1040 proportions of its design; the stack fills
+   the middle 38%, and each card's connector meets its plate's corner. */
+.hiw-title { margin-bottom: 8px; }
+.hiw { position: relative; aspect-ratio: 2000 / 1040; }
+.hiw-stack { position: absolute; top: 0; left: 31%; width: 38%; height: 100%; overflow: visible; }
+.hiw-card { position: absolute; top: calc(var(--y) - 64px); width: 26%; box-sizing: border-box; padding: 18px 20px 20px; border: 1px solid rgba(255, 255, 255, .1); border-radius: 4px; background: #0b0b0b; }
+.hiw-card.is-left { left: 3%; }
+.hiw-card.is-right { left: 71%; }
+.hiw-card header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.hiw-tag { padding: 3px 9px; background: #fff; color: #000; font: 500 12px var(--font-mono); letter-spacing: .16em; text-transform: uppercase; }
+.hiw-card h3 { margin: 0; color: #ededed; font: 400 17px var(--font-mono); letter-spacing: -0.01em; }
+.hiw-lead { margin: 0 0 10px; color: #fff; font-size: 15px; line-height: 1.45; }
+.hiw-text { margin: 0; color: #8a8a8a; font: 11.5px/1.65 var(--font-mono); }
+/* The connector spans the gap to the stack (26.5% of a card's width) and ends in a dot. */
+.hiw-card::before { position: absolute; top: 64px; width: 26.5%; height: 1px; background: rgba(255, 255, 255, .35); content: ''; }
+.hiw-card::after { position: absolute; top: 61px; width: 7px; height: 7px; border-radius: 50%; background: #fff; box-shadow: 0 0 10px rgba(255, 255, 255, .6); content: ''; }
+.hiw-card.is-left::before { left: 100%; }
+.hiw-card.is-left::after { left: calc(126.5% - 3px); }
+.hiw-card.is-right::before { right: 100%; }
+.hiw-card.is-right::after { right: calc(126.5% - 3px); }
+.hiw-trace { font: 500 2.9px var(--font-mono); fill: #a3a3a3; white-space: pre; }
+.hiw-trace.is-prompt { fill: #e5e5e5; }
+.hiw-trace.is-error { fill: #fff; font-weight: 700; }
+.hiw-trace.is-meta { fill: #6b6b6b; }
+.hiw-cell { fill: #262626; }
+.hiw-cell.is-flagged { fill: #fafafa; filter: drop-shadow(0 0 1.5px rgba(255, 255, 255, .9)); animation: hiwPulse 3.2s ease-in-out var(--d, 0s) infinite; }
+.hiw-edge { stroke: rgba(255, 255, 255, .4); stroke-width: 1.2; }
+.hiw-node { fill: #fff; animation: hiwTwinkle 3.3s ease-in-out var(--d, 0s) infinite; }
+.hiw-float { animation: hiwFloat 7s ease-in-out infinite; animation-delay: calc(var(--i, 0) * -1.6s); }
+@keyframes hiwFloat { 50% { transform: translateY(-7px); } }
+@keyframes hiwPulse { 50% { opacity: .45; } }
+@keyframes hiwTwinkle { 50% { opacity: .5; } }
+/* On scroll: the layers drop into place from the top down, then the cards follow. */
+.hiw-layer { transition: opacity .8s ease, transform 1s var(--m-ease-out-expo); transition-delay: calc(var(--i, 0) * 140ms); }
+[data-motion] .hiw:not([data-shown]) .hiw-layer { opacity: 0; transform: translateY(-40px); }
+.hiw-card { transition: opacity .7s ease, transform .9s var(--m-ease-out-expo); transition-delay: calc(var(--i, 0) * 140ms + .5s); }
+[data-motion] .hiw:not([data-shown]) .hiw-card { opacity: 0; transform: translateY(12px); }
+@media (max-width: 1100px) {
+  .hiw { display: grid; gap: 14px; aspect-ratio: auto; }
+  .hiw-stack { position: relative; left: auto; width: min(100%, 520px); height: auto; margin: 0 auto 8px; aspect-ratio: 760 / 1040; }
+  .hiw-card { position: relative; top: auto; left: auto !important; width: 100%; }
+  .hiw-card::before, .hiw-card::after { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hiw-float, .hiw-cell.is-flagged, .hiw-node { animation: none; }
+}
+
 /* ===== Motion: entrances and scroll reveals across the landing page =====
    Elements marked data-reveal start hidden only once useRevealOnScroll has set
    data-motion on the page, and they settle when it sets data-shown on them.

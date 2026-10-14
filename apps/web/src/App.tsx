@@ -20,6 +20,7 @@ import { TervikLogo, TervikMark } from './components/TervikLogo';
 import { HeroHeadline } from './components/HeroHeadline';
 import { DashboardShowcase, DitherDivider, FeatureShowcase, FinalCta, LandingFooter, OtlpBanner, PrinciplesGrid, SetupSection, TurnWalkthrough } from './components/LandingSections';
 import { WorksWithMarquee } from './components/WorksWithMarquee';
+import { HowItWorks } from './components/HowItWorks';
 import { useRevealOnScroll } from './hooks/useMotion';
 import type { AlertRule, BehaviorRule, Cluster, ClusterDetail, Conversation, ConversationDetail, Delivery, Discovery, DiscoveryIntent, EvalDataset, EvalRun, Improvement, Overview, Page, Project, Range, SetupStatus } from './types';
 
@@ -1090,6 +1091,7 @@ function Welcome({ onStart, onDemo, demoBusy, signedIn, onAuth }: {
 
     <FeatureShowcase />
     <DitherDivider />
+    <HowItWorks />
     <PrinciplesGrid />
     <TurnWalkthrough onStart={onStart} />
     <SetupSection onCopy={copyHeroCmd} copied={copiedCmd} />

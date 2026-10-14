@@ -2547,19 +2547,69 @@ body:has(.m-page) { min-width: 320px; }
 .hiw-trace.is-prompt { fill: #e5e5e5; }
 .hiw-trace.is-error { fill: #fff; font-weight: 700; }
 .hiw-trace.is-meta { fill: #6b6b6b; }
+.hiw-caret { fill: #fff; animation: lpBlink 1s steps(1) infinite; }
 .hiw-cell { fill: #262626; }
-.hiw-cell.is-flagged { fill: #fafafa; filter: drop-shadow(0 0 1.5px rgba(255, 255, 255, .9)); animation: hiwPulse 3.2s ease-in-out var(--d, 0s) infinite; }
-.hiw-edge { stroke: rgba(255, 255, 255, .4); stroke-width: 1.2; }
-.hiw-node { fill: #fff; animation: hiwTwinkle 3.3s ease-in-out var(--d, 0s) infinite; }
+.hiw-cell.is-flagged { fill: #fafafa; filter: drop-shadow(0 0 1.5px rgba(255, 255, 255, .9)); }
+.hiw-edge { stroke: rgba(255, 255, 255, .4); stroke-width: 1.2; stroke-dasharray: 1; }
+.hiw-node { fill: #fff; transform-box: fill-box; transform-origin: center; animation: hiwTwinkle 3.3s ease-in-out var(--d, 0s) infinite; }
+.hiw-pulse { fill: #fff; }
+.hiw-rise { transform: translateY(calc(var(--s) * -1px)); }
 .hiw-float { animation: hiwFloat 7s ease-in-out infinite; animation-delay: calc(var(--i, 0) * -1.6s); }
+
+/* Hovering a card or a layer lifts that layer, dims the rest, and lights its card. */
+.hiw-spread { transition: opacity .35s ease; }
+.hiw-lift { transition: transform .5s var(--m-ease-out-expo); }
+.hiw-layer.is-active .hiw-lift { transform: translateY(-16px); }
+.hiw.has-active .hiw-layer:not(.is-active) .hiw-spread { opacity: .3; }
+.hiw-card { transition: opacity .3s ease, border-color .3s ease, background-color .3s ease; }
+.hiw-card.is-active { border-color: rgba(255, 255, 255, .45); background-color: #121212; }
+.hiw-card.is-active::before { background: #fff; }
+.hiw-card.is-active::after { box-shadow: 0 0 18px #fff; }
+.hiw.has-active .hiw-card:not(.is-active) { opacity: .45; }
+.hiw-card:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.hiw-card.is-left::before { transform-origin: left; }
+.hiw-card.is-right::before { transform-origin: right; }
+
+/* When the section is revealed: the layers appear top-down, the trace types out,
+   a scan sweeps the grid and the failures light up, the network draws itself,
+   the mark rises, then the cards and their connectors follow. */
+[data-motion] .hiw:not([data-shown]) :is(.hiw-layer, .hiw-card, .hiw-trace) { opacity: 0; }
+.hiw[data-shown] .hiw-layer { animation: hiwDrop 1s var(--m-ease-out-expo) calc(var(--i, 0) * 140ms) backwards; }
+.hiw[data-shown] .hiw-trace { animation: hiwType .55s steps(26) calc(1s + var(--line) * .4s) backwards; }
+.hiw[data-shown] .hiw-caret { animation: hiwHidden 3.4s steps(1) backwards, lpBlink 1s steps(1) 3.4s infinite; }
+.hiw[data-shown] .hiw-cell { animation: hiwScan .9s ease-out calc(.7s + var(--k) * 45ms); }
+.hiw[data-shown] .hiw-cell.is-flagged { animation: hiwFlagOn .6s ease-out calc(1.7s + var(--o) * 120ms) backwards, hiwPulse 3.2s ease-in-out calc(3.8s + var(--o) * .23s) infinite; }
+.hiw[data-shown] .hiw-edge { animation: hiwDraw .9s ease-out calc(.6s + var(--e) * 25ms) backwards; }
+.hiw[data-shown] .hiw-node { animation: hiwNodeIn .5s var(--m-ease-spring) calc(.6s + var(--e) * 25ms) backwards, hiwTwinkle 3.3s ease-in-out var(--d, 0s) infinite; }
+.hiw[data-shown] .hiw-rise { animation: hiwRise 1.2s var(--m-ease-out-expo) .45s backwards; }
+.hiw[data-shown] .hiw-card { animation: hiwCardIn .8s var(--m-ease-out-expo) calc(var(--i, 0) * 140ms + .5s) backwards; }
+.hiw[data-shown] .hiw-card::before { animation: hiwLine .6s ease-out calc(var(--i, 0) * 140ms + 1s) backwards; }
+.hiw[data-shown] .hiw-card::after { animation: hiwDot .4s var(--m-ease-spring) calc(var(--i, 0) * 140ms + 1.5s) backwards; }
+@keyframes hiwDrop { from { opacity: 0; transform: translateY(-28px); } }
+@keyframes hiwType { from { clip-path: inset(-20% 100% -20% 0); } to { clip-path: inset(-20% 0 -20% 0); } }
+@keyframes hiwHidden { from { opacity: 0; } }
+@keyframes hiwScan { 30% { fill: #9a9a9a; } }
+@keyframes hiwFlagOn { from { fill: #262626; } }
+@keyframes hiwDraw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes hiwNodeIn { from { transform: scale(0); } }
+@keyframes hiwRise { from { transform: translateY(0); } }
+@keyframes hiwCardIn { from { opacity: 0; transform: translateY(12px); } }
+@keyframes hiwLine { from { transform: scaleX(0); } }
+@keyframes hiwDot { from { opacity: 0; transform: scale(0); } }
 @keyframes hiwFloat { 50% { transform: translateY(-7px); } }
 @keyframes hiwPulse { 50% { opacity: .45; } }
 @keyframes hiwTwinkle { 50% { opacity: .5; } }
-/* On scroll: the layers drop into place from the top down, then the cards follow. */
-.hiw-layer { transition: opacity .8s ease, transform 1s var(--m-ease-out-expo); transition-delay: calc(var(--i, 0) * 140ms); }
-[data-motion] .hiw:not([data-shown]) .hiw-layer { opacity: 0; transform: translateY(-40px); }
-.hiw-card { transition: opacity .7s ease, transform .9s var(--m-ease-out-expo); transition-delay: calc(var(--i, 0) * 140ms + .5s); }
-[data-motion] .hiw:not([data-shown]) .hiw-card { opacity: 0; transform: translateY(12px); }
+
+/* Where scroll timelines exist, the layers start bunched together and spread
+   apart as the section scrolls into view. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .hiw { view-timeline: --hiw block; }
+    .hiw-spread { animation: hiwSpread linear both; animation-timeline: --hiw; animation-range: entry 5% cover 42%; }
+  }
+}
+@keyframes hiwSpread { from { transform: translateY(var(--gather, 0)); } to { transform: none; } }
+
 @media (max-width: 1100px) {
   .hiw { display: grid; gap: 14px; aspect-ratio: auto; }
   .hiw-stack { position: relative; left: auto; width: min(100%, 520px); height: auto; margin: 0 auto 8px; aspect-ratio: 760 / 1040; }
@@ -2567,7 +2617,8 @@ body:has(.m-page) { min-width: 320px; }
   .hiw-card::before, .hiw-card::after { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .hiw-float, .hiw-cell.is-flagged, .hiw-node { animation: none; }
+  .hiw-float, .hiw-node, .hiw-caret, .hiw[data-shown] :is(.hiw-layer, .hiw-trace, .hiw-caret, .hiw-cell, .hiw-edge, .hiw-node, .hiw-rise, .hiw-card),
+  .hiw[data-shown] .hiw-card::before, .hiw[data-shown] .hiw-card::after { animation: none; }
 }
 
 /* ===== Motion: entrances and scroll reveals across the landing page =====

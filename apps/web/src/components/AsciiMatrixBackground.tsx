@@ -2,9 +2,10 @@ import { useEffect, useRef } from 'react';
 
 const CHAR_SET = ['>', '#', '$', '%', '*', '&', '{', '}', '\\', '|', '@', '/', '+', '-', '=', '(', ')', ':', ';', '0', '8', 'B', 'S', 'X', '~', '<'];
 const SPOTLIGHT_RADIUS = 70;
-// The always-on grid stays this far from the hero text, then fades in over FEATHER.
-const TEXT_CLEARANCE = 16;
-const FEATHER = 90;
+// The always-on grid covers the whole box. On and around the hero text it is
+// nearly transparent (NEAR_ALPHA), then it brightens to AMBIENT_ALPHA over FEATHER pixels.
+const NEAR_ALPHA = .06;
+const FEATHER = 120;
 const AMBIENT_ALPHA = .26;
 // A changed symbol fades in over this long, so the field shimmers instead of flickering.
 const FADE_MS = 420;
@@ -92,8 +93,8 @@ export function AsciiMatrixBackground() {
       return boxes;
     };
 
-    /** How bright each cell of the ambient layer is: nothing within TEXT_CLEARANCE
-     * of the words and buttons, then a smooth fade up to full over FEATHER pixels. */
+    /** How bright each cell of the ambient layer is: faint on and next to the words
+     * and buttons, so they stay easy to read, then brightening over FEATHER pixels. */
     const measureClearance = () => {
       alpha = new Float32Array(cols * rows);
       ambientCells = [];
@@ -107,10 +108,10 @@ export function AsciiMatrixBackground() {
           const dy = Math.max(top - cy, 0, cy - bottom);
           distance = Math.min(distance, Math.hypot(dx, dy));
         }
-        const t = Math.min(1, Math.max(0, distance - TEXT_CLEARANCE) / FEATHER);
-        if (t <= 0) continue;
+        const t = Math.min(1, distance / FEATHER);
+        const near = NEAR_ALPHA + (AMBIENT_ALPHA - NEAR_ALPHA) * t * t * (3 - 2 * t);
         // Uneven brightness gives the field some texture.
-        alpha[index] = AMBIENT_ALPHA * t * t * (3 - 2 * t) * (.55 + Math.random() * .45);
+        alpha[index] = near * (.55 + Math.random() * .45);
         ambientCells.push(index);
       }
     };

@@ -1062,11 +1062,9 @@ function Welcome({ onStart, onDemo, demoBusy, signedIn, onAuth }: {
     </header>
 
     {/* Hero Section */}
-    <section className="m-hero" aria-label="Tervik: agent conversation intelligence">
+    <section className="m-hero" aria-label="Tervik">
       <AsciiMatrixBackground />
       <div className="m-hero-content">
-        <span className="m-hero-eyebrow">Agent conversation intelligence</span>
-
         <HeroHeadline line1="Your Agents Have Secrets." line2="We Find Them." />
 
         <p className="m-hero-subtitle">

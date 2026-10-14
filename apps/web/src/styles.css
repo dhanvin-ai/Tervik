@@ -1604,14 +1604,6 @@ body:has(.m-page) { min-width: 320px; }
   width: 100%;
   max-width: 1120px;
 }
-.m-hero-eyebrow {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  letter-spacing: .14em;
-  text-transform: uppercase;
-  color: #a1a1aa;
-  margin: 0 0 28px;
-}
 .m-hero-title {
   font-size: clamp(32px, 4vw, 64px);
   font-weight: 400;
@@ -1797,7 +1789,6 @@ body:has(.m-page) { min-width: 320px; }
   .m-navbar { height: 72px; gap: 16px; }
   .m-hero { margin: 0 12px 12px; padding: 64px 20px; min-height: calc(100svh - 84px); border-radius: 22px; }
   .m-hero-title { font-size: clamp(30px, 7vw, 42px); letter-spacing: -.05em; margin-bottom: 24px; }
-  .m-hero-eyebrow { font-size: 12px; margin-bottom: 24px; }
   .m-hero-subtitle { max-width: 300px; font-size: 15px; margin-bottom: 28px; }
   .m-hero-actions { flex-direction: column; gap: 10px; }
   .m-hero-primary-btn, .m-hero-secondary-btn { width: 225px; justify-content: center; }
@@ -2643,8 +2634,8 @@ html:has(.m-page) { scroll-behavior: smooth; }
 [data-motion] [data-reveal="rise"]:not([data-shown]) > span { opacity: 0; transform: translateY(110%); }
 .lp-mask { display: block; overflow: hidden; padding-bottom: .12em; margin-bottom: -.12em; }
 
-/* Hero: the eyebrow, words, subtitle, and buttons arrive in sequence on load. */
-.m-hero-eyebrow, .m-hero-subtitle, .m-hero-actions, .m-hero-setup-link { animation: mHeroIn .9s var(--m-ease-out-expo) backwards; }
+/* Hero: the words, subtitle, and buttons arrive in sequence on load. */
+.m-hero-subtitle, .m-hero-actions, .m-hero-setup-link { animation: mHeroIn .9s var(--m-ease-out-expo) backwards; }
 .m-hero-subtitle { animation-delay: .45s; }
 .m-hero-actions { animation-delay: .58s; }
 .m-hero-setup-link { animation-delay: .72s; }
@@ -2694,7 +2685,7 @@ html:has(.m-page) { scroll-behavior: smooth; }
 [data-motion] .lp-banner:not([data-shown]) .lp-banner-content > * { opacity: 0; transform: translateY(16px); }
 
 @media (prefers-reduced-motion: reduce) {
-  .m-hero-eyebrow, .m-hero-subtitle, .m-hero-actions, .m-hero-setup-link { animation: none; }
+  .m-hero-subtitle, .m-hero-actions, .m-hero-setup-link { animation: none; }
 }
 
 /* ===== Motion in the dashboard =====

@@ -69,7 +69,9 @@ function currentPage(): Page {
   const value = window.location.hash.replace('#', '');
   if (welcomeAnchors.has(value)) return 'welcome';
   if (Object.hasOwn(titles, value)) return value as Page;
-  return window.location.pathname === '/welcome' ? 'welcome' : 'overview';
+  // The bare address (www.tervik.in) and anything unrecognised open the landing
+  // page; dashboard pages have their own addresses, such as #overview.
+  return 'welcome';
 }
 
 function formatNumber(value: number) { return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value || 0); }

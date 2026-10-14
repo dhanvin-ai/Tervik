@@ -1059,15 +1059,15 @@ function Welcome({ onStart, onDemo, demoBusy, signedIn, onAuth }: {
     </header>
 
     {/* Hero Section */}
-    <section className="m-hero" aria-label="Tervik agent intelligence">
+    <section className="m-hero" aria-label="Tervik: agent conversation intelligence">
       <AsciiMatrixBackground />
       <div className="m-hero-content">
         <span className="m-hero-eyebrow">Agent conversation intelligence</span>
 
-        <HeroHeadline line1="Procedural intelligence &" line2="failure detection for agents." />
+        <HeroHeadline line1="Every Agent Interaction." line2="Every Failure. Explained." />
 
         <p className="m-hero-subtitle">
-          Record every turn. Find failure signals. Follow the evidence.
+          Capture every conversation. Detect hidden failure signals. Trace every outcome back to the evidence.
         </p>
 
         <div className="m-hero-actions">

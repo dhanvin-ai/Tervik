@@ -1605,8 +1605,10 @@ body:has(.m-page) { min-width: 320px; }
   max-width: 1120px;
 }
 .m-hero-eyebrow {
-  font-family: var(--font-sans);
-  font-size: 13px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
   color: #a1a1aa;
   margin: 0 0 28px;
 }
@@ -1624,9 +1626,10 @@ body:has(.m-page) { min-width: 320px; }
   font-size: clamp(15px, 1.3vw, 19px);
   color: #a1a1a1;
   line-height: 1.65;
-  max-width: 580px;
+  max-width: 620px;
   margin: 0 auto 34px;
   text-align: center;
+  text-wrap: balance;
   font-weight: 400;
 }
 .m-hero-actions {

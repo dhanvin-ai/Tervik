@@ -1613,7 +1613,7 @@ body:has(.m-page) { min-width: 320px; }
   margin: 0 0 28px;
 }
 .m-hero-title {
-  font-size: clamp(36px, 4.7vw, 76px);
+  font-size: clamp(32px, 4vw, 64px);
   font-weight: 400;
   line-height: 1.08;
   letter-spacing: -0.055em;
@@ -1796,7 +1796,7 @@ body:has(.m-page) { min-width: 320px; }
   .m-nav-wrapper { height: 72px; padding: 0 22px; }
   .m-navbar { height: 72px; gap: 16px; }
   .m-hero { margin: 0 12px 12px; padding: 64px 20px; min-height: calc(100svh - 84px); border-radius: 22px; }
-  .m-hero-title { font-size: clamp(34px, 7.6vw, 48px); letter-spacing: -.05em; margin-bottom: 24px; }
+  .m-hero-title { font-size: clamp(30px, 7vw, 42px); letter-spacing: -.05em; margin-bottom: 24px; }
   .m-hero-eyebrow { font-size: 12px; margin-bottom: 24px; }
   .m-hero-subtitle { max-width: 300px; font-size: 15px; margin-bottom: 28px; }
   .m-hero-actions { flex-direction: column; gap: 10px; }
@@ -2198,6 +2198,7 @@ body:has(.m-page) { min-width: 320px; }
 /* 2. Hero Headline Staggered Blur & Fade */
 .m-title-line {
   display: inline-block;
+  text-wrap: balance;
 }
 .m-title-word {
   display: inline-block;

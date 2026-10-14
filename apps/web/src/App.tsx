@@ -1064,7 +1064,7 @@ function Welcome({ onStart, onDemo, demoBusy, signedIn, onAuth }: {
       <div className="m-hero-content">
         <span className="m-hero-eyebrow">Agent conversation intelligence</span>
 
-        <HeroHeadline line1="Every Agent Interaction." line2="Every Failure. Explained." />
+        <HeroHeadline line1="Your Agents Have Secrets." line2="We Find Them." />
 
         <p className="m-hero-subtitle">
           Capture every conversation. Detect hidden failure signals. Trace every outcome back to the evidence.

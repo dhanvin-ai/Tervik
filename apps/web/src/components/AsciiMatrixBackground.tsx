@@ -3,8 +3,8 @@ import { useEffect, useRef } from 'react';
 const CHAR_SET = ['>', '#', '$', '%', '*', '&', '{', '}', '\\', '|', '@', '/', '+', '-', '=', '(', ')', ':', ';', '0', '8', 'B', 'S', 'X', '~', '<'];
 const SPOTLIGHT_RADIUS = 70;
 // The always-on grid stays this far from the hero text, then fades in over FEATHER.
-const TEXT_CLEARANCE = 40;
-const FEATHER = 140;
+const TEXT_CLEARANCE = 16;
+const FEATHER = 90;
 const AMBIENT_ALPHA = .26;
 // A changed symbol fades in over this long, so the field shimmers instead of flickering.
 const FADE_MS = 420;

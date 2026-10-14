@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tervik LinkedIn banner</title>
+<style>
+  @font-face { font-family: "Geist"; font-weight: 400; src: url(data:font/woff2;base64,__SANS_400__) format("woff2"); }
+  @font-face { font-family: "Geist"; font-weight: 500; src: url(data:font/woff2;base64,__SANS_500__) format("woff2"); }
+  @font-face { font-family: "Geist Mono"; font-weight: 400; src: url(data:font/woff2;base64,__MONO_400__) format("woff2"); }
+  @font-face { font-family: "Geist Mono"; font-weight: 500; src: url(data:font/woff2;base64,__MONO_500__) format("woff2"); }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1584px; height: 396px; overflow: hidden; background: #000; }
+  .banner { position: relative; width: 1584px; height: 396px; overflow: hidden; background: #000; color: #fff; font-family: "Geist", sans-serif; }
+  canvas { position: absolute; inset: 0; }
+  .logo { position: absolute; top: 46px; left: 58px; height: 30px; width: auto; fill: #fff; }
+  /* Centre-right, clear of the profile photo LinkedIn places over the bottom left. */
+  .content { position: absolute; top: 0; bottom: 0; left: 560px; right: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  .eyebrow { margin-bottom: 20px; color: #a1a1aa; font: 500 13px "Geist Mono", monospace; letter-spacing: .16em; text-transform: uppercase; }
+  h1 { font-size: 60px; font-weight: 400; line-height: 1.06; letter-spacing: -0.055em; }
+  .sub { margin-top: 20px; color: #a1a1a1; font-size: 19px; line-height: 1.5; letter-spacing: -0.01em; }
+  .actions { display: flex; gap: 12px; margin-top: 26px; }
+  .pill { display: inline-flex; align-items: center; gap: 10px; height: 44px; padding: 0 20px; border-radius: 6px; font-size: 16px; font-weight: 500; }
+  .pill.primary { background: #fff; color: #000; }
+  .pill.code { border: 1px solid rgba(255, 255, 255, .16); background: rgba(10, 10, 10, .92); color: #d4d4d4; font: 400 15px "Geist Mono", monospace; }
+  .pill.code b { color: #6b6b6b; font-weight: 400; }
+</style>
+</head>
+<body>
+<div class="banner">
+  <canvas id="field" width="1584" height="396"></canvas>
+  __LOGO__
+  <div class="content" id="content">
+    <p class="eyebrow">Agent conversation intelligence</p>
+    <h1>Your Agents Have Secrets.<br>We Find Them.</h1>
+    <p class="sub">Capture every conversation. Detect hidden failure signals.</p>
+    <div class="actions">
+      <span class="pill primary">tervik.in&nbsp;&nbsp;→</span>
+      <span class="pill code"><b>$</b>npx skills add dhanvin-ai/tervik</span>
+    </div>
+  </div>
+</div>
+<script>
+  // The hero's symbol field: a 12x16 grid of Geist Mono symbols, faint behind the
+  // text block and brighter along a broad oval around it, as on tervik.in.
+  const SYMBOLS = ['>', '#', '$', '%', '*', '&', '{', '}', '\\', '|', '@', '/', '+', '-', '=', '(', ')', ':', ';', '0', '8', 'B', 'S', 'X', '~', '<'];
+  const NEAR = .06, AMBIENT = .27, FADE_FROM = .45, FADE_TO = 1.7, CELL_W = 12, CELL_H = 16;
+  let seed = 20261014;
+  const random = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+  document.fonts.ready.then(() => {
+    const canvas = document.getElementById('field');
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = 1584 * ratio; canvas.height = 396 * ratio;
+    canvas.style.width = '1584px'; canvas.style.height = '396px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(ratio, ratio);
+    ctx.font = '500 13px "Geist Mono", monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff';
+    const box = document.querySelector('.content > h1').getBoundingClientRect();
+    const actions = document.querySelector('.actions').getBoundingClientRect();
+    const cx = (box.left + box.right) / 2, cy = (box.top + actions.bottom) / 2 - 10;
+    const hx = Math.max(box.width, actions.width) / 2 + 40, hy = (actions.bottom - box.top) / 2 + 40;
+    const smooth = t => t * t * (3 - 2 * t);
+    // The field also fades around the logo, so the mark keeps its contrast.
+    const logo = document.querySelector('.logo').getBoundingClientRect();
+    const nearLogo = (x, y) => {
+      const dx = Math.max(logo.left - x, 0, x - logo.right), dy = Math.max(logo.top - y, 0, y - logo.bottom);
+      return 1 - smooth(Math.min(1, Math.hypot(dx, dy) / 46));
+    };
+    for (let row = 0; row < Math.ceil(396 / CELL_H); row++) {
+      for (let col = 0; col < Math.ceil(1584 / CELL_W); col++) {
+        if (random() < .1) continue;  // a few gaps keep the field from reading as a wall
+        const x = col * CELL_W + CELL_W / 2, y = row * CELL_H + CELL_H / 2;
+        const distance = Math.hypot((x - cx) / hx, (y - cy) / hy);
+        const t = smooth(Math.min(1, Math.max(0, (distance - FADE_FROM) / (FADE_TO - FADE_FROM))));
+        let alpha = NEAR + (AMBIENT - NEAR) * t;
+        alpha -= (alpha - NEAR * .5) * nearLogo(x, y);
+        // A soft pool of light at the top right, like the site's pointer spotlight.
+        const glow = Math.max(0, 1 - Math.hypot(x - 1430, y - 70) / 150);
+        alpha = Math.min(.9, alpha + glow * glow * .55);
+        ctx.globalAlpha = alpha * (.75 + random() * .25);
+        ctx.fillText(SYMBOLS[Math.floor(random() * SYMBOLS.length)], x, y);
+      }
+    }
+    document.body.dataset.ready = '1';
+  });
+</script>
+</body>
+</html>

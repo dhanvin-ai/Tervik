@@ -2,11 +2,15 @@ import { useEffect, useRef } from 'react';
 
 const CHAR_SET = ['>', '#', '$', '%', '*', '&', '{', '}', '\\', '|', '@', '/', '+', '-', '=', '(', ')', ':', ';', '0', '8', 'B', 'S', 'X', '~', '<'];
 const SPOTLIGHT_RADIUS = 70;
-// The always-on grid covers the whole box. On and around the hero text it is
-// nearly transparent (NEAR_ALPHA), then it brightens to AMBIENT_ALPHA over FEATHER pixels.
-const NEAR_ALPHA = .06;
-const FEATHER = 120;
+// The always-on grid covers the whole box. Behind the hero text it is faint
+// (NEAR_ALPHA), and it brightens to AMBIENT_ALPHA along one broad, soft oval
+// around the text block, so there is no edge where the faint area ends.
+// The oval's radius is measured in text-block half-sizes: the fade starts at
+// FADE_FROM and is complete at FADE_TO.
+const NEAR_ALPHA = .07;
 const AMBIENT_ALPHA = .26;
+const FADE_FROM = .45;
+const FADE_TO = 1.7;
 // A changed symbol fades in over this long, so the field shimmers instead of flickering.
 const FADE_MS = 420;
 // How quickly the spotlight catches up with the pointer, and grows in or out (per 60 fps frame).
@@ -93,25 +97,31 @@ export function AsciiMatrixBackground() {
       return boxes;
     };
 
-    /** How bright each cell of the ambient layer is: faint on and next to the words
-     * and buttons, so they stay easy to read, then brightening over FEATHER pixels. */
+    /** How bright each cell of the ambient layer is: faint behind the text block,
+     * so the words stay easy to read, brightening smoothly toward the box's edges. */
     const measureClearance = () => {
       alpha = new Float32Array(cols * rows);
       ambientCells = [];
       const boxes = textBoxes();
+      // The text block: everything the words and buttons cover, plus a margin.
+      const width = cols * cellWidth;
+      const height = rows * cellHeight;
+      const left = boxes.length ? Math.min(...boxes.map(box => box[0])) : width / 2;
+      const top = boxes.length ? Math.min(...boxes.map(box => box[1])) : height / 2;
+      const right = boxes.length ? Math.max(...boxes.map(box => box[2])) : width / 2;
+      const bottom = boxes.length ? Math.max(...boxes.map(box => box[3])) : height / 2;
+      const centerX = (left + right) / 2;
+      const centerY = (top + bottom) / 2;
+      const radiusX = (right - left) / 2 + 60;
+      const radiusY = (bottom - top) / 2 + 60;
       for (let index = 0; index < cols * rows; index++) {
         const cx = (index % cols) * cellWidth + cellWidth / 2;
         const cy = Math.floor(index / cols) * cellHeight + cellHeight / 2;
-        let distance = Infinity;
-        for (const [left, top, right, bottom] of boxes) {
-          const dx = Math.max(left - cx, 0, cx - right);
-          const dy = Math.max(top - cy, 0, cy - bottom);
-          distance = Math.min(distance, Math.hypot(dx, dy));
-        }
-        const t = Math.min(1, distance / FEATHER);
-        const near = NEAR_ALPHA + (AMBIENT_ALPHA - NEAR_ALPHA) * t * t * (3 - 2 * t);
+        const reach = Math.hypot((cx - centerX) / radiusX, (cy - centerY) / radiusY);
+        const t = Math.min(1, Math.max(0, (reach - FADE_FROM) / (FADE_TO - FADE_FROM)));
+        const level = NEAR_ALPHA + (AMBIENT_ALPHA - NEAR_ALPHA) * t * t * (3 - 2 * t);
         // Uneven brightness gives the field some texture.
-        alpha[index] = near * (.55 + Math.random() * .45);
+        alpha[index] = level * (.55 + Math.random() * .45);
         ambientCells.push(index);
       }
     };

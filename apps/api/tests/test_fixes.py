@@ -63,6 +63,7 @@ def shop(tmp_path):
 def test_suggest_replay_and_approve_a_fix(shop):
     client, problem = shop.client, shop.problem
     client.app.state.llm = llm = FakeLLM()
+    assert client.get("/api/health").json()["claude"] is True
     assert client.get(f"/api/clusters/{problem['id']}/fix").json() == {"fix": None, "can_replay": True}
 
     fix = client.post(f"/api/clusters/{problem['id']}/fix").json()
@@ -100,6 +101,7 @@ def test_a_fix_that_makes_healthy_turns_worse_cannot_be_approved(shop):
 def test_without_a_model_the_fix_comes_from_the_template_and_cannot_be_replayed(shop):
     client, problem = shop.client, shop.problem
     client.app.state.llm = None
+    assert client.get("/api/health").json()["claude"] is False
     assert client.get(f"/api/clusters/{problem['id']}/fix").json()["can_replay"] is False
     fix = client.post(f"/api/clusters/{problem['id']}/fix").json()
     assert fix["fix"]["source"] == "template" and fix["fix"]["instructions"]

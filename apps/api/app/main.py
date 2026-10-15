@@ -445,7 +445,8 @@ def create_app(settings: Settings | None = None):
     def health():
         with engine.connect() as connection:
             connection.exec_driver_sql("SELECT 1")
-        return {"status": "ok", "storage": engine.dialect.name, "analysis_mode": analysis.ANALYSIS_MODE}
+        return {"status": "ok", "storage": engine.dialect.name, "analysis_mode": analysis.ANALYSIS_MODE,
+                "claude": app.state.llm is not None}
 
     @app.get("/api/compat")
     def compat():

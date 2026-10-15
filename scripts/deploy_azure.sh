@@ -101,8 +101,8 @@ setup() {
       --tier Burstable --sku-name Standard_B1ms --storage-size 32 --version 16 \
       --admin-user "$DB_ADMIN" --admin-password "$password" --public-access 0.0.0.0 --yes --output none
   fi
-  exists az postgres flexible-server db show --resource-group "$RG" --server-name "$DB_SERVER" --database-name "$DATABASE" ||
-    az postgres flexible-server db create --resource-group "$RG" --server-name "$DB_SERVER" --database-name "$DATABASE" --output none
+  exists az postgres flexible-server db show --resource-group "$RG" --server-name "$DB_SERVER" --name "$DATABASE" ||
+    az postgres flexible-server db create --resource-group "$RG" --server-name "$DB_SERVER" --name "$DATABASE" --output none
 
   if ! exists az containerapp env show --name "$ENVIRONMENT" --resource-group "$RG"; then
     say "Container Apps environment $ENVIRONMENT (logs off, to save credits)"

@@ -9,13 +9,14 @@
 #   scripts/deploy_azure.sh status   # where everything is
 #
 # Settings come from the environment, with these defaults:
-#   AZURE_LOCATION=centralindia  AZURE_RESOURCE_GROUP=tervik  API_DOMAIN=api.tervik.in
+#   AZURE_LOCATION (picked from the regions your subscription allows)
+#   AZURE_RESOURCE_GROUP=tervik  API_DOMAIN=api.tervik.in
 #   DASHBOARD_URL=https://www.tervik.in  GITHUB_REPO=dhanvin-ai/Tervik
 # Optional, passed to the API as secrets on `setup`: TERVIK_ADMIN_TOKEN (generated
-# if unset), ANTHROPIC_API_KEY, GOOGLE_CLIENT_ID/SECRET, GITHUB_CLIENT_ID/SECRET.
+# and kept in Azure if unset), ANTHROPIC_API_KEY, GOOGLE_CLIENT_ID/SECRET,
+# GITHUB_CLIENT_ID/SECRET.
 set -euo pipefail
 
-LOCATION="${AZURE_LOCATION:-centralindia}"
 RG="${AZURE_RESOURCE_GROUP:-tervik}"
 ENVIRONMENT="tervik-env"
 APP="tervik-api"
@@ -38,6 +39,24 @@ need_azure() {
   TENANT="$(az account show --query tenantId -o tsv)"
   # A stable, globally unique database server name for this subscription.
   DB_SERVER="tervik-db-${SUBSCRIPTION:0:8}"
+  LOCATION="$(pick_location)"
+}
+
+# The first region, nearest to India first, that the subscription's policy allows
+# (Azure for Students allows only a few) and that offers Container Apps.
+pick_location() {
+  if [ -n "${AZURE_LOCATION:-}" ]; then echo "$AZURE_LOCATION"; return; fi
+  local allowed offered
+  allowed="$(az policy assignment list --query "[].parameters.listOfAllowedLocations.value[]" -o tsv 2>/dev/null || true)"
+  offered="$(az provider show --namespace Microsoft.App --query "resourceTypes[?resourceType=='managedEnvironments'].locations[]" -o tsv | tr '[:upper:]' '[:lower:]' | tr -d ' ')"
+  for region in centralindia southindia westindia uaenorth malaysiawest indonesiacentral southeastasia eastasia \
+                qatarcentral israelcentral polandcentral swedencentral northeurope westeurope eastus2 eastus; do
+    if { [ -z "$allowed" ] || grep -qx "$region" <<<"$allowed"; } && grep -qx "$region" <<<"$offered"; then
+      echo "$region"; return
+    fi
+  done
+  echo "No allowed region offers Container Apps. Set AZURE_LOCATION to one that does." >&2
+  exit 1
 }
 
 image_is_public() {
@@ -64,20 +83,23 @@ setup() {
     az provider register --namespace "$namespace" --wait >/dev/null
   done
 
-  say "Resource group $RG in $LOCATION"
-  az group create --name "$RG" --location "$LOCATION" --output none
+  say "Resource group $RG, resources in $LOCATION"
+  exists az group show --name "$RG" || az group create --name "$RG" --location "$LOCATION" --output none
 
-  local database_url=""
+  # Upper case, lower case, and digits: Azure's complexity rule, and safe in a URL.
+  local password="Tv$(openssl rand -hex 18)Q9"
+  local database_url="postgresql://$DB_ADMIN:$password@$DB_SERVER.postgres.database.azure.com:5432/$DATABASE?sslmode=require"
   if exists az postgres flexible-server show --resource-group "$RG" --name "$DB_SERVER"; then
     say "Database server $DB_SERVER already exists"
+    # A run that stopped before creating the app lost the password; give the server a new one.
+    if ! exists az containerapp show --name "$APP" --resource-group "$RG" && [ -z "${DATABASE_URL:-}" ]; then
+      az postgres flexible-server update --resource-group "$RG" --name "$DB_SERVER" --admin-password "$password" --output none
+    fi
   else
     say "Database server $DB_SERVER (Burstable B1ms, 32 GB: free for 12 months on Azure for Students)"
-    # Upper case, lower case, and digits: Azure's complexity rule, and safe in a URL.
-    local password="Tv$(openssl rand -hex 18)Q9"
     az postgres flexible-server create --resource-group "$RG" --name "$DB_SERVER" --location "$LOCATION" \
       --tier Burstable --sku-name Standard_B1ms --storage-size 32 --version 16 \
       --admin-user "$DB_ADMIN" --admin-password "$password" --public-access 0.0.0.0 --yes --output none
-    database_url="postgresql://$DB_ADMIN:$password@$DB_SERVER.postgres.database.azure.com:5432/$DATABASE?sslmode=require"
   fi
   exists az postgres flexible-server db show --resource-group "$RG" --server-name "$DB_SERVER" --database-name "$DATABASE" ||
     az postgres flexible-server db create --resource-group "$RG" --server-name "$DB_SERVER" --database-name "$DATABASE" --output none
@@ -91,7 +113,6 @@ setup() {
   if exists az containerapp show --name "$APP" --resource-group "$RG"; then
     say "The API app $APP already exists. To change a setting: az containerapp update --set-env-vars …"
   else
-    [ -n "$database_url" ] || { echo "The database server existed before this run, so its password isn't known here. Set DATABASE_URL and run again."; exit 1; }
     database_url="${DATABASE_URL:-$database_url}"
     local admin_token="${TERVIK_ADMIN_TOKEN:-$(openssl rand -hex 32)}"
     local secrets=("database-url=$database_url" "admin-token=$admin_token")
@@ -107,10 +128,8 @@ setup() {
       --image "$IMAGE" --target-port 8000 --ingress external \
       --min-replicas 0 --max-replicas 1 --cpu 0.5 --memory 1.0Gi \
       --secrets "${secrets[@]}" --env-vars "${env[@]}" --output none
-    [ -n "${TERVIK_ADMIN_TOKEN:-}" ] || {
-      say "Administrator token (save it now; it's shown only once)"
-      echo "$admin_token"
-    }
+    say "The administrator token is kept in Azure. To read it:"
+    echo "  az containerapp secret show --name $APP --resource-group $RG --secret-name admin-token --query value -o tsv"
   fi
   status
 }
@@ -165,11 +184,13 @@ domain() {
 
 status() {
   need_azure
-  local fqdn
+  local fqdn region
   fqdn="$(az containerapp show --name "$APP" --resource-group "$RG" --query properties.configuration.ingress.fqdn -o tsv 2>/dev/null || true)"
+  region="$(az containerapp show --name "$APP" --resource-group "$RG" --query location -o tsv 2>/dev/null || true)"
   say "Status"
   echo "  API app:   ${fqdn:+https://$fqdn}${fqdn:-not created}"
   echo "  Health:    ${fqdn:+$(curl -s --max-time 60 "https://$fqdn/api/health" || echo 'starting…')}"
+  echo "  Region:    ${region:-$LOCATION}"
   echo "  Database:  $DB_SERVER.postgres.database.azure.com"
   echo "  Domain:    https://$DOMAIN"
 }
@@ -179,5 +200,5 @@ case "${1:-}" in
   github) github ;;
   domain) domain ;;
   status) status ;;
-  *) sed -n '2,19p' "$0"; exit 1 ;;
+  *) sed -n '2,17p' "$0"; exit 1 ;;
 esac

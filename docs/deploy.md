@@ -59,12 +59,12 @@ Scaling to zero means the first request after a quiet spell takes a few seconds 
    ```
 
    This takes about 10 minutes, mostly for the database. It creates:
-   - a resource group, `tervik`, in Central India;
+   - a resource group, `tervik`, with everything in the nearest region your subscription allows (for Azure for Students in India, usually UAE North);
    - a PostgreSQL server and a `tervik` database;
    - a Container Apps environment;
    - the `tervik-api` app, with `DATABASE_URL`, a new `TERVIK_ADMIN_TOKEN`, `TERVIK_CORS_ORIGINS`, and `TERVIK_DASHBOARD_URL` stored as Azure secrets.
 
-   **Save the administrator token it prints.** You sign in to the dashboard with it, and it's shown only once. To keep an existing token, or to add optional keys at the same time, set them first:
+   The administrator token stays in Azure; the script prints the command that reads it. To keep an existing token, or to add optional keys at the same time, set them first:
 
    ```bash
    read -rs "TERVIK_ADMIN_TOKEN?Admin token: " && export TERVIK_ADMIN_TOKEN
@@ -72,7 +72,9 @@ Scaling to zero means the first request after a quiet spell takes a few seconds 
 
    The script also passes on `ANTHROPIC_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, and `GITHUB_CLIENT_SECRET` when they're set.
 
-   If your subscription doesn't allow Central India, pick another region: `AZURE_LOCATION=southeastasia scripts/deploy_azure.sh setup`.
+   **Region.** Azure for Students allows only a few regions, and not every one offers Container Apps. The script reads your subscription's allowed list and picks the nearest region that has both services. To choose one yourself: `AZURE_LOCATION=malaysiawest scripts/deploy_azure.sh setup`. To see your allowed list: `az policy assignment list --query "[].parameters.listOfAllowedLocations.value[]" -o tsv`.
+
+   If a run stops partway, run it again: it skips what exists, and gives the database a new password if the app wasn't created yet.
 
 5. **Deploy on every push.**
 
@@ -147,7 +149,7 @@ This puts the dashboard on `www.tervik.in` and `tervik.in`, and the API on `api.
 
    | Type | Name | Value |
    | - | - | - |
-   | CNAME | `api` | The app's address, such as `tervik-api.<random>.centralindia.azurecontainerapps.io` |
+   | CNAME | `api` | The app's address, such as `tervik-api.<random>.uaenorth.azurecontainerapps.io` |
    | TXT | `asuid.api` | A long verification code |
 
 3. **DNS records (GoDaddy).** Open **Domain → tervik.in → DNS → DNS Records**:
@@ -239,7 +241,7 @@ cd ~/Projects/tervik && npm run demo:agent -- --persona general
 | "Access denied" after signing in | The token is in **Account session** instead of **Administrator token**, or it was cut short when copied. |
 | The browser console shows a CORS error | Add the dashboard's exact address, with `https://` and no trailing slash, to `TERVIK_CORS_ORIGINS` with `az containerapp update --set-env-vars`. |
 | `setup` says the image isn't publicly available | Run the **Deploy API** workflow, then make the package public (section 1, steps 2 and 3). |
-| `setup` fails with a region or SKU error | Azure for Students allows only some regions. Try `AZURE_LOCATION=southeastasia` or another nearby region. |
+| `setup` fails with `RequestDisallowedByAzure` | The region isn't on your subscription's allowed list. Leave `AZURE_LOCATION` unset so the script picks an allowed one, or set it to one from the list in step 4. |
 | The **Deploy API** workflow fails at **Sign in to Azure** | Run `scripts/deploy_azure.sh github` again; it checks the identity, its role, and the repository variables. |
 | `/api/health` says `sqlite` | `DATABASE_URL` isn't set, so data is lost on every restart. |
 

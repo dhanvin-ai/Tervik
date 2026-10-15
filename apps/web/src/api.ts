@@ -4,18 +4,39 @@
 export const API_URL = (import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '');
 
 const SESSION_KEY = 'tervik_session';
+const GUEST_KEY = 'tervik_guest';
 
 /** The account session: one signed in through Log in or Sign up is kept in this
  * browser until logging out; one pasted into Connection settings lasts for the tab. */
 export function getSession() {
   try { return sessionStorage.getItem(SESSION_KEY) || localStorage.getItem(SESSION_KEY) || ''; } catch { return ''; }
 }
-export function saveSession(token: string) {
-  try { localStorage.setItem(SESSION_KEY, token); sessionStorage.removeItem(SESSION_KEY); } catch { sessionStorage.setItem(SESSION_KEY, token); }
+export function saveSession(token: string, guest = false) {
+  try {
+    localStorage.setItem(SESSION_KEY, token); sessionStorage.removeItem(SESSION_KEY);
+    if (guest) localStorage.setItem(GUEST_KEY, '1'); else localStorage.removeItem(GUEST_KEY);
+  } catch { sessionStorage.setItem(SESSION_KEY, token); }
+  window.dispatchEvent(new Event('tervik:session'));
 }
 export function clearSession() {
-  try { localStorage.removeItem(SESSION_KEY); } catch { /* storage blocked */ }
+  try { localStorage.removeItem(SESSION_KEY); localStorage.removeItem(GUEST_KEY); } catch { /* storage blocked */ }
   sessionStorage.removeItem(SESSION_KEY);
+}
+/** Whether this browser is in a guest workspace rather than signed in to an account. */
+export function isGuest() {
+  try { return !!getSession() && localStorage.getItem(GUEST_KEY) === '1'; } catch { return false; }
+}
+
+let pendingGuest: Promise<boolean> | null = null;
+/** Starts a private guest workspace, so a visitor can use the dashboard without
+ * signing up. Requests that fail at the same moment share one guest. */
+function startGuest() {
+  pendingGuest ??= fetch(`${API_URL}/api/auth/guest`, { method: 'POST' })
+    .then(response => response.ok ? response.json() : null)
+    .then(data => { if (data?.session) saveSession(data.session, true); return !!data?.session; })
+    .catch(() => false)
+    .finally(() => { pendingGuest = null; });
+  return pendingGuest;
 }
 
 /** Signs up or logs in, and returns the new session. Errors carry the reason in plain words. */
@@ -34,7 +55,7 @@ export async function authenticate(kind: 'signup' | 'login', body: { email: stri
   throw new Error(typeof data.detail === 'string' ? data.detail : `Request failed (${response.status}).`);
 }
 
-export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, options: RequestInit = {}, retried = false): Promise<T> {
   const session = getSession();
   const token = session || sessionStorage.getItem('tervik_admin_token');
   const headers = new Headers(options.headers);
@@ -54,8 +75,11 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
       else if (typeof body.error === 'string') message = body.error;
     } catch { /* Some proxies return a non-JSON error body. */ }
     if (response.status === 401 && !sessionStorage.getItem('tervik_admin_token')) {
-      // Signed out, or a session the API no longer knows (it expired, or the API
-      // moved to a new database): forget it and open Log in.
+      // Not signed in, or a guest session the API no longer knows: carry on in a
+      // guest workspace. A signed-in account whose session ended logs in again.
+      if (!retried && (!session || isGuest() || getSession() !== session)) {
+        if (getSession() !== session || await startGuest()) return request<T>(path, options, true);
+      }
       clearSession();
       if (window.location.hash !== '#login') window.location.hash = 'login';
       message = 'Sign in to continue.';

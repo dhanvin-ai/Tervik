@@ -244,3 +244,30 @@ def test_signup_can_be_closed(tmp_path):
     with TestClient(create_app(settings)) as api:
         response = api.post("/api/auth/signup", json={"email": "c@example.com", "password": "password-123"})
         assert response.status_code == 403
+
+
+def test_a_guest_gets_a_private_workspace_without_signing_up(tmp_path):
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'guests.db'}", admin_token="admin-secret")
+    with TestClient(create_app(settings)) as api:
+        first, second = api.post("/api/auth/guest"), api.post("/api/auth/guest")
+        assert first.status_code == 201, first.text
+        assert first.json()["account"]["guest"] is True
+        a, b = auth(first.json()["session"]), auth(second.json()["session"])
+        # It works like an account: its project lands in its own workspace.
+        mine = api.post("/api/projects", json={"name": "Trying it out"}, headers=a)
+        assert mine.status_code == 201 and mine.json()["org_id"] == first.json()["organization"]["id"]
+        assert [p["name"] for p in api.get("/api/projects", headers=a).json()] == ["Trying it out"]
+        # Another guest can't see it.
+        assert api.get("/api/projects", headers=b).json() == []
+        assert api.get(f"/api/projects/{mine.json()['id']}/key", headers=b).status_code == 404
+        # Nobody can log in to a guest account by password.
+        email = api.get("/api/me", headers=a).json()["account"]["email"]
+        assert email.endswith("@guest.invalid")
+        assert api.post("/api/auth/login", json={"email": email, "password": ""}).status_code in (401, 422)
+
+
+def test_guest_access_can_be_switched_off(tmp_path):
+    for flags in ({"guest_access": False}, {"signup_enabled": False}):
+        settings = Settings(database_url=f"sqlite:///{tmp_path / 'no-guests.db'}", admin_token="admin-secret", **flags)
+        with TestClient(create_app(settings)) as api:
+            assert api.post("/api/auth/guest").status_code == 403

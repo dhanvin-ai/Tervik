@@ -3,11 +3,11 @@ import {
   Activity, ArrowDownLeft, ArrowRight, ArrowUpRight, Bot, Check,
   CheckCheck, ChevronDown, ChevronRight, CircleHelp, Clock3, Code2, Copy,
   Download, Eye, EyeOff, Filter, FolderPlus, GitBranch,
-  Github, Layers3, LoaderCircle, LogOut, Menu, MessageSquare, Play, Plus,
+  Github, Layers3, LoaderCircle, LogIn, LogOut, Menu, MessageSquare, Play, Plus,
   RotateCcw, Search, Settings2, ShieldCheck, Sparkles, Terminal, TriangleAlert, Users, X,
   Zap, type LucideIcon,
 } from 'lucide-react';
-import { API_URL, authenticate, clearSession, getSession, query, request, saveSession } from './api';
+import { API_URL, authenticate, clearSession, getSession, isGuest, query, request, saveSession } from './api';
 import { ChatPage } from './ChatPage';
 import { failureLabel } from './labels';
 import { DitherCanvas } from './components/DitherCanvas';
@@ -1204,6 +1204,7 @@ export default function App() {
   const [sessionToken, setSessionToken] = useState(sessionStorage.getItem('tervik_session') || '');
   const [signInError, setSignInError] = useState(takeSignInResult);
   const [signedIn, setSignedIn] = useState(() => !!getSession());
+  const [guest, setGuest] = useState(isGuest);
   const [authMode, setAuthMode] = useState<AuthMode | null>(currentAuth);
   const pendingProject = useRef<string | null>(null);
   // Live mode refetches what is on screen every few seconds, so conversations
@@ -1222,10 +1223,13 @@ export default function App() {
     const change = () => {
       const failure = takeSignInResult();
       if (failure) setSignInError(failure);
-      setSignedIn(!!getSession()); setPage(currentPage()); setAuthMode(currentAuth()); setMobileOpen(false);
+      setSignedIn(!!getSession()); setGuest(isGuest()); setPage(currentPage()); setAuthMode(currentAuth()); setMobileOpen(false);
     };
+    // A guest workspace starts in the background the first time the API asks who's there.
+    const sessionChanged = () => { setSignedIn(!!getSession()); setGuest(isGuest()); };
     window.addEventListener('hashchange', change);
-    return () => window.removeEventListener('hashchange', change);
+    window.addEventListener('tervik:session', sessionChanged);
+    return () => { window.removeEventListener('hashchange', change); window.removeEventListener('tervik:session', sessionChanged); };
   }, []);
   useEffect(() => {
     if (pendingProject.current) {
@@ -1237,7 +1241,7 @@ export default function App() {
   useEffect(() => { if (projectId) localStorage.setItem('tervik_project', projectId); setClusterId(null); setConversationId(null); }, [projectId]);
   useEffect(() => { document.title = `${page === 'welcome' ? 'Agent intelligence' : titles[page]} — Tervik`; }, [page]);
   const navigate = (next: Page) => { window.location.hash = next; setPage(next); setMobileOpen(false); };
-  const me = useResource<{ account: { email: string } }>(signedIn ? '/api/me' : null, refresh);
+  const me = useResource<{ account: { email: string } }>(signedIn && !guest ? '/api/me' : null, refresh);
   const signedInAs = () => { setAuthMode(null); setSignedIn(true); setProjectId(''); setRefresh(value => value + 1); navigate('overview'); };
   const openAuth = (mode: AuthMode) => { window.location.hash = mode; setAuthMode(mode); };
   const logout = async () => {
@@ -1256,11 +1260,13 @@ export default function App() {
   return <>
     {authMode ? <AuthPage mode={authMode} initialError={signInError} onDone={signedInAs}
       onAdminToken={() => { setAdminToken(sessionStorage.getItem('tervik_admin_token') || ''); setSessionToken(getSession()); setSettingsOpen(true); }} />
-    : page === 'welcome' ? <><Welcome onStart={() => navigate('overview')} onDemo={seedDemo} demoBusy={demoBusy} signedIn={signedIn} onAuth={openAuth} />{actionError && <div className="welcome-error"><ErrorState message={actionError} onRetry={seedDemo} /></div>}</> : <div className="app-shell">
+    : page === 'welcome' ? <><Welcome onStart={() => navigate('overview')} onDemo={seedDemo} demoBusy={demoBusy} signedIn={signedIn && !guest} onAuth={openAuth} />{actionError && <div className="welcome-error"><ErrorState message={actionError} onRetry={seedDemo} /></div>}</> : <div className="app-shell">
       {mobileOpen && <button className="sidebar-scrim" onClick={() => setMobileOpen(false)} aria-label="Close navigation" />}
       <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}><Logo /><div className="workspace-label">WORKSPACE</div><div className="project-picker"><span className="project-avatar">{project?.name.slice(0, 1).toUpperCase() || 'T'}</span><select aria-label="Select project" value={project?.id || ''} onChange={event => setProjectId(event.target.value)}>{projects.data?.length ? projects.data.map(item => <option key={item.id} value={item.id}>{item.name}{item.is_demo ? ' (sample)' : ''}</option>) : <option value="">No projects yet</option>}</select><ChevronDown size={13} /><button onClick={() => setCreateOpen(true)} aria-label="Create project" title="Create project"><Plus size={15} /></button></div>
         <nav className="main-nav" aria-label="Main navigation">{navItems.map(({ page: navPage, icon, label }, index) => <a href={`#${navPage}`} key={navPage} className={page === navPage ? 'active' : ''} aria-current={page === navPage ? 'page' : undefined}>{page === navPage && <DitherCanvas className="nav-dither" vignette={0} intensity={0.75} seed={index} />}<span className="nav-icon"><PixelIcon name={icon} size={2} /></span><span>{label}</span>{navPage === 'failures' && !!overview.data?.top_clusters.length && <span className="nav-count">{overview.data.top_clusters.length}</span>}</a>)}</nav><div className="nav-divider" /><nav className="secondary-nav"><a href="#integration" className={page === 'integration' ? 'active' : ''}>{page === 'integration' && <DitherCanvas className="nav-dither" vignette={0} intensity={0.75} seed={5} />}<span className="nav-icon"><PixelIcon name="code" size={2} /></span><span>Connect agent</span></a><a href="#welcome"><span className="nav-icon"><PixelIcon name="guide" size={2} /></span><span>Product tour</span><ArrowUpRight size={14} /></a></nav>
-        <div className="sidebar-bottom"><button className="sidebar-link" onClick={() => setGuideOpen(true)}><span className="nav-icon"><PixelIcon name="guide" size={2} /></span><span>Quick guide</span></button><button className="settings-button" onClick={() => { setAdminToken(sessionStorage.getItem('tervik_admin_token') || ''); setSessionToken(getSession()); setSettingsOpen(true); }}><Settings2 size={17} /><span>Connection settings</span></button>{signedIn
+        <div className="sidebar-bottom"><button className="sidebar-link" onClick={() => setGuideOpen(true)}><span className="nav-icon"><PixelIcon name="guide" size={2} /></span><span>Quick guide</span></button><button className="settings-button" onClick={() => { setAdminToken(sessionStorage.getItem('tervik_admin_token') || ''); setSessionToken(getSession()); setSettingsOpen(true); }}><Settings2 size={17} /><span>Connection settings</span></button>{guest
+          ? <div className="workspace-footer"><span className="user-avatar">G</span><span><strong>Guest workspace</strong><small>Kept in this browser</small></span><button className="icon-button footer-logout" onClick={() => openAuth('login')} aria-label="Log in" title="Log in"><LogIn size={15} /></button></div>
+          : signedIn
           ? <div className="workspace-footer"><span className="user-avatar">{(me.data?.account.email || 'T').slice(0, 1).toUpperCase()}</span><span><strong title={me.data?.account.email}>{me.data?.account.email || 'Signed in'}</strong><small>Your workspace</small></span><button className="icon-button footer-logout" onClick={logout} aria-label="Log out" title="Log out"><LogOut size={15} /></button></div>
           : <div className="workspace-footer"><span className="user-avatar">T</span><span><strong>Local workspace</strong><small>Development foundation</small></span><span className="local-dot" /></div>}</div>
       </aside>

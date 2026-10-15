@@ -8,6 +8,7 @@ class Settings:
     admin_token: str | None = None
     demo_enabled: bool = True
     signup_enabled: bool = True
+    guest_access: bool = True
     # Sign in with Google or GitHub: each needs its OAuth app's client ID and secret.
     google_client_id: str | None = None
     google_client_secret: str | None = field(default=None, repr=False)
@@ -57,6 +58,7 @@ class Settings:
             admin_token=token,
             demo_enabled=os.getenv("TERVIK_DEMO_ENABLED", demo_default).lower() == "true",
             signup_enabled=os.getenv("TERVIK_SIGNUP_ENABLED", "true").lower() == "true",
+            guest_access=os.getenv("TERVIK_GUEST_ACCESS", "true").lower() == "true",
             google_client_id=os.getenv("GOOGLE_CLIENT_ID") or None,
             google_client_secret=os.getenv("GOOGLE_CLIENT_SECRET") or None,
             github_client_id=os.getenv("GITHUB_CLIENT_ID") or None,

@@ -136,7 +136,9 @@ class RequestGuards:
 
 # Routes anyone may call, even when an administrator token protects the rest:
 # sign-in checks credentials itself, and capture checks the project's own key.
-PUBLIC_PATHS = {"/api/health", "/api/auth/signup", "/api/auth/login", "/api/auth/providers"}
+PUBLIC_PATHS = {"/api/health", "/api/auth/signup", "/api/auth/login", "/api/auth/guest", "/api/auth/providers"}
+# Guest accounts get addresses under a reserved domain, so no real email can match one.
+GUEST_DOMAIN = "guest.invalid"
 PUBLIC_PREFIXES = ("/api/v1/", "/api/auth/oauth/")
 
 
@@ -693,6 +695,19 @@ def create_app(settings: Settings | None = None):
             account, org = new_account(session, email, body.password, body.name.strip() if body.name else None)
             record, token = create_session(session, account.id, org.id)
             return {"account": {"id": account.id, "email": email},
+                    "organization": {"id": org.id, "name": org.name}, "session": token}
+
+    @app.post("/api/auth/guest", status_code=201)
+    def guest():
+        """A private workspace for a visitor who hasn't signed up, so they can look
+        around first. It's an ordinary account nobody can log in to by password."""
+        if not (settings.guest_access and settings.signup_enabled):
+            raise HTTPException(403, "Guest access is off. Sign up or log in.")
+        with sessions.begin() as session:
+            email = f"guest-{secrets.token_hex(8)}@{GUEST_DOMAIN}"
+            account, org = new_account(session, email, secrets.token_urlsafe(32), "Guest workspace")
+            record, token = create_session(session, account.id, org.id)
+            return {"account": {"id": account.id, "guest": True},
                     "organization": {"id": org.id, "name": org.name}, "session": token}
 
     def new_account(db_session, email, password, workspace_name=None):

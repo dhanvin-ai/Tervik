@@ -102,7 +102,7 @@ read -rs "KEY?Anthropic API key: " && az containerapp secret set --name tervik-a
 az containerapp update --name tervik-api --resource-group tervik --set-env-vars ANTHROPIC_API_KEY=secretref:anthropic-api-key
 ```
 
-Plain settings, such as `TERVIK_DEMO_ENABLED=true` or `TERVIK_SIGNUP_ENABLED=false`, go straight into `--set-env-vars`. To read the administrator token again:
+Plain settings, such as `TERVIK_DEMO_ENABLED=true` or `TERVIK_SIGNUP_ENABLED=false`, go straight into `--set-env-vars`. Visitors who haven't signed up get a private guest workspace, kept in their browser, so they can use the dashboard right away; `TERVIK_GUEST_ACCESS=false` makes everyone sign up or log in first. To read the administrator token again:
 
 ```bash
 az containerapp secret show --name tervik-api --resource-group tervik --secret-name admin-token --query value -o tsv

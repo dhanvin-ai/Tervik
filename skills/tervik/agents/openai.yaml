@@ -1,4 +1,4 @@
 interface:
   display_name: "Tervik"
   short_description: "Monitor agents with Tervik and fix the problems it finds"
-  default_prompt: "Use $tervik to connect my agent to Tervik. First determine whether I want to monitor OpenCode itself or an application in this workspace."
+  default_prompt: "Use $tervik to connect my agent to Tervik. First determine whether I want to monitor Codex itself or an application in this workspace."

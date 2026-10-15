@@ -1,6 +1,6 @@
 ---
 name: tervik
-description: Add Tervik analytics to an AI agent application's conversation handlers and tools, monitor OpenCode's own chats through its plugin hooks, or fix a problem Tervik found in the agent. Use when integrating or repairing Tervik monitoring, or when asked to fix a Tervik problem.
+description: Add Tervik analytics to an AI agent application's conversation handlers and tools, monitor Codex's or OpenCode's own chats through their hooks, or fix a problem Tervik found in the agent. Use when integrating or repairing Tervik monitoring, or when asked to fix a Tervik problem.
 ---
 
 # Tervik integration
@@ -13,7 +13,7 @@ When the user asks to fix a Tervik problem (the dashboard's Fix panel gives them
 
 ## Choose what to monitor
 
-If the user wants to monitor OpenCode's own conversations and tools, use [references/opencode.md](references/opencode.md) and the included plugin installer. This mode works even when the current workspace is the extracted skill folder; do not ask for an application handler. When running in OpenCode from a skill-only workspace, a request to add analytics to "this agent" refers to OpenCode itself unless the user supplies another application target. Select the OpenCode recipe before searching for an application handler. In other ambiguous workspaces, ask which target they mean. For other coding assistants, check for a supported runtime telemetry integration before claiming support.
+If the user wants to monitor Codex's own conversations and tools, use [references/codex.md](references/codex.md) and the included hook installer; like OpenCode mode, it needs no application handler. If the user wants to monitor OpenCode's own conversations and tools, use [references/opencode.md](references/opencode.md) and the included plugin installer. This mode works even when the current workspace is the extracted skill folder; do not ask for an application handler. When running in OpenCode from a skill-only workspace, a request to add analytics to "this agent" refers to OpenCode itself unless the user supplies another application target. Select the OpenCode recipe before searching for an application handler. In other ambiguous workspaces, ask which target they mean. For other coding assistants, check for a supported runtime telemetry integration before claiming support.
 
 For OpenCode monitoring, check for an already-installed plugin and configured destination first. If new events are arriving, report the existing connection and verify the current interaction; do not say setup is blocked because the skill folder has no handler. An earlier reply in the chat may have used older application-only guidance, so use the current OpenCode recipe.
 

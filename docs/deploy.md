@@ -242,6 +242,8 @@ cd ~/Projects/tervik && npm run demo:agent -- --persona general
 | The browser console shows a CORS error | Add the dashboard's exact address, with `https://` and no trailing slash, to `TERVIK_CORS_ORIGINS` with `az containerapp update --set-env-vars`. |
 | `setup` says the image isn't publicly available | Run the **Deploy API** workflow, then make the package public (section 1, steps 2 and 3). |
 | `setup` fails with `RequestDisallowedByAzure` | The region isn't on your subscription's allowed list. Leave `AZURE_LOCATION` unset so the script picks an allowed one, or set it to one from the list in step 4. |
+| `domain` fails with `ExpressEnvironmentFeatureNotSupported` | The environment was created as an express environment, which has no custom domains. Delete the app and the environment (`setup` prints the two commands), then run `setup` again: it creates a standard one. The app gets a new address, so update the `api` CNAME. |
+| `domain` keeps printing the records after you added them | It checks through Cloudflare's resolver (1.1.1.1), so wait for the records to reach it. Check with `dig +short @1.1.1.1 TXT asuid.api.tervik.in`. |
 | The **Deploy API** workflow fails at **Sign in to Azure** | Run `scripts/deploy_azure.sh github` again; it checks the identity, its role, and the repository variables. |
 | `/api/health` says `sqlite` | `DATABASE_URL` isn't set, so data is lost on every restart. |
 

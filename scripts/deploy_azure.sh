@@ -104,10 +104,17 @@ setup() {
   exists az postgres flexible-server db show --resource-group "$RG" --server-name "$DB_SERVER" --name "$DATABASE" ||
     az postgres flexible-server db create --resource-group "$RG" --server-name "$DB_SERVER" --name "$DATABASE" --output none
 
+  # A standard environment: an express one can't serve the API on a custom domain.
+  if [ "$(az containerapp env show --name "$ENVIRONMENT" --resource-group "$RG" --query properties.environmentMode -o tsv 2>/dev/null)" = "Express" ]; then
+    echo "$ENVIRONMENT is an express environment, which can't use a custom domain. Delete it, then run this again:"
+    echo "  az containerapp delete --name $APP --resource-group $RG --yes"
+    echo "  az containerapp env delete --name $ENVIRONMENT --resource-group $RG --yes"
+    exit 1
+  fi
   if ! exists az containerapp env show --name "$ENVIRONMENT" --resource-group "$RG"; then
-    say "Container Apps environment $ENVIRONMENT (logs off, to save credits)"
+    say "Container Apps environment $ENVIRONMENT (consumption, logs off, to save credits)"
     az containerapp env create --name "$ENVIRONMENT" --resource-group "$RG" --location "$LOCATION" \
-      --logs-destination none --output none
+      --environment-mode WorkloadProfiles --logs-destination none --output none
   fi
 
   if exists az containerapp show --name "$APP" --resource-group "$RG"; then

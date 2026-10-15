@@ -1,0 +1,60 @@
+# Builds the API image on every push to main that touches the API, publishes it
+# to GitHub's container registry, and deploys it to Azure Container Apps.
+# The deploy step runs once the AZURE_* repository variables exist; they are set
+# by scripts/deploy_azure.sh, which creates the Azure resources. See docs/deploy.md.
+name: Deploy API
+
+on:
+  push:
+    branches: [main]
+    paths: ['apps/api/**', '.github/workflows/deploy-api.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write   # publish the image to ghcr.io
+  id-token: write   # sign in to Azure without a stored secret
+
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/tervik-api
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sign in to GitHub's container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish the image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/api
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+
+      - name: Sign in to Azure
+        if: vars.AZURE_CLIENT_ID != ''
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Azure Container Apps
+        if: vars.AZURE_CLIENT_ID != ''
+        run: |
+          az containerapp update \
+            --name "${{ vars.AZURE_CONTAINER_APP || 'tervik-api' }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP || 'tervik' }}" \
+            --image "$IMAGE:${{ github.sha }}"

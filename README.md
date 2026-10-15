@@ -24,7 +24,7 @@ In the commands below, replace the words in capitals, such as `PASTE_PROJECT_ID`
 1. Open https://www.tervik.in.
 2. Choose **Sign up** (top right) and create an account: with Google or GitHub when the server has them set up, or with your email and a password of at least 8 characters. You get your own workspace: the projects you create there, and their conversations, are private to it. Next time, choose **Log in**. You stay logged in on that browser until you choose **Log out** (bottom left of the dashboard).
 
-   To see every project on the server instead, as its operator: choose **Log in**, then **Use the administrator token**, and paste the `TERVIK_ADMIN_TOKEN` value of the API service on Railway into **Administrator token**. It lasts until you close the tab.
+   To see every project on the server instead, as its operator: choose **Log in**, then **Use the administrator token**, and paste the administrator token from the API's setup (on Azure, `az containerapp secret show --name tervik-api --resource-group tervik --secret-name admin-token --query value -o tsv` prints it) into **Administrator token**. It lasts until you close the tab.
 3. Choose **Create your first project** and name it.
 4. Open **Connect agent**. It shows the project ID and the endpoint, `https://api.tervik.in`.
 5. Connect an agent: see [Connect your agent](#connect-your-agent).
@@ -138,7 +138,7 @@ Instrumentation runs in your agent's server process. It uses stable event IDs ac
 
 ## Put it online
 
-The dashboard runs on Vercel and the API and its Postgres database on Railway, under your own domain. [docs/deploy.md](docs/deploy.md) has every step.
+The dashboard runs on Vercel, and the API and its Postgres database on Azure (Container Apps and Azure Database for PostgreSQL), under your own domain. `scripts/deploy_azure.sh` creates the Azure side, and every push to `main` that changes the API deploys it. [docs/deploy.md](docs/deploy.md) has every step.
 
 ## Run in containers
 
@@ -172,7 +172,7 @@ This runs the TypeScript checks, the builds, the SDK, client, API, and schema te
 | "API offline" in the dashboard | Locally, start `npm run dev`. Hosted, open https://api.tervik.in/api/health; it should return `"status":"ok"`. |
 | "Access denied. Sign in or add your administrator token" | Paste the token into **Administrator token**, not **Account session**, in **Connection settings**. Paste it again in each new tab. |
 | Chat says Ollama is not running | `brew services start ollama`, then `ollama pull llama3.2`. On the hosted API, Chat needs `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` instead. |
-| **Explore sample workspace** fails on the hosted dashboard | Set `TERVIK_DEMO_ENABLED=true` on the Railway API service. |
+| **Explore sample workspace** fails on the hosted dashboard | Set `TERVIK_DEMO_ENABLED=true` on the API: `az containerapp update --name tervik-api --resource-group tervik --set-env-vars TERVIK_DEMO_ENABLED=true`. |
 
 ## What Tervik detects
 

@@ -40,7 +40,7 @@ All settings are environment variables. Locally, none are needed.
 
 | Variable | Default | What it does |
 | - | - | - |
-| `DATABASE_URL` | `sqlite:///./.data/tervik.db`, relative to where the API starts | The database. `postgres://` and `postgresql://` URLs, such as Railway's, select PostgreSQL. Tables and new columns are created on start. |
+| `DATABASE_URL` | `sqlite:///./.data/tervik.db`, relative to where the API starts | The database. `postgres://` and `postgresql://` URLs select PostgreSQL; add `?sslmode=require` for Azure. Tables and new columns are created on start. |
 | `TERVIK_ADMIN_TOKEN` | none | Protects every `/api/*` route except `/api/health` and the capture API. The dashboard sends it as `Authorization: Bearer`. Generate one with `openssl rand -hex 32`. |
 | `TERVIK_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | The dashboard addresses allowed to call the API from a browser, separated by commas. |
 | `TERVIK_DASHBOARD_URL` | `http://localhost:5173` | Where alert messages link to. |
@@ -75,7 +75,7 @@ Add `--once` to run a single pass. Stopping either job loses nothing.
 
 ## Deploy
 
-`Dockerfile` builds the API image and listens on `$PORT`. `railway.json` tells Railway to build from it and health-check `/api/health`. [docs/deploy.md](../../docs/deploy.md) has every step, including the database and the domain.
+`Dockerfile` builds the API image and listens on `$PORT`. On every push to `main` that changes the API, GitHub Actions publishes it to `ghcr.io/dhanvin-ai/tervik-api` and deploys it to Azure Container Apps; `scripts/deploy_azure.sh` creates the Azure resources. `railway.json` is for hosting on Railway instead. [docs/deploy.md](../../docs/deploy.md) has every step, including the database and the domain.
 
 ## How it handles data
 

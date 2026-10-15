@@ -124,7 +124,8 @@ setup() {
     local admin_token="${TERVIK_ADMIN_TOKEN:-$(openssl rand -hex 32)}"
     local secrets=("database-url=$database_url" "admin-token=$admin_token")
     local env=("DATABASE_URL=secretref:database-url" "TERVIK_ADMIN_TOKEN=secretref:admin-token" "PORT=8000"
-               "TERVIK_CORS_ORIGINS=$DASHBOARD,https://${DASHBOARD#https://www.}" "TERVIK_DASHBOARD_URL=$DASHBOARD")
+               "TERVIK_CORS_ORIGINS=$DASHBOARD,https://${DASHBOARD#https://www.}" "TERVIK_DASHBOARD_URL=$DASHBOARD"
+               "TERVIK_PUBLIC_API_URL=https://$DOMAIN")
     for pair in "ANTHROPIC_API_KEY:anthropic-api-key" "GOOGLE_CLIENT_ID:google-client-id" "GOOGLE_CLIENT_SECRET:google-client-secret" \
                 "GITHUB_CLIENT_ID:github-client-id" "GITHUB_CLIENT_SECRET:github-client-secret"; do
       local name="${pair%%:*}" secret="${pair##*:}"

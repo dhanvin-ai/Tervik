@@ -421,6 +421,10 @@ class Improvement(Base):
     created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    # A fix suggested for a problem group: the group, the drafted fix, and its replay.
+    cluster_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    fix: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    replay: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class PromptVersion(Base):

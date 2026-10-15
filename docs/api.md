@@ -209,6 +209,21 @@ keys, change settings, or reach other projects. List keys with
 
 **Errors.** If the model can't be reached, you get HTTP 424 with the reason, and nothing is recorded. Read API keys can't chat.
 
+## Fixing a problem
+
+Each problem group can be fixed in three steps, from its **Problem details** panel in the dashboard.
+
+1. **Suggest.** Claude reads the group's failing conversations and writes the smallest change to the agent's instructions that would prevent it: the cause, the lines to add to the system prompt, its confidence, and a caveat. Without `ANTHROPIC_API_KEY`, the fix comes from the rule's template.
+2. **Replay.** Claude plays the agent in up to 8 of the failing turns and 4 turns from healthy conversations, with the change added and only the tool results recorded at the time. A separate call judges each new turn: fixed, still failing, or unclear for the failures, and no worse or worse for the healthy ones. This is a simulation of your agent, not a run of it, so treat it as evidence, not proof.
+3. **Approve.** A fix that fixed at least one failing turn and made no healthy turn worse can be approved. Approval records the change as the active prompt version, marks the problem resolved, and starts measuring the problem's rate against the week before. The response includes a prompt for Claude Code, Codex, or Cursor that applies the change to your agent's code.
+
+| Endpoint | What it does |
+| - | - |
+| `GET /api/clusters/{id}/fix` | The latest fix for a problem group, and whether replays are available |
+| `POST /api/clusters/{id}/fix` | Suggests a fix |
+| `POST /api/improvements/{id}/replay` | Replays the failures with the fix. HTTP 409 without `ANTHROPIC_API_KEY` |
+| `POST /api/improvements/{id}/approve` | Approves a replayed fix. HTTP 422 until a replay qualifies it. Needs the admin role |
+
 ## Alerts
 
 `POST /api/projects/{id}/alerts` creates a rule. Every rule has a `kind`, a

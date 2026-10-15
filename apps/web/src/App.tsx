@@ -22,7 +22,7 @@ import { DashboardShowcase, DitherDivider, FeatureShowcase, FinalCta, LandingFoo
 import { WorksWithMarquee } from './components/WorksWithMarquee';
 import { HowItWorks } from './components/HowItWorks';
 import { useRevealOnScroll } from './hooks/useMotion';
-import type { AlertRule, BehaviorRule, Cluster, ClusterDetail, Conversation, ConversationDetail, Delivery, Discovery, DiscoveryIntent, EvalDataset, EvalRun, Improvement, Overview, Page, Project, Range, SetupStatus } from './types';
+import type { AlertRule, BehaviorRule, Cluster, ClusterDetail, Conversation, ConversationDetail, Delivery, Discovery, DiscoveryIntent, EvalDataset, EvalRun, Improvement, Overview, Page, Project, Range, SetupStatus , ProblemFix, FixReplayRow } from './types';
 
 const INSTALL_COMMAND = 'npx skills add dhanvin-ai/tervik --skill tervik';
 const INSTALL_PROMPT = 'Use the tervik skill to add Tervik analytics to the agent application in this workspace. If this is only the skill folder, ask me for the application path or repository URL first.';
@@ -617,6 +617,85 @@ function ConversationsPage({ projectId, range, refresh, onSelect }: { projectId:
   </section>;
 }
 
+const VERDICTS: Record<FixReplayRow['verdict'], string> = {
+  fixed: 'Fixed', still_failing: 'Still failing', unclear: 'Unclear', same_or_better: 'No worse', worse: 'Worse',
+};
+
+/** Fix a problem the way Agnost does: a prompt change written from the real
+ * conversations, a replay of the failures with it, then approval. */
+function FixPanel({ clusterId, onConversation, onChanged }: { clusterId: string; onConversation: (id: string) => void; onChanged: () => void }) {
+  const resource = useResource<{ fix: ProblemFix | null; can_replay: boolean }>(`/api/clusters/${encodeURIComponent(clusterId)}/fix`);
+  const [fix, setFix] = useState<ProblemFix | null>(null);
+  const [busy, setBusy] = useState<'' | 'suggest' | 'replay' | 'approve'>('');
+  const [error, setError] = useState('');
+  const current = fix ?? resource.data?.fix ?? null;
+  const canReplay = resource.data?.can_replay ?? false;
+  const act = async (step: 'suggest' | 'replay' | 'approve', path: string) => {
+    setBusy(step); setError('');
+    try { setFix(await request<ProblemFix>(path, { method: 'POST' })); if (step === 'approve') onChanged(); }
+    catch (cause) { setError((cause as Error).message); } finally { setBusy(''); }
+  };
+  const approved = !!current?.deployed_at;
+  const summary = current?.replay?.summary;
+  return <section className="fix-panel">
+    <div className="section-label"><Sparkles size={16} />Fix this problem{current && <span className={`fix-state ${approved ? 'is-approved' : ''}`}>{approved ? 'Approved' : current.state === 'awaiting_approval' ? 'Ready to approve' : 'Draft'}</span>}</div>
+    {resource.loading && !current ? <Loading label="Loading the fix" /> : !current ? <>
+      <p className="fix-intro">Tervik reads these conversations and writes the smallest change to your agent’s instructions that would prevent this problem. Then it replays the failures with the change before you approve it.</p>
+      <button className="button button-primary" disabled={busy !== ''} onClick={() => act('suggest', `/api/clusters/${encodeURIComponent(clusterId)}/fix`)}>
+        {busy === 'suggest' ? <><LoaderCircle size={15} className="spin" />Reading the conversations…</> : <><Sparkles size={15} />Suggest a fix</>}</button>
+    </> : <>
+      <ol className="fix-steps">
+        <li className="fix-step">
+          <span className="fix-step-number">1</span>
+          <div>
+            <h4>{current.title}</h4>
+            <p className="fix-cause"><strong>Why it happens.</strong> {current.cause}</p>
+            <div className="fix-change"><div className="fix-change-head"><span>Suggested prompt change</span><CopyButton text={current.fix.instructions.join('\n')} label="Copy fix" compact /></div>
+              <pre>{current.fix.instructions.map(line => `+ ${line}`).join('\n')}</pre></div>
+            <p className="fix-meta">{current.fix.source === 'claude' ? `Written by Claude from the recorded conversations · ${current.fix.confidence} confidence` : 'From the rule’s template. Set ANTHROPIC_API_KEY on the API for a fix written from your conversations.'}</p>
+            {current.fix.caveat && <p className="fix-meta">Watch out: {current.fix.caveat}</p>}
+          </div>
+        </li>
+        <li className="fix-step">
+          <span className="fix-step-number">2</span>
+          <div>
+            <h4>Replay the failures with the fix</h4>
+            {!summary ? <p className="fix-intro">Claude plays your agent in up to 8 failing conversations and 4 healthy ones, with this change and the tool results recorded at the time, then checks each new reply.</p>
+              : <p className="fix-score"><strong>{summary.fixed} of {summary.failing}</strong> failing conversations fixed · <strong>{summary.worse} of {summary.controls}</strong> healthy conversations got worse</p>}
+            {summary && <div className="fix-results">{current.replay!.results.map((row, index) => <details key={`${row.conversation_id}-${index}`} className={`fix-result is-${row.verdict}`}>
+              <summary><span className="fix-verdict">{VERDICTS[row.verdict]}</span><span className="fix-result-text">{row.group === 'control' ? 'Healthy · ' : ''}{row.reason}</span></summary>
+              <div className="fix-compare"><div><span>Original</span><pre>{row.original || '(no reply)'}</pre></div><div><span>With the fix</span><pre>{row.replayed || '(not replayed)'}</pre></div></div>
+              <button className="text-button" onClick={() => onConversation(row.conversation_id)}>Open the conversation<ArrowRight size={13} /></button>
+            </details>)}</div>}
+            {!approved && <button className={`button ${summary ? 'button-secondary' : 'button-primary'}`} disabled={busy !== '' || !canReplay}
+              onClick={() => act('replay', `/api/improvements/${encodeURIComponent(current.id)}/replay`)}>
+              {busy === 'replay' ? <><LoaderCircle size={15} className="spin" />Replaying… about a minute</> : <><RotateCcw size={15} />{summary ? 'Replay again' : 'Replay with the fix'}</>}</button>}
+            {!canReplay && <p className="fix-meta">Replays need ANTHROPIC_API_KEY set on the API.</p>}
+          </div>
+        </li>
+        <li className="fix-step">
+          <span className="fix-step-number">3</span>
+          <div>
+            <h4>{approved ? 'Approved. Apply it to your agent' : 'Approve'}</h4>
+            {approved ? <>
+              <p className="fix-intro">Paste this into Claude Code, Codex, or Cursor in your agent’s project to apply the change.</p>
+              <div className="fix-change"><div className="fix-change-head"><span>For your coding agent</span><CopyButton text={current.coding_agent_prompt} compact /></div><pre>{current.coding_agent_prompt}</pre></div>
+              <p className="fix-score">{current.measurement?.status === 'measured'
+                ? <>This problem was in <strong>{current.measurement.before_rate}%</strong> of conversations the week before approval, and <strong>{current.measurement.after_rate}%</strong> since.</>
+                : 'Tervik now compares this problem’s rate after approval with the week before. Check back once new conversations arrive.'}</p>
+            </> : current.state === 'awaiting_approval' ? <>
+              <p className="fix-intro">Approving records this change, marks the problem resolved, and starts measuring its rate against the week before.</p>
+              <button className="button button-primary" disabled={busy !== ''} onClick={() => act('approve', `/api/improvements/${encodeURIComponent(current.id)}/approve`)}>
+                {busy === 'approve' ? <><LoaderCircle size={15} className="spin" />Approving…</> : <><Check size={15} />Approve fix</>}</button>
+            </> : <p className="fix-intro">{summary ? (summary.worse ? 'Not ready: the fix made a healthy conversation worse. Adjust the fix or replay again.' : 'Not ready: no failing conversation was fixed in the replay.') : 'Replay the fix first. It can be approved once it fixes at least one failing conversation without making a healthy one worse.'}</p>}
+          </div>
+        </li>
+      </ol>
+    </>}
+    {error && <p className="inline-error" role="alert">{error}</p>}
+  </section>;
+}
+
 function ClusterDrawer({ id, range, onClose, onConversation, onChanged }: { id: string; range: Range; onClose: () => void; onConversation: (id: string) => void; onChanged: () => void }) {
   const resource = useResource<ClusterDetail>(`/api/clusters/${encodeURIComponent(id)}?range=${range}`);
   const [saving, setSaving] = useState(false);
@@ -633,7 +712,7 @@ function ClusterDrawer({ id, range, onClose, onConversation, onChanged }: { id: 
       <div className="detail-section"><div className="section-label"><MessageSquare size={15} />Real examples<span>{cluster.evidence.length}</span></div><p className="section-intro">The exact messages that showed this problem in the {rangeLabels[range].toLowerCase()}.</p>
         {cluster.evidence.length ? cluster.evidence.map((evidence, index) => <div className="evidence-card" key={`${evidence.event_id}-${index}`}><span className="evidence-marker">{String(index + 1).padStart(2, '0')}</span><blockquote>“{evidence.content}”</blockquote><p><TriangleAlert size={13} />{evidence.reason}</p><button className="text-button" onClick={() => onConversation(evidence.conversation_id)}>Open conversation<ArrowUpRight size={14} /></button></div>) : <p className="muted">No evidence within this date range. Try a longer range.</p>}
       </div>
-      <div className="suggestion-card"><div className="section-label"><Sparkles size={16} />Suggested next step</div><p>{cluster.suggested_fix || 'Review the flagged conversation and reproduce the issue before making a change.'}</p><span>Detector {cluster.detector_version} · rule {cluster.rule_version} · Review and validate before applying.</span></div>
+      <FixPanel clusterId={cluster.id} onConversation={onConversation} onChanged={() => { resource.retry(); onChanged(); }} />
       <div className="detail-section"><div className="section-label"><Layers3 size={15} />Conversations with this problem</div>{cluster.conversations.map(conversation => <button key={conversation.id} className="related-conversation" onClick={() => onConversation(conversation.id)}><MessageSquare size={15} /><span><strong>{shortId(conversation.id)}</strong><small>{conversation.preview}</small></span><ChevronRight size={15} /></button>)}</div>
       <details className="dash-details"><summary>Advanced: turn these examples into a test</summary>
       <div className="cluster-eval-builder">

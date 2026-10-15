@@ -240,3 +240,28 @@ export interface ChatPersona { id: string; name: string; description: string; id
 export interface PlaygroundStatus { models: ChatModelOption[]; default_model: string | null; note: string | null; personas: ChatPersona[] }
 export interface PlaygroundChat { session_id: string; conversation_id: string; title: string; persona: string; problems: string[]; updated_at: string }
 export interface PlaygroundReply { session_id: string; conversation_id: string; reply: string; model: string }
+
+/** A fix suggested for a problem group, its replay, and its approval. */
+export interface FixReplayRow {
+  conversation_id: string;
+  group: 'failing' | 'control';
+  verdict: 'fixed' | 'still_failing' | 'unclear' | 'same_or_better' | 'worse';
+  reason: string;
+  user: string;
+  original: string;
+  replayed: string;
+}
+
+export interface ProblemFix {
+  id: string;
+  title: string;
+  state: string;
+  cause: string;
+  uncertainty: string;
+  candidate_diff: string;
+  deployed_at: string | null;
+  fix: { instructions: string[]; confidence: 'low' | 'medium' | 'high'; caveat: string; source: 'claude' | 'template'; model?: string | null };
+  replay: null | { ran_at: string; results: FixReplayRow[]; summary: { failing: number; fixed: number; still_failing: number; unclear: number; controls: number; worse: number; model?: string | null } };
+  coding_agent_prompt: string;
+  measurement?: { status: string; before_rate?: number; after_rate?: number; conversations_before?: number; conversations_after?: number };
+}

@@ -188,7 +188,7 @@ status() {
   fqdn="$(az containerapp show --name "$APP" --resource-group "$RG" --query properties.configuration.ingress.fqdn -o tsv 2>/dev/null || true)"
   region="$(az containerapp show --name "$APP" --resource-group "$RG" --query location -o tsv 2>/dev/null || true)"
   say "Status"
-  echo "  API app:   ${fqdn:+https://$fqdn}${fqdn:-not created}"
+  echo "  API app:   $([ -n "$fqdn" ] && echo "https://$fqdn" || echo 'not created')"
   echo "  Health:    ${fqdn:+$(curl -s --max-time 60 "https://$fqdn/api/health" || echo 'starting…')}"
   echo "  Region:    ${region:-$LOCATION}"
   echo "  Database:  $DB_SERVER.postgres.database.azure.com"

@@ -148,10 +148,17 @@ github() {
     az role assignment create --assignee-object-id "$principal" --assignee-principal-type ServicePrincipal \
       --role Contributor --scope "$scope" --output none
   # Trust tokens GitHub issues to workflows on this repository's main branch, and nothing else.
-  exists az identity federated-credential show --name github-main --identity-name "$IDENTITY" --resource-group "$RG" ||
-    az identity federated-credential create --name github-main --identity-name "$IDENTITY" --resource-group "$RG" \
-      --issuer https://token.actions.githubusercontent.com --subject "repo:$REPO:ref:refs/heads/main" \
-      --audiences api://AzureADTokenExchange --output none
+  # GitHub names the repository either by name or, for newer ones, by name and ID.
+  local owner_id repo_id
+  owner_id="$(gh api "repos/$REPO" --jq .owner.id)"
+  repo_id="$(gh api "repos/$REPO" --jq .id)"
+  for pair in "github-main:repo:$REPO" "github-main-ids:repo:${REPO%%/*}@$owner_id/${REPO#*/}@$repo_id"; do
+    local credential="${pair%%:*}" subject="${pair#*:}:ref:refs/heads/main"
+    exists az identity federated-credential show --name "$credential" --identity-name "$IDENTITY" --resource-group "$RG" ||
+      az identity federated-credential create --name "$credential" --identity-name "$IDENTITY" --resource-group "$RG" \
+        --issuer https://token.actions.githubusercontent.com --subject "$subject" \
+        --audiences api://AzureADTokenExchange --output none
+  done
   say "Repository variables for the Deploy API workflow"
   gh variable set AZURE_CLIENT_ID --repo "$REPO" --body "$client"
   gh variable set AZURE_TENANT_ID --repo "$REPO" --body "$TENANT"

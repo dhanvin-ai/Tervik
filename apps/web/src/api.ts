@@ -53,7 +53,13 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
       if (typeof body.detail === 'string') message = body.detail;
       else if (typeof body.error === 'string') message = body.error;
     } catch { /* Some proxies return a non-JSON error body. */ }
-    if (response.status === 401 || response.status === 403) {
+    if (response.status === 401 && !sessionStorage.getItem('tervik_admin_token')) {
+      // Signed out, or a session the API no longer knows (it expired, or the API
+      // moved to a new database): forget it and open Log in.
+      clearSession();
+      if (window.location.hash !== '#login') window.location.hash = 'login';
+      message = 'Sign in to continue.';
+    } else if (response.status === 401 || response.status === 403) {
       message = getSession()
         ? 'Access denied. Check your account access for this project.'
         : 'Access denied. Sign in or add your administrator token in connection settings.';

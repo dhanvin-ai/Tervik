@@ -44,7 +44,7 @@ from .db import (Account, AlertDelivery, AlertRule, AnalyzedConversation, ApiKey
                  iso, make_database, utc, utc_now)
 from .demo import DEMO_PROJECT_ID, demo_events
 from .mirror import mirror_events
-from .schemas import (AgentDescriptor, AlertChannel, AlertRuleInput, PlanInput, SlackConnect, AlertRulePatch, CaptureInput, ClusterPatch, CredentialInput, DiscoveryMembers, DiscoveryMerge,
+from .schemas import (AgentDescriptor, AlertChannel, AlertRuleInput, PlanInput, SlackConnect, AlertRulePatch, CaptureInput, ClusterPatch, CredentialInput, DiscoveryMembers, FixReport, DiscoveryMerge,
                       DiscoveryRename, DiscoveryStatus, EvalCase, EvalDatasetInput, EvalDatasetPatch, EvalRunInput, EventBatch, FindingsDatasetInput, ImprovementEval, ImprovementInput, ImprovementTransition, IntentInput,
                       IntentPatch, LoginInput,
                       MemberInput, MemberPatch, OrgInput, OrgProjectInput, ProjectInput, RuleInput,
@@ -58,7 +58,9 @@ API_KEY_PROJECT_PATH = re.compile(r"^/api/projects/(?P<id>[^/]+)/(?P<rest>.+)$")
 API_KEY_READABLE = re.compile(r"^(setup|summary|tools|events|events/export|events/[^/]+|errors|metadata|users|groups|search|"
                               r"violations|intent-stats|evidence|classify/status|policies|intents|discovery|rules)$")
 API_KEY_PROJECT_QUERY = {"/api/overview", "/api/clusters", "/api/conversations"}
-API_KEY_RESOURCE = re.compile(r"^/api/(conversations|clusters)/[^/]+$")
+API_KEY_RESOURCE = re.compile(r"^/api/(conversations|clusters)/[^/]+$|^/api/clusters/[^/]+/(cases|fix)$")
+# The coding agent fixing a problem reports its fix with the project's key; only members approve it.
+API_KEY_FIX_REPORT = re.compile(r"^/api/clusters/[^/]+/fix$")
 
 
 def api_key_allows(method, path, query, project_id):
@@ -69,6 +71,8 @@ def api_key_allows(method, path, query, project_id):
         if method == "POST":
             return match["rest"] == "classify"
         return method == "GET" and bool(API_KEY_READABLE.match(match["rest"]))
+    if method == "POST":
+        return bool(API_KEY_FIX_REPORT.match(path))
     if method != "GET":
         return False
     if path in API_KEY_PROJECT_QUERY:
@@ -2210,7 +2214,7 @@ def create_app(settings: Settings | None = None):
 
     def fix_view(db_session, imp):
         view = {**improve_mod.public_improvement(imp), "cluster_id": imp.cluster_id, "fix": imp.fix or {},
-                "replay": imp.replay, "coding_agent_prompt": fixes_mod.coding_agent_prompt(imp.fix or {}, imp.title)}
+                "replay": imp.replay}
         if imp.deployed_at:
             view["measurement"] = improve_mod.measure_outcome(db_session, imp.project_id, imp.signal_kind, imp.deployed_at)
         return view
@@ -2259,81 +2263,64 @@ def create_app(settings: Settings | None = None):
 
     @app.get("/api/clusters/{id}/fix")
     def get_fix(request: Request, id: str):
+        """The latest fix reported for a problem group, and the prompt that asks the
+        coding agent in the customer's project to make one."""
         with sessions() as session:
-            locate_cluster(session, id, "30d", request)
+            row, _, _ = locate_cluster(session, id, "30d", request)
             imp = session.scalars(select(Improvement).where(Improvement.cluster_id == id)
                                   .order_by(Improvement.created_at.desc())).first()
-            return {"fix": fix_view(session, imp) if imp else None, "can_replay": app.state.llm is not None}
+            return {"fix": fix_view(session, imp) if imp else None, "agent_prompt": fixes_mod.agent_prompt(id, row["title"])}
+
+    @app.get("/api/clusters/{id}/cases")
+    def get_fix_cases(request: Request, id: str):
+        """What the coding agent fixing a problem replays: the failing turns behind
+        it, newest first, and a few healthy turns to check nothing gets worse."""
+        with sessions() as session:
+            row, _, _ = locate_cluster(session, id, "30d", request)
+            improvement_access(request, session, row["project_id"], "viewer")
+            failing, controls = fix_cases(session, row["project_id"], id)
+            problem = {key: row[key] for key in ("id", "project_id", "title", "kind", "description", "severity", "count")}
+            return {"problem": problem,
+                    "failing": [fixes_mod.case_view(case, kind, reason) for case, kind, reason in failing],
+                    "controls": [fixes_mod.case_view(case) for case in controls]}
 
     @app.post("/api/clusters/{id}/fix", status_code=201)
-    def suggest_fix(request: Request, id: str):
-        """Draft a fix from the problem group's real failing conversations."""
-        with sessions() as session:
-            row, _, evidence = locate_cluster(session, id, "30d", request)
-            improvement_access(request, session, row["project_id"], "member")
-            events, signals, _ = project_analysis(session, row["project_id"])
-            by_conversation = conversations_of(events)
-            related = [s for s in signals if s["cluster_id"] == id]
-            examples = [(fixes_mod.transcript(by_conversation[s["conversation_id"]], 2500), s["reason"])
-                        for s in related[-6:]]
-            group = {**row, "tool_name": related[-1]["tool_name"] if related else None}
-        fix = fixes_mod.draft(app.state.llm, group, examples)
+    def report_fix(request: Request, id: str, body: FixReport):
+        """Record a fix the coding agent made in the customer's project, with its
+        replay. It's ready to approve once it fixes at least one failing turn and
+        makes no healthy turn worse."""
         with sessions.begin() as session:
+            row, _, evidence = locate_cluster(session, id, "30d", request)
             project = improvement_access(request, session, row["project_id"], "member")
             resolved = session_auth(request, session)
             account_id = resolved[1].id if resolved else None
-            imp = Improvement(id=str(uuid4()), project_id=project.id, cluster_id=id, title=fix["title"],
-                              signal_kind=row["kind"], cause=fix["cause"], uncertainty=fix["caveat"],
+            results = [result.model_dump() for result in body.results]
+            summary = fixes_mod.summarize(results)
+            imp = Improvement(id=str(uuid4()), project_id=project.id, cluster_id=id, title=body.title,
+                              signal_kind=row["kind"], cause=body.cause, uncertainty=body.caveat,
                               evidence=[{"event_id": e["event_id"], "conversation_id": e["conversation_id"],
                                          "content": e["content"][:280]} for e in evidence[:6]],
-                              candidate_diff=fixes_mod.diff(fix["instructions"]), state="candidate_ready",
-                              fix=fix, created_by=account_id)
+                              candidate_diff=body.diff,
+                              state="awaiting_approval" if summary["fixed"] and not summary["worse"] else "candidate_ready",
+                              fix={"source": "agent", "agent": body.agent, "files": body.files},
+                              replay={"results": results, "summary": summary, "ran_at": iso(utc_now()), "agent": body.agent},
+                              created_by=account_id)
             session.add(imp)
             session.flush()
             if project.org_id is not None:
-                audit(session, project.org_id, "improvement.suggest", imp.id, account_id)
-            return fix_view(session, imp)
-
-    @app.post("/api/improvements/{id}/replay")
-    def replay_fix(request: Request, id: str):
-        """Replay the problem group's failing turns, and a few healthy ones, with the fix."""
-        if app.state.llm is None:
-            raise HTTPException(409, "Replays need ANTHROPIC_API_KEY set on the API.")
-        with sessions() as session:
-            imp, _ = improvement_for(session, request, id, "member")
-            if not imp.cluster_id or not imp.fix:
-                raise HTTPException(422, "Only a fix suggested for a problem can be replayed.")
-            failing, controls = fix_cases(session, imp.project_id, imp.cluster_id)
-            fix = dict(imp.fix)
-        if not failing:
-            raise HTTPException(422, "This problem has no recorded turn to replay.")
-        result = fixes_mod.replay(app.state.llm, fix, failing, controls)
-        result["ran_at"] = iso(utc_now())
-        with sessions.begin() as session:
-            imp, project = improvement_for(session, request, id, "member")
-            imp.replay = fixes_mod.dumps(result)
-            if imp.state in ("candidate_ready", "awaiting_approval"):
-                summary = result["summary"]
-                # Ready to approve once it fixes something and makes no healthy turn worse.
-                imp.state = "awaiting_approval" if summary["fixed"] and not summary["worse"] else "candidate_ready"
-            imp.updated_at = utc_now()
-            if project.org_id is not None:
-                resolved = session_auth(request, session)
-                audit(session, project.org_id, "improvement.replay", imp.id, resolved[1].id if resolved else None)
+                audit(session, project.org_id, "improvement.report", imp.id, account_id)
             return fix_view(session, imp)
 
     @app.post("/api/improvements/{id}/approve")
     def approve_fix(request: Request, id: str):
-        """Approve a replayed fix: record it as the active prompt change, mark the
-        problem resolved, and start measuring its rate against the week before."""
+        """Approve a replayed fix: mark the problem resolved and start measuring its
+        rate against the week before. The change itself lives in the customer's code."""
         with sessions.begin() as session:
             imp, project = improvement_for(session, request, id, "admin")
             if imp.state != "awaiting_approval":
-                raise HTTPException(422, "Replay the fix first. Approval needs at least one fixed conversation and no healthy conversation made worse.")
+                raise HTTPException(422, "Not ready: approval needs a replay that fixed at least one failing conversation and made no healthy one worse.")
             resolved = session_auth(request, session)
             account_id = resolved[1].id if resolved else None
-            path, added = improve_mod.parse_prompt_block(imp.candidate_diff)
-            improve_mod.activate_prompt(session, imp.project_id, path, "\n".join(added), imp.id, account_id)
             imp.approved_by, imp.deployed_at, imp.state, imp.updated_at = account_id, utc_now(), "monitoring", utc_now()
             if imp.cluster_id:
                 insert = sqlite_insert if engine.dialect.name == "sqlite" else postgres_insert

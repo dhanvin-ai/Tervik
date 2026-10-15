@@ -260,8 +260,7 @@ export interface ProblemFix {
   uncertainty: string;
   candidate_diff: string;
   deployed_at: string | null;
-  fix: { instructions: string[]; confidence: 'low' | 'medium' | 'high'; caveat: string; source: 'claude' | 'template'; model?: string | null };
-  replay: null | { ran_at: string; results: FixReplayRow[]; summary: { failing: number; fixed: number; still_failing: number; unclear: number; controls: number; worse: number; model?: string | null } };
-  coding_agent_prompt: string;
+  fix: { source: 'agent'; agent: string; files: string[] };
+  replay: null | { ran_at: string; agent: string; results: FixReplayRow[]; summary: { failing: number; fixed: number; still_failing: number; unclear: number; controls: number; worse: number } };
   measurement?: { status: string; before_rate?: number; after_rate?: number; conversations_before?: number; conversations_after?: number };
 }

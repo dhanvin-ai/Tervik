@@ -113,6 +113,37 @@ class CredentialInput(BaseModel):
     environment: str | None = Field(default=None, max_length=80)
 
 
+class FixReplayRow(BaseModel):
+    """One turn the coding agent replayed through the customer's agent with its fix."""
+    model_config = ConfigDict(extra="forbid")
+    conversation_id: str = Field(min_length=1, max_length=200)
+    group: Literal["failing", "control"]
+    verdict: Literal["fixed", "still_failing", "unclear", "same_or_better", "worse"]
+    reason: str = Field(default="", max_length=1000)
+    user: str = Field(default="", max_length=4000)
+    original: str = Field(default="", max_length=8000)
+    replayed: str = Field(default="", max_length=8000)
+
+    @model_validator(mode="after")
+    def verdict_fits_group(self):
+        allowed = {"failing": ("fixed", "still_failing", "unclear"), "control": ("same_or_better", "worse", "unclear")}
+        if self.verdict not in allowed[self.group]:
+            raise ValueError(f"A {self.group} turn's verdict is one of: {', '.join(allowed[self.group])}")
+        return self
+
+
+class FixReport(BaseModel):
+    """A fix the coding agent in the customer's project made, and how its replay went."""
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(min_length=1, max_length=200)
+    cause: str = Field(min_length=1, max_length=2000)
+    diff: str = Field(min_length=1, max_length=60000)
+    files: list[str] = Field(default_factory=list, max_length=50)
+    caveat: str = Field(default="", max_length=1000)
+    agent: str = Field(default="coding agent", min_length=1, max_length=80)
+    results: list[FixReplayRow] = Field(default_factory=list, max_length=60)
+
+
 class CaptureInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     capture_content: bool | None = None

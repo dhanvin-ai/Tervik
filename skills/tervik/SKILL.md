@@ -1,11 +1,15 @@
 ---
 name: tervik
-description: Add Tervik analytics to an AI agent application's conversation handlers and tools, or monitor OpenCode's own chats through its plugin hooks. Use when integrating or repairing Tervik monitoring.
+description: Add Tervik analytics to an AI agent application's conversation handlers and tools, monitor OpenCode's own chats through its plugin hooks, or fix a problem Tervik found in the agent. Use when integrating or repairing Tervik monitoring, or when asked to fix a Tervik problem.
 ---
 
 # Tervik integration
 
 Connect the existing agent application, or the OpenCode runtime, to Tervik. Tervik records each user message and the agent's reply as one turn, with the agent's tool calls nested under it, then flags silent failures: corrections, frustration, failed or timed-out tools, made-up tool values, actions nobody asked for, and claims no tool backed. This skill adds the instrumentation; monitoring continues in that runtime after this coding session ends.
+
+## Fix a problem Tervik found
+
+When the user asks to fix a Tervik problem (the dashboard's Fix panel gives them a prompt with a problem ID), follow [agents/tervik-fixer.md](agents/tervik-fixer.md) in the agent's project. It downloads the failing conversations, changes the agent, replays them through the real agent, and reports the fix to Tervik for approval. Tervik doesn't write fixes itself; this agent does, with the project's real code. In Claude Code it can also run as a subagent: copy `agents/tervik-fixer.md` into the project's `.claude/agents/`.
 
 ## Choose what to monitor
 

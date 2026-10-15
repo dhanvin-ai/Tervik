@@ -623,75 +623,87 @@ const VERDICTS: Record<FixReplayRow['verdict'], string> = {
 
 /** Fix a problem the way Agnost does: a prompt change written from the real
  * conversations, a replay of the failures with it, then approval. */
-function FixPanel({ clusterId, onConversation, onChanged }: { clusterId: string; onConversation: (id: string) => void; onChanged: () => void }) {
-  const resource = useResource<{ fix: ProblemFix | null; can_replay: boolean }>(`/api/clusters/${encodeURIComponent(clusterId)}/fix`);
-  const [fix, setFix] = useState<ProblemFix | null>(null);
-  const [busy, setBusy] = useState<'' | 'suggest' | 'replay' | 'approve'>('');
+function FixPanel({ clusterId, projectId, onConversation, onChanged }: { clusterId: string; projectId: string; onConversation: (id: string) => void; onChanged: () => void }) {
+  const [tick, setTick] = useState(0);
+  const resource = useResource<{ fix: ProblemFix | null; agent_prompt: string }>(`/api/clusters/${encodeURIComponent(clusterId)}/fix`, tick);
+  const [approvedFix, setApprovedFix] = useState<ProblemFix | null>(null);
+  const [key, setKey] = useState('');
+  const [busy, setBusy] = useState<'' | 'key' | 'approve'>('');
   const [error, setError] = useState('');
-  const current = fix ?? resource.data?.fix ?? null;
-  const canReplay = resource.data?.can_replay ?? false;
-  const act = async (step: 'suggest' | 'replay' | 'approve', path: string) => {
-    setBusy(step); setError('');
-    try { setFix(await request<ProblemFix>(path, { method: 'POST' })); if (step === 'approve') onChanged(); }
+  const current = approvedFix ?? resource.data?.fix ?? null;
+  const approved = !!current?.deployed_at;
+  // Check for the coding agent's report every few seconds, until the fix is approved.
+  useEffect(() => {
+    if (approved) return;
+    const timer = window.setInterval(() => setTick(value => value + 1), 5000);
+    return () => window.clearInterval(timer);
+  }, [approved]);
+  const endpoint = API_URL || (window.location.port === '5173' ? 'http://127.0.0.1:8000' : window.location.origin);
+  const env = `export TERVIK_ENDPOINT=${endpoint}\nexport TERVIK_FIX_KEY=${key}`;
+  const createKey = async () => {
+    setBusy('key'); setError('');
+    try { setKey((await request<{ secret: string }>(`/api/projects/${encodeURIComponent(projectId)}/api-keys`, { method: 'POST', body: JSON.stringify({ name: 'Fix agent' }) })).secret); }
     catch (cause) { setError((cause as Error).message); } finally { setBusy(''); }
   };
-  const approved = !!current?.deployed_at;
+  const approve = async (id: string) => {
+    setBusy('approve'); setError('');
+    try { setApprovedFix(await request<ProblemFix>(`/api/improvements/${encodeURIComponent(id)}/approve`, { method: 'POST' })); onChanged(); }
+    catch (cause) { setError((cause as Error).message); } finally { setBusy(''); }
+  };
   const summary = current?.replay?.summary;
   return <section className="fix-panel">
-    <div className="section-label"><Sparkles size={16} />Fix this problem{current && <span className={`fix-state ${approved ? 'is-approved' : ''}`}>{approved ? 'Approved' : current.state === 'awaiting_approval' ? 'Ready to approve' : 'Draft'}</span>}</div>
-    {resource.loading && !current ? <Loading label="Loading the fix" /> : !current ? <>
-      <p className="fix-intro">Tervik reads these conversations and writes the smallest change to your agent’s instructions that would prevent this problem. Then it replays the failures with the change before you approve it.</p>
-      <button className="button button-primary" disabled={busy !== ''} onClick={() => act('suggest', `/api/clusters/${encodeURIComponent(clusterId)}/fix`)}>
-        {busy === 'suggest' ? <><LoaderCircle size={15} className="spin" />Reading the conversations…</> : <><Sparkles size={15} />Suggest a fix</>}</button>
-    </> : <>
-      <ol className="fix-steps">
-        <li className="fix-step">
-          <span className="fix-step-number">1</span>
-          <div>
-            <h4>{current.title}</h4>
-            <p className="fix-cause"><strong>Why it happens.</strong> {current.cause}</p>
-            <div className="fix-change"><div className="fix-change-head"><span>Suggested prompt change</span><CopyButton text={current.fix.instructions.join('\n')} label="Copy fix" compact /></div>
-              <pre>{current.fix.instructions.map(line => `+ ${line}`).join('\n')}</pre></div>
-            <p className="fix-meta">{current.fix.source === 'claude' ? `Written by Claude from the recorded conversations · ${current.fix.confidence} confidence` : 'From the rule’s template. Set ANTHROPIC_API_KEY on the API for a fix written from your conversations.'}</p>
-            {current.fix.caveat && <p className="fix-meta">Watch out: {current.fix.caveat}</p>}
-          </div>
-        </li>
-        <li className="fix-step">
-          <span className="fix-step-number">2</span>
-          <div>
-            <h4>Replay the failures with the fix</h4>
-            {!summary ? <p className="fix-intro">Claude plays your agent in up to 8 failing conversations and 4 healthy ones, with this change and the tool results recorded at the time, then checks each new reply.</p>
-              : <p className="fix-score"><strong>{summary.fixed} of {summary.failing}</strong> failing conversations fixed · <strong>{summary.worse} of {summary.controls}</strong> healthy conversations got worse</p>}
+    <div className="section-label"><Sparkles size={16} />Fix this problem{current && <span className={`fix-state ${approved ? 'is-approved' : ''}`}>{approved ? 'Approved' : current.state === 'awaiting_approval' ? 'Ready to approve' : 'Not ready'}</span>}</div>
+    <p className="fix-intro">Your coding agent fixes this in your agent’s own project, with the Tervik skill. It replays these failures through your real agent, then reports back here. You approve the fix; Tervik never changes your agent itself.</p>
+    <ol className="fix-steps">
+      <li className="fix-step">
+        <span className="fix-step-number">1</span>
+        <div>
+          <h4>Give your coding agent a key</h4>
+          {key ? <>
+            <div className="fix-change"><div className="fix-change-head"><span>Set in the shell that runs your coding agent</span><CopyButton text={env} compact /></div><pre>{env}</pre></div>
+            <p className="fix-meta">Shown once. Keep it out of source control. It reads this project’s problems and reports fixes; it can’t approve them.</p>
+          </> : <>
+            <p className="fix-meta">Lets the agent download these failing conversations and report its fix.</p>
+            <button className="button button-secondary" disabled={busy !== '' || !projectId} onClick={createKey}>
+              {busy === 'key' ? <><LoaderCircle size={15} className="spin" />Creating…</> : <><ShieldCheck size={15} />Create a key</>}</button>
+          </>}
+        </div>
+      </li>
+      <li className="fix-step">
+        <span className="fix-step-number">2</span>
+        <div>
+          <h4>Run this in your agent’s project</h4>
+          {resource.data ? <div className="fix-change"><div className="fix-change-head"><span>For Claude Code, Codex, or Cursor</span><CopyButton text={resource.data.agent_prompt} compact /></div><pre>{resource.data.agent_prompt}</pre></div>
+            : <Loading label="Loading the prompt" />}
+          <p className="fix-meta">The coding agent needs the Tervik skill: <code>{INSTALL_COMMAND}</code>, or <a href="/tervik-skill.zip" download>download it</a>. Its fix agent comes with it.</p>
+        </div>
+      </li>
+      <li className="fix-step">
+        <span className="fix-step-number">3</span>
+        <div>
+          <h4>{approved ? 'Approved. Deploy the change' : current ? 'Review the replay and approve' : 'Waiting for your coding agent'}</h4>
+          {!current ? <p className="fix-intro"><LoaderCircle size={13} className="spin" /> This updates by itself when your coding agent reports its fix.</p> : <>
+            <p className="fix-cause"><strong>{current.title}.</strong> {current.cause}</p>
+            <details className="fix-change"><summary className="fix-change-head"><span>The change{current.fix.files?.length ? ` · ${current.fix.files.join(', ')}` : ''}</span></summary><pre>{current.candidate_diff}</pre></details>
+            <p className="fix-meta">Made and replayed by {current.fix.agent || 'your coding agent'}{current.replay?.ran_at ? ` · ${new Date(current.replay.ran_at).toLocaleString()}` : ''}{current.uncertainty ? `. Watch out: ${current.uncertainty}` : ''}</p>
+            {summary && <p className="fix-score"><strong>{summary.fixed} of {summary.failing}</strong> failing conversations fixed · <strong>{summary.worse} of {summary.controls}</strong> healthy conversations got worse</p>}
             {summary && <div className="fix-results">{current.replay!.results.map((row, index) => <details key={`${row.conversation_id}-${index}`} className={`fix-result is-${row.verdict}`}>
               <summary><span className="fix-verdict">{VERDICTS[row.verdict]}</span><span className="fix-result-text">{row.group === 'control' ? 'Healthy · ' : ''}{row.reason}</span></summary>
               <div className="fix-compare"><div><span>Original</span><pre>{row.original || '(no reply)'}</pre></div><div><span>With the fix</span><pre>{row.replayed || '(not replayed)'}</pre></div></div>
               <button className="text-button" onClick={() => onConversation(row.conversation_id)}>Open the conversation<ArrowRight size={13} /></button>
             </details>)}</div>}
-            {!approved && <button className={`button ${summary ? 'button-secondary' : 'button-primary'}`} disabled={busy !== '' || !canReplay}
-              onClick={() => act('replay', `/api/improvements/${encodeURIComponent(current.id)}/replay`)}>
-              {busy === 'replay' ? <><LoaderCircle size={15} className="spin" />Replaying… about a minute</> : <><RotateCcw size={15} />{summary ? 'Replay again' : 'Replay with the fix'}</>}</button>}
-            {!canReplay && <p className="fix-meta">Replays need ANTHROPIC_API_KEY set on the API.</p>}
-          </div>
-        </li>
-        <li className="fix-step">
-          <span className="fix-step-number">3</span>
-          <div>
-            <h4>{approved ? 'Approved. Apply it to your agent' : 'Approve'}</h4>
-            {approved ? <>
-              <p className="fix-intro">Paste this into Claude Code, Codex, or Cursor in your agent’s project to apply the change.</p>
-              <div className="fix-change"><div className="fix-change-head"><span>For your coding agent</span><CopyButton text={current.coding_agent_prompt} compact /></div><pre>{current.coding_agent_prompt}</pre></div>
-              <p className="fix-score">{current.measurement?.status === 'measured'
-                ? <>This problem was in <strong>{current.measurement.before_rate}%</strong> of conversations the week before approval, and <strong>{current.measurement.after_rate}%</strong> since.</>
-                : 'Tervik now compares this problem’s rate after approval with the week before. Check back once new conversations arrive.'}</p>
-            </> : current.state === 'awaiting_approval' ? <>
-              <p className="fix-intro">Approving records this change, marks the problem resolved, and starts measuring its rate against the week before.</p>
-              <button className="button button-primary" disabled={busy !== ''} onClick={() => act('approve', `/api/improvements/${encodeURIComponent(current.id)}/approve`)}>
+            {approved ? <p className="fix-score">{current.measurement?.status === 'measured'
+              ? <>This problem was in <strong>{current.measurement.before_rate}%</strong> of conversations the week before approval, and <strong>{current.measurement.after_rate}%</strong> since.</>
+              : 'Tervik marked this problem resolved and compares its rate after approval with the week before. Check back once new conversations arrive.'}</p>
+            : current.state === 'awaiting_approval' ? <>
+              <p className="fix-intro">Approve once you’ve reviewed the change. Then deploy it: Tervik marks the problem resolved and measures whether it comes back.</p>
+              <button className="button button-primary" disabled={busy !== ''} onClick={() => approve(current.id)}>
                 {busy === 'approve' ? <><LoaderCircle size={15} className="spin" />Approving…</> : <><Check size={15} />Approve fix</>}</button>
-            </> : <p className="fix-intro">{summary ? (summary.worse ? 'Not ready: the fix made a healthy conversation worse. Adjust the fix or replay again.' : 'Not ready: no failing conversation was fixed in the replay.') : 'Replay the fix first. It can be approved once it fixes at least one failing conversation without making a healthy one worse.'}</p>}
-          </div>
-        </li>
-      </ol>
-    </>}
+            </> : <p className="fix-intro">{summary?.worse ? 'Not ready: the fix made a healthy conversation worse.' : 'Not ready: no failing conversation was fixed in the replay.'} Ask your coding agent to revise the change and report again.</p>}
+          </>}
+        </div>
+      </li>
+    </ol>
     {error && <p className="inline-error" role="alert">{error}</p>}
   </section>;
 }
@@ -712,7 +724,7 @@ function ClusterDrawer({ id, range, onClose, onConversation, onChanged }: { id: 
       <div className="detail-section"><div className="section-label"><MessageSquare size={15} />Real examples<span>{cluster.evidence.length}</span></div><p className="section-intro">The exact messages that showed this problem in the {rangeLabels[range].toLowerCase()}.</p>
         {cluster.evidence.length ? cluster.evidence.map((evidence, index) => <div className="evidence-card" key={`${evidence.event_id}-${index}`}><span className="evidence-marker">{String(index + 1).padStart(2, '0')}</span><blockquote>“{evidence.content}”</blockquote><p><TriangleAlert size={13} />{evidence.reason}</p><button className="text-button" onClick={() => onConversation(evidence.conversation_id)}>Open conversation<ArrowUpRight size={14} /></button></div>) : <p className="muted">No evidence within this date range. Try a longer range.</p>}
       </div>
-      <FixPanel clusterId={cluster.id} onConversation={onConversation} onChanged={() => { resource.retry(); onChanged(); }} />
+      <FixPanel clusterId={cluster.id} projectId={cluster.project_id} onConversation={onConversation} onChanged={() => { resource.retry(); onChanged(); }} />
       <div className="detail-section"><div className="section-label"><Layers3 size={15} />Conversations with this problem</div>{cluster.conversations.map(conversation => <button key={conversation.id} className="related-conversation" onClick={() => onConversation(conversation.id)}><MessageSquare size={15} /><span><strong>{shortId(conversation.id)}</strong><small>{conversation.preview}</small></span><ChevronRight size={15} /></button>)}</div>
       <details className="dash-details"><summary>Advanced: turn these examples into a test</summary>
       <div className="cluster-eval-builder">

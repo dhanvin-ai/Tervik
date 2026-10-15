@@ -21,7 +21,8 @@ def status(codex_home):
                  if any("tervik/codex-hook.py" in hook.get("command", "") for group in groups for hook in group.get("hooks", []))]
     endpoint = os.environ.get("TERVIK_ENDPOINT") or config.get("endpoint") or "http://127.0.0.1:8000"
     report = {"hooks_installed": sorted(installed), "hook_script": (codex_home / "tervik" / "codex-hook.py").is_file(),
-              "key_configured": bool(os.environ.get("TERVIK_API_KEY") or config.get("apiKey")), "endpoint": endpoint}
+              "key_configured": str(os.environ.get("TERVIK_API_KEY") or config.get("apiKey") or "").startswith("tvk_"),
+              "endpoint": endpoint}
     try:
         with urlopen(endpoint.rstrip("/") + "/api/health", timeout=60) as response:
             report["health"] = json.load(response).get("status")

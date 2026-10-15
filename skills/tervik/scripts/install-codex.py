@@ -13,6 +13,10 @@ EVENTS = ("UserPromptSubmit", "PostToolUse", "Stop")
 
 
 def install(codex_home, endpoint=None, api_key=None):
+    api_key = (api_key or "").strip()
+    if api_key and not api_key.startswith("tvk_"):
+        sys.exit("That isn't the project's secret key, which starts with tvk_. Copy it from the dashboard's "
+                 "Connect your agent page, step 03, Prefer a secret key? Nothing was changed.")
     source = Path(__file__).resolve().parent
     adapter = codex_home / "tervik"
     adapter.mkdir(parents=True, exist_ok=True)
@@ -45,8 +49,13 @@ def install(codex_home, endpoint=None, api_key=None):
 
     print(f"Installed Tervik's Codex hooks in {hooks_path}")
     print(f"Private configuration: {config_path}")
-    if not (config.get("apiKey") or os.environ.get("TERVIK_API_KEY")):
-        print("Configure the Tervik project key, then run this again. No events are sent without it.")
+    if api_key:
+        print(f"Saved the secret key ({len(api_key)} characters, starts with tvk_). Endpoint: {config.get('endpoint')}")
+    elif config.get("apiKey"):
+        print("Kept the secret key saved earlier.")
+    else:
+        sys.exit("No key was given, so nothing will be sent to Tervik. Run this again and paste the key "
+                 "(it starts with tvk_) at the prompt.")
     print("Restart Codex, then trust the three Tervik hooks when Codex asks (in the CLI: /hooks).")
     print("Only new turns are sent; existing chat history isn't.")
 

@@ -174,7 +174,8 @@ domain() {
   fqdn="$(az containerapp show --name "$APP" --resource-group "$RG" --query properties.configuration.ingress.fqdn -o tsv)"
   verification="$(az containerapp show --name "$APP" --resource-group "$RG" --query properties.customDomainVerificationId -o tsv)"
   local host="${DOMAIN%%.*}"
-  if [ "$(dig +short CNAME "$DOMAIN" | sed 's/\.$//')" != "$fqdn" ] || [ -z "$(dig +short TXT "asuid.$DOMAIN")" ]; then
+  # Ask a public resolver: this Mac's may still have the old records cached for an hour.
+  if [ "$(dig +short @1.1.1.1 CNAME "$DOMAIN" | sed 's/\.$//')" != "$fqdn" ] || [ -z "$(dig +short @1.1.1.1 TXT "asuid.$DOMAIN")" ]; then
     say "Add these DNS records for $DOMAIN, then run this again"
     echo "  CNAME  $host        → $fqdn"
     echo "  TXT    asuid.$host  → $verification"

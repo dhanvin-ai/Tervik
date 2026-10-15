@@ -50,7 +50,7 @@ Scaling to zero means the first request after a quiet spell takes a few seconds 
 
 2. **Build the image.** Push to `main`, or open the repository's **Actions** tab, choose **Deploy API**, and click **Run workflow**. The workflow publishes `ghcr.io/dhanvin-ai/tervik-api`. Its Azure steps are skipped until step 4.
 
-3. **Make the image public.** Open https://github.com/users/dhanvin-ai/packages/container/package/tervik-api, then **Package settings → Change visibility → Public**. Azure then pulls it without a password. The repository is public, so the image holds nothing that isn't already visible.
+3. **Check the image is public.** It is by default, since the repository is public, and Azure then pulls it without a password. `setup` checks this. If it ever isn't, open https://github.com/users/dhanvin-ai/packages/container/package/tervik-api, then **Package settings → Change visibility → Public**.
 
 4. **Create the database and the API.**
 

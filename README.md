@@ -12,6 +12,7 @@
     <img src="https://img.shields.io/badge/Vite-646CFF?style=flat&logo=vite&logoColor=white" alt="Vite">
     <img src="https://img.shields.io/badge/FastAPI-009688?style=flat&logo=fastapi&logoColor=white" alt="FastAPI">
     <img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white" alt="PostgreSQL">
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT"></a>
     <br>
     <a href="https://github.com/dhanvin-ai/Tervik"><img src="https://img.shields.io/badge/GitHub-Repository-black?style=flat&logo=github&logoColor=white" alt="GitHub"></a>
     <a href="https://www.tervik.in"><img src="https://img.shields.io/badge/Website-tervik.in-000000?style=flat&logo=googlechrome&logoColor=white" alt="Website"></a>
@@ -417,6 +418,12 @@ This runs the TypeScript checks, the builds, the SDK, client, API, and schema te
 - **Live:** the dashboard at [www.tervik.in](https://www.tervik.in) and the API at [api.tervik.in](https://api.tervik.in/api/health)
 - **Detection** is rule-based triage: signals to review, not verdicts
 - **Billing** isn't connected: plans are set by the operator
+
+---
+
+## 📄 License
+
+Tervik is released under the [MIT License](LICENSE). You can use, copy, change, and distribute it, including commercially, as long as the copyright notice and license text stay with it.
 
 <div align="center">
 

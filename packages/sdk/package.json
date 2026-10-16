@@ -2,6 +2,7 @@
   "name": "@tervik/sdk",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Server-side conversation and tool telemetry for Tervik",
   "type": "module",
   "main": "./dist/index.js",

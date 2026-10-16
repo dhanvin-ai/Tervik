@@ -7,6 +7,7 @@ name = "tervik-api"
 version = "0.2.0"
 description = "Tervik account, ingestion, and conversation analytics API"
 requires-python = ">=3.11"
+license = { text = "MIT" }
 dependencies = [
   "fastapi>=0.115,<1",
   "uvicorn[standard]>=0.34,<1",

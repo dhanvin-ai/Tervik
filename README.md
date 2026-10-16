@@ -22,7 +22,7 @@
 
 ---
 
-> **Tervik** records every conversation your AI agent has, finds the ones where it failed without saying so, and helps your coding agent fix them. It works like [Agnost AI](https://agnost.ai/), and a coding agent connects it to your agent with one prompt.
+> **Tervik** records every conversation your AI agent has, finds the ones where it failed without saying so, and helps your coding agent fix them. A coding agent connects it to your agent with one prompt.
 
 ## 🎯 The Problem
 
